@@ -74,14 +74,3 @@ Committed:
 - infrastructure README
 - future Terraform and Ansible source
 
-Not committed:
-
-- `instructions.txt`
-- `docs/`
-- `commands/`
-- local kubeconfig files
-- Terraform state files
-- Kubernetes Secret manifests
-- live database credentials or JWT secrets
-
-Backend runtime secrets are expected to exist in Kubernetes as `hospital-backend-secrets`.
