@@ -9,6 +9,7 @@ kubeconfig
 
 # Terraform local state
 .terraform/
+terraform/imports/
 *.tfstate
 *.tfstate.*
 *.tfvars

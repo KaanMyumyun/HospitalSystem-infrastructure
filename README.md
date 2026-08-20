@@ -17,6 +17,9 @@ Current AWS deployment target:
 ## Repository Contents
 
 ```text
+terraform/
+├── *.tf
+└── imports/        # ignored unedited Terracognita output
 kubernetes/
 ├── namespace.yaml
 ├── backend/
@@ -40,6 +43,11 @@ The Kubernetes manifests define:
 - `/api` routing to the backend
 - `/` routing to the frontend
 
+The Terraform configuration defines the AWS infrastructure. The existing AWS
+resources were reverse engineered with Terracognita, then split and cleaned into
+readable Terraform files. The raw Terracognita output is kept under
+`terraform/imports/` locally and ignored by Git.
+
 ## Operational Notes
 
 The cluster is intentionally run in a low-cost mode while not testing:
@@ -55,10 +63,8 @@ GitHub Actions in the app repository builds and pushes the images to ECR.
 
 Planned infrastructure improvements:
 
-- Move the manually created AWS resources into Terraform.
-- Evaluate Terracognita as a starting point for importing the current AWS state.
-- Clean up any generated Terraform before applying it to live infrastructure.
-- Use Terraform for VPC, subnets, route tables, security groups, EKS, node groups, IAM, ECR, ACM, and DNS-related infrastructure where practical.
+- Import the existing AWS resources into the cleaned Terraform state and review plans before applying changes.
+- Continue using Terraform for VPC, subnets, route tables, security groups, EKS, node groups, IAM, ECR, ACM, and DNS-related infrastructure where practical.
 - Use Ansible for deployment orchestration where it provides value, such as applying Kubernetes manifests, installing Helm charts, waiting for Ingress readiness, and updating DNS records.
 - Replace `latest`-based Kubernetes deployments with immutable Git SHA image tags for safer rollbacks.
 - Improve rollout behavior once capacity allows it by moving from `Recreate` to `RollingUpdate`.
@@ -73,4 +79,3 @@ Committed:
 - Kubernetes manifests
 - infrastructure README
 - future Terraform and Ansible source
-
