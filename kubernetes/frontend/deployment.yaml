@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hospital-frontend
+  namespace: hospitalsystem
+  labels:
+    app.kubernetes.io/name: hospital-frontend
+    app.kubernetes.io/part-of: hospitalsystem
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hospital-frontend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hospital-frontend
+        app.kubernetes.io/part-of: hospitalsystem
+    spec:
+      containers:
+        - name: frontend
+          image: 147914447694.dkr.ecr.eu-north-1.amazonaws.com/hospital-frontend:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 15
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi

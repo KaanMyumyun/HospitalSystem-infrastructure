@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: hospital-frontend
+  namespace: hospitalsystem
+  labels:
+    app.kubernetes.io/name: hospital-frontend
+    app.kubernetes.io/part-of: hospitalsystem
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: hospital-frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

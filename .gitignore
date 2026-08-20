@@ -1,0 +1,28 @@
+.env
+.env.*
+!.env.example
+
+# Kubernetes secrets and generated manifests
+*secret*.yaml
+*secret*.yml
+kubeconfig
+
+# Terraform local state
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!.terraform.lock.hcl
+!*.tfvars.example
+
+# Local tooling output
+.DS_Store
+*.log
+tmp/
+dist/
+build/
+
+# Local handoff and operator notes
+instructions.txt
+docs/
+commands/
