@@ -51,12 +51,37 @@ The cluster is intentionally run in a low-cost mode while not testing:
 The app currently uses `latest` image tags with `imagePullPolicy: Always`.
 GitHub Actions in the app repository builds and pushes the images to ECR.
 
-## Not Included
+## Roadmap
 
-Local handoff notes, command notebooks, and operational scratch docs are intentionally not committed:
+Planned infrastructure improvements:
+
+- Move the manually created AWS resources into Terraform.
+- Evaluate Terracognita as a starting point for importing the current AWS state.
+- Clean up any generated Terraform before applying it to live infrastructure.
+- Use Terraform for VPC, subnets, route tables, security groups, EKS, node groups, IAM, ECR, ACM, and DNS-related infrastructure where practical.
+- Use Ansible for deployment orchestration where it provides value, such as applying Kubernetes manifests, installing Helm charts, waiting for Ingress readiness, and updating DNS records.
+- Replace `latest`-based Kubernetes deployments with immutable Git SHA image tags for safer rollbacks.
+- Improve rollout behavior once capacity allows it by moving from `Recreate` to `RollingUpdate`.
+- Add monitoring/logging in a cost-aware way after the deployment path is stable.
+
+## Repository Boundaries
+
+This repository is intended to contain reusable infrastructure source only.
+
+Committed:
+
+- Kubernetes manifests
+- infrastructure README
+- future Terraform and Ansible source
+
+Not committed:
 
 - `instructions.txt`
 - `docs/`
 - `commands/`
+- local kubeconfig files
+- Terraform state files
+- Kubernetes Secret manifests
+- live database credentials or JWT secrets
 
-Secrets are also intentionally excluded. Backend runtime secrets are expected to exist in Kubernetes as `hospital-backend-secrets`.
+Backend runtime secrets are expected to exist in Kubernetes as `hospital-backend-secrets`.
