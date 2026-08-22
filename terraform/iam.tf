@@ -53,21 +53,27 @@ data "aws_iam_policy_document" "load_balancer_controller_assume_role" {
 
     principals {
       type        = "Federated"
-      identifiers = ["arn:aws:iam::${local.account_id}:oidc-provider/oidc.eks.${var.aws_region}.amazonaws.com/id/A6FD7C80562D56D9FB37DD3E1F8A8DF6"]
+      identifiers = [aws_iam_openid_connect_provider.eks.arn]
     }
 
     condition {
       test     = "StringEquals"
-      variable = "oidc.eks.${var.aws_region}.amazonaws.com/id/A6FD7C80562D56D9FB37DD3E1F8A8DF6:aud"
+      variable = "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:aud"
       values   = ["sts.amazonaws.com"]
     }
 
     condition {
       test     = "StringEquals"
-      variable = "oidc.eks.${var.aws_region}.amazonaws.com/id/A6FD7C80562D56D9FB37DD3E1F8A8DF6:sub"
+      variable = "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:sub"
       values   = ["system:serviceaccount:kube-system:aws-load-balancer-controller"]
     }
   }
+}
+
+resource "aws_iam_openid_connect_provider" "eks" {
+  url             = aws_eks_cluster.main.identity[0].oidc[0].issuer
+  client_id_list  = ["sts.amazonaws.com"]
+  thumbprint_list = ["06b25927c42a721631c1efd9431e648fa62e1e39"]
 }
 
 resource "aws_iam_policy" "load_balancer_controller" {
