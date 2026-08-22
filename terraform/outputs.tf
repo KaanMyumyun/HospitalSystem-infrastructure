@@ -17,8 +17,3 @@ output "private_subnet_ids" {
   description = "Private subnet IDs used by EKS workloads."
   value       = [aws_subnet.private_a.id, aws_subnet.private_b.id]
 }
-
-output "alb_dns_name" {
-  description = "Application Load Balancer DNS name."
-  value       = aws_lb.hospital_system.dns_name
-}

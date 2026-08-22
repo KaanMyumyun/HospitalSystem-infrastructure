@@ -1,0 +1,98 @@
+name: Deploy to EKS
+
+on:
+  workflow_run:
+    workflows: ["Docker Image CI"]
+    types:
+      - completed
+
+jobs:
+  deploy:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'workflow_run' && github.event.workflow_run.head_branch == 'main' }}
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || secrets.AWS_REGION }}
+      AWS_DEPLOY_ROLE_TO_ASSUME: ${{ vars.AWS_DEPLOY_ROLE_TO_ASSUME || secrets.AWS_DEPLOY_ROLE_TO_ASSUME }}
+      EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME || 'eks-pr1' }}
+      K8S_NAMESPACE: hospitalsystem
+      APP_URL: https://app.hospitalsyst.cc
+
+    steps:
+      - name: Validate deploy configuration
+        run: |
+          if [ -z "$AWS_REGION" ]; then
+            echo "AWS_REGION repository variable or secret is required."
+            exit 1
+          fi
+
+          if [ -z "$AWS_DEPLOY_ROLE_TO_ASSUME" ]; then
+            echo "AWS_DEPLOY_ROLE_TO_ASSUME repository variable or secret is required."
+            echo "Set it to arn:aws:iam::147914447694:role/eks-deploy-hospitalsystem"
+            exit 1
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_DEPLOY_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Configure kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --region "$AWS_REGION" \
+            --name "$EKS_CLUSTER_NAME"
+
+      - name: Check deployment scale
+        id: scale
+        run: |
+          BACKEND_REPLICAS=$(kubectl get deployment hospital-backend \
+            -n "$K8S_NAMESPACE" \
+            -o jsonpath='{.spec.replicas}')
+
+          FRONTEND_REPLICAS=$(kubectl get deployment hospital-frontend \
+            -n "$K8S_NAMESPACE" \
+            -o jsonpath='{.spec.replicas}')
+
+          echo "backend_replicas=${BACKEND_REPLICAS:-0}" >> "$GITHUB_OUTPUT"
+          echo "frontend_replicas=${FRONTEND_REPLICAS:-0}" >> "$GITHUB_OUTPUT"
+
+      - name: Restart EKS deployments
+        if: ${{ steps.scale.outputs.backend_replicas != '0' || steps.scale.outputs.frontend_replicas != '0' }}
+        run: |
+          kubectl rollout restart deployment/hospital-backend -n "$K8S_NAMESPACE"
+          kubectl rollout restart deployment/hospital-frontend -n "$K8S_NAMESPACE"
+
+      - name: Wait for EKS rollouts
+        if: ${{ steps.scale.outputs.backend_replicas != '0' || steps.scale.outputs.frontend_replicas != '0' }}
+        run: |
+          kubectl rollout status deployment/hospital-backend -n "$K8S_NAMESPACE" --timeout=180s
+          kubectl rollout status deployment/hospital-frontend -n "$K8S_NAMESPACE" --timeout=180s
+
+      - name: Smoke test public app
+        if: ${{ steps.scale.outputs.backend_replicas != '0' || steps.scale.outputs.frontend_replicas != '0' }}
+        run: |
+          curl -fsSI --max-time 15 "$APP_URL"
+
+          STATUS_CODE=$(curl -sS --max-time 15 \
+            -o /tmp/hospital-login-response.json \
+            -w '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            -d '{"name":"invalid","password":"invalid"}' \
+            "$APP_URL/api/Auth/login")
+
+          cat /tmp/hospital-login-response.json
+
+          if [ "$STATUS_CODE" != "401" ]; then
+            echo "Expected backend login smoke test to return 401, got $STATUS_CODE"
+            exit 1
+          fi
+
+      - name: Skip deployment because app is scaled down
+        if: ${{ steps.scale.outputs.backend_replicas == '0' && steps.scale.outputs.frontend_replicas == '0' }}
+        run: |
+          echo "Backend and frontend deployments are scaled to 0."
+          echo "Images were pushed to ECR; the next manual scale-up will pull latest because imagePullPolicy is Always."

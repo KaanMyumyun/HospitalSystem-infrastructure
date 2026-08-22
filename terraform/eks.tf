@@ -8,6 +8,10 @@ resource "aws_eks_cluster" "main" {
     service_ipv4_cidr = "172.20.0.0/16"
   }
 
+  zonal_shift_config {
+    enabled = false
+  }
+
   vpc_config {
     endpoint_private_access = true
     endpoint_public_access  = true
@@ -16,8 +20,13 @@ resource "aws_eks_cluster" "main" {
   }
 
   tags = {
-    ENV = var.environment
-    pr1 = "kubenetes"
+    Name = "${local.cluster_name}-Terraform"
+    ENV  = var.environment
+    pr1  = "kubenetes"
+  }
+
+  lifecycle {
+    ignore_changes = [vpc_config[0].subnet_ids]
   }
 
   depends_on = [aws_iam_role_policy_attachment.eks_cluster_policy]
@@ -32,24 +41,21 @@ resource "aws_eks_node_group" "hospitalsystempr1" {
   ami_type       = "AL2023_x86_64_STANDARD"
   capacity_type  = "ON_DEMAND"
   disk_size      = 20
-  instance_types = ["t3.micro"]
+  instance_types = ["t3.small"]
 
   scaling_config {
-    desired_size = 0
-    max_size     = 1
+    desired_size = 2
+    max_size     = 2
     min_size     = 0
   }
 
   update_config {
     max_unavailable = 1
-  }
-
-  labels = {
-    "eks.amazonaws.com/capacityType" = "ON_DEMAND"
-    "eks.amazonaws.com/nodegroup"    = "hospitalsystempr1"
+    update_strategy = "DEFAULT"
   }
 
   tags = {
+    Name                                              = "hospitalsystempr1-Terraform"
     "eks:cluster-name"                                = local.cluster_name
     "eks:nodegroup-name"                              = "hospitalsystempr1"
     "k8s.io/cluster-autoscaler/enabled"               = "true"
@@ -58,7 +64,10 @@ resource "aws_eks_node_group" "hospitalsystempr1" {
   }
 
   lifecycle {
-    ignore_changes = [scaling_config[0].desired_size]
+    ignore_changes = [
+      scaling_config[0].desired_size,
+      subnet_ids
+    ]
   }
 
   depends_on = [

@@ -5,7 +5,7 @@ resource "aws_vpc" "kubes" {
   instance_tenancy     = "default"
 
   tags = {
-    Name = local.vpc_name
+    Name = "${local.vpc_name}-Terraform"
   }
 }
 
@@ -13,13 +13,13 @@ resource "aws_internet_gateway" "main" {
   vpc_id = aws_vpc.kubes.id
 
   tags = {
-    Name = "hello"
+    Name = "hello-Terraform"
   }
 }
 
 resource "aws_internet_gateway" "detached" {
   tags = {
-    Name = "ig"
+    Name = "ig-Terraform"
   }
 }
 
@@ -30,7 +30,7 @@ resource "aws_subnet" "public_a" {
   private_dns_hostname_type_on_launch = "ip-name"
 
   tags = {
-    Name                        = "p1"
+    Name                        = "p1-Terraform"
     Purpose                     = "AZ1"
     (local.eks_cluster_tag_key) = "shared"
     "kubernetes.io/role/elb"    = "1"
@@ -44,7 +44,7 @@ resource "aws_subnet" "public_b" {
   private_dns_hostname_type_on_launch = "ip-name"
 
   tags = {
-    Name                        = "p2"
+    Name                        = "p2-Terraform"
     az                          = "2"
     (local.eks_cluster_tag_key) = "shared"
     "kubernetes.io/role/elb"    = "1"
@@ -58,7 +58,7 @@ resource "aws_subnet" "private_a" {
   private_dns_hostname_type_on_launch = "ip-name"
 
   tags = {
-    Name                              = "private1"
+    Name                              = "private1-Terraform"
     az                                = "1"
     (local.eks_cluster_tag_key)       = "shared"
     "kubernetes.io/role/internal-elb" = "1"
@@ -72,7 +72,7 @@ resource "aws_subnet" "private_b" {
   private_dns_hostname_type_on_launch = "ip-name"
 
   tags = {
-    Name                              = "private2"
+    Name                              = "private2-Terraform"
     az                                = "2"
     (local.eks_cluster_tag_key)       = "shared"
     "kubernetes.io/role/internal-elb" = "1"
@@ -85,7 +85,7 @@ resource "aws_eip" "nat_a" {
   public_ipv4_pool     = "amazon"
 
   tags = {
-    Name = "nat1"
+    Name = "nat1-Terraform"
   }
 }
 
@@ -95,27 +95,7 @@ resource "aws_eip" "nat_b" {
   public_ipv4_pool     = "amazon"
 
   tags = {
-    Name = "nat2"
-  }
-}
-
-resource "aws_eip" "external_1" {
-  domain               = "vpc"
-  network_border_group = var.aws_region
-  public_ipv4_pool     = "amazon"
-
-  lifecycle {
-    ignore_changes = [network_interface]
-  }
-}
-
-resource "aws_eip" "external_2" {
-  domain               = "vpc"
-  network_border_group = var.aws_region
-  public_ipv4_pool     = "amazon"
-
-  lifecycle {
-    ignore_changes = [network_interface]
+    Name = "nat2-Terraform"
   }
 }
 
@@ -125,7 +105,7 @@ resource "aws_nat_gateway" "nat_a" {
   subnet_id         = aws_subnet.public_a.id
 
   tags = {
-    Name = "nat1"
+    Name = "nat1-Terraform"
   }
 }
 
@@ -135,7 +115,7 @@ resource "aws_nat_gateway" "nat_b" {
   subnet_id         = aws_subnet.public_b.id
 
   tags = {
-    Name = "nat2"
+    Name = "nat2-Terraform"
   }
 }
 
@@ -148,7 +128,7 @@ resource "aws_route_table" "public" {
   }
 
   tags = {
-    Name = "public"
+    Name = "public-Terraform"
   }
 }
 
@@ -161,7 +141,7 @@ resource "aws_route_table" "private_a" {
   }
 
   tags = {
-    Name = "rt-private-1"
+    Name = "rt-private-1-Terraform"
   }
 }
 
@@ -174,12 +154,16 @@ resource "aws_route_table" "private_b" {
   }
 
   tags = {
-    Name = "rt-private2"
+    Name = "rt-private2-Terraform"
   }
 }
 
 resource "aws_route_table" "default" {
   vpc_id = aws_vpc.kubes.id
+
+  tags = {
+    Name = "default-Terraform"
+  }
 }
 
 resource "aws_route_table_association" "public_a" {
