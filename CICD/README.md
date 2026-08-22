@@ -27,11 +27,10 @@ do not run from this infrastructure repository.
    - runs after image build and push succeeds
    - assumes the AWS EKS deploy role through OIDC
    - updates kubeconfig for `eks-pr1`
-   - restarts the Kubernetes deployments when they are scaled above zero
-   - waits for rollout completion
-   - runs smoke checks against the public app URL and login API
+   - sets backend and frontend Deployment images to the full commit SHA tag
+   - waits for rollout completion when deployments are scaled above zero
 
-If the app is scaled down to zero, the deploy workflow skips rollout work. The
-new images are still available in the registries and will be pulled on the next
-manual scale-up because the Kubernetes manifests currently use
-`imagePullPolicy: Always`.
+If the app is scaled down to zero, the deploy workflow still updates the
+Deployment image fields to the new full commit SHA. It skips waiting for rollout
+completion because no pods are running. The next manual scale-up starts pods
+from that exact image tag.

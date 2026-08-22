@@ -16,6 +16,8 @@ Current AWS deployment target:
 
 ## Architecture
 
+![AWS infrastructure architecture](assets/images/aws-architecture.png)
+
 The application runs on Amazon EKS inside a custom VPC. Public traffic enters
 through an AWS Application Load Balancer managed by the AWS Load Balancer
 Controller. The ALB terminates HTTPS with ACM and routes:
@@ -110,6 +112,8 @@ Kubernetes manages the workload layer:
 
 ## CI/CD Workflow
 
+![CI/CD deployment flow](assets/images/cicd-flow.png)
+
 The CI/CD pipeline lives in the `.github/workflows` directory of the application
 repository:
 
@@ -140,27 +144,22 @@ Images are tagged three ways:
 
 | Tag | Example | Why it exists |
 | --- | ------- | ------------- |
-| `latest` | `hospital-backend:latest` | Keeps the current Kubernetes manifests simple while the deployment is still evolving. |
+| `latest` | `hospital-backend:latest` | Convenience tag for manual testing and simple local references. |
 | date + short SHA | `2026-08-21-a1b2c3d` | Makes it easy to identify when an image was built and connect it to a commit. |
-| full commit SHA | `a1b2c3d...` | Gives an exact immutable image reference for debugging, rollback, and future production deployments. |
+| full commit SHA | `a1b2c3d...` | The tag used by the EKS deploy workflow so Kubernetes runs the exact commit that passed CI. |
 
 3. `Deploy to EKS`
    - runs after the Docker image workflow succeeds
    - assumes the AWS EKS deployment role through OIDC
    - updates kubeconfig for `eks-pr1`
+   - sets backend and frontend Deployment images to the full commit SHA tag
    - checks whether the app deployments are scaled above `0`
-   - restarts backend and frontend deployments when they are running
    - waits for rollout completion
-   - runs smoke checks against `https://app.hospitalsyst.cc` and `/api/Auth/login`
 
-If the app is scaled down to `0`, the deploy workflow skips the rollout. The
-new images are still pushed, and the next manual scale-up pulls `latest` because
-the Kubernetes manifests use `imagePullPolicy: Always`.
-
-Current deployment behavior is intentionally simple: the workflow restarts the
-existing Kubernetes Deployments after new images are pushed. A future
-improvement is to update the manifests to use immutable SHA tags and let
-Kubernetes perform safer rolling updates.
+If the app is scaled down to `0`, the deploy workflow still updates the
+Deployment image fields to the new full commit SHA. It skips waiting for a
+rollout because no pods are running. The next manual scale-up starts pods from
+that exact image tag.
 
 ## Terraform Workflow
 
@@ -187,17 +186,15 @@ The cluster is intentionally run in a low-cost mode while not testing:
 - EKS managed node group can be scaled to `desiredSize=0`
 - EKS control plane remains active while the cluster exists
 
-The app currently uses `latest` image tags with `imagePullPolicy: Always`.
-GitHub Actions in the app repository builds and pushes the images to ECR.
+The Kubernetes manifests keep `latest` as the bootstrap/default image tag, but
+the CI/CD deployment updates the live Deployments to full commit SHA tags.
 
 ## Roadmap
 
 Planned infrastructure improvements:
 
 - Import the existing AWS resources into the cleaned Terraform state and review plans before applying changes.
-- Move the Kubernetes deployments from `latest` tags to immutable full-commit-SHA image tags.
 - Replace the current `Recreate` deployment strategy with `RollingUpdate` once there is enough node capacity to run old and new pods at the same time.
 - Add readiness-aware rollout settings such as `maxUnavailable`, `maxSurge`, and deployment history limits for safer releases and rollbacks.
-- Update the deploy workflow so it changes the image tag in Kubernetes instead of only running `kubectl rollout restart`.
-- Add Ansible configuration for repeatable operational tasks such as applying Kubernetes manifests, scaling workloads, waiting for rollouts, checking Ingress readiness, and running smoke checks.
+- Add Ansible configuration for repeatable operational tasks such as applying Kubernetes manifests, scaling workloads, waiting for rollouts, and checking Ingress readiness.
 - Add monitoring and logging after the deployment path is stable, starting with cost-aware metrics, workload health, container logs, and basic alerting.
