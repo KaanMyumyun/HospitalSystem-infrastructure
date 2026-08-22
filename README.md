@@ -64,6 +64,8 @@ terraform/
 └── imports/        # ignored unedited Terracognita output
 kubernetes/
 ├── namespace.yaml
+├── rbac/
+│   └── github-actions-deploy.yaml
 ├── backend/
 │   ├── configmap.yaml
 │   ├── deployment.yaml
@@ -80,6 +82,7 @@ The Kubernetes manifests define:
 - `hospitalsystem` namespace
 - backend Deployment and Service
 - frontend Deployment and Service
+- namespace-scoped RBAC for the GitHub Actions deploy role
 - ALB-backed Ingress for `app.hospitalsyst.cc`
 - HTTPS listener using ACM
 - `/api` routing to the backend
@@ -108,6 +111,8 @@ Kubernetes manages the workload layer:
 - backend Deployment and Service
 - frontend Deployment and Service
 - Ingress rules for `/` and `/api`
+- RBAC allowing the GitHub Actions deploy identity to update Deployments in
+  the `hospitalsystem` namespace
 - runtime scaling of app replicas
 
 ## CI/CD Workflow
@@ -145,21 +150,27 @@ Images are tagged three ways:
 | Tag | Example | Why it exists |
 | --- | ------- | ------------- |
 | `latest` | `hospital-backend:latest` | Convenience tag for manual testing and simple local references. |
-| date + short SHA | `2026-08-21-a1b2c3d` | Makes it easy to identify when an image was built and connect it to a commit. |
-| full commit SHA | `a1b2c3d...` | The tag used by the EKS deploy workflow so Kubernetes runs the exact commit that passed CI. |
+| date + short SHA | `2026-08-21-a1b2c3d` | The tag used by the EKS deploy workflow so Kubernetes runs a traceable image connected to the build date and commit. |
+| full commit SHA | `a1b2c3d...` | Immutable reference for exact commit-level traceability. |
 
 3. `Deploy to EKS`
    - runs after the Docker image workflow succeeds
    - assumes the AWS EKS deployment role through OIDC
    - updates kubeconfig for `eks-pr1`
-   - sets backend and frontend Deployment images to the full commit SHA tag
+   - sets backend and frontend Deployment images to the date + short SHA tag
    - checks whether the app deployments are scaled above `0`
    - waits for rollout completion
 
 If the app is scaled down to `0`, the deploy workflow still updates the
-Deployment image fields to the new full commit SHA. It skips waiting for a
+Deployment image fields to the new date + short SHA tag. It skips waiting for a
 rollout because no pods are running. The next manual scale-up starts pods from
 that exact image tag.
+
+The EKS cluster currently uses the legacy `aws-auth` ConfigMap authentication
+mode. The GitHub Actions deploy role must be mapped there to the
+`hospitalsystem:deployers` Kubernetes group, which is bound by
+`kubernetes/rbac/github-actions-deploy.yaml` to update Deployments only in the
+application namespace.
 
 ## Terraform Workflow
 
@@ -187,7 +198,62 @@ The cluster is intentionally run in a low-cost mode while not testing:
 - EKS control plane remains active while the cluster exists
 
 The Kubernetes manifests keep `latest` as the bootstrap/default image tag, but
-the CI/CD deployment updates the live Deployments to full commit SHA tags.
+the CI/CD deployment updates the live Deployments to date + short SHA tags.
+
+## Debug Deployed Images
+
+Use these commands when a deployment breaks and you need to see exactly which
+backend or frontend image is running.
+
+Show the image configured on each Deployment:
+
+```bash
+kubectl get deployment hospital-backend hospital-frontend \
+  -n hospitalsystem \
+  -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.template.spec.containers[0].image}{"\n"}{end}'
+```
+
+Show the image used by each running Pod:
+
+```bash
+kubectl get pods -n hospitalsystem \
+  -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[0].image}{"\n"}{end}'
+```
+
+Check rollout status and revision history:
+
+```bash
+kubectl rollout status deployment/hospital-backend -n hospitalsystem
+kubectl rollout status deployment/hospital-frontend -n hospitalsystem
+
+kubectl rollout history deployment/hospital-backend -n hospitalsystem
+kubectl rollout history deployment/hospital-frontend -n hospitalsystem
+```
+
+Inspect a specific rollout revision to see the image stored in that revision:
+
+```bash
+kubectl rollout history deployment/hospital-backend -n hospitalsystem --revision=2
+kubectl rollout history deployment/hospital-frontend -n hospitalsystem --revision=2
+```
+
+If the image tag is `2026-08-22-8f88481`, the last part is the Git short SHA.
+Find the matching application commit from the app repository:
+
+```bash
+cd ../HospitalSystem
+git show --stat 8f88481
+```
+
+Useful failure checks:
+
+```bash
+kubectl get pods -n hospitalsystem
+kubectl describe deployment hospital-backend -n hospitalsystem
+kubectl describe deployment hospital-frontend -n hospitalsystem
+kubectl describe pod -n hospitalsystem <pod-name>
+kubectl logs -n hospitalsystem <pod-name>
+```
 
 ## Roadmap
 

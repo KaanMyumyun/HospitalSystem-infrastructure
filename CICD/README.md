@@ -27,10 +27,10 @@ do not run from this infrastructure repository.
    - runs after image build and push succeeds
    - assumes the AWS EKS deploy role through OIDC
    - updates kubeconfig for `eks-pr1`
-   - sets backend and frontend Deployment images to the full commit SHA tag
+   - sets backend and frontend Deployment images to the `YYYY-MM-DD-shortsha` tag
    - waits for rollout completion when deployments are scaled above zero
 
 If the app is scaled down to zero, the deploy workflow still updates the
-Deployment image fields to the new full commit SHA. It skips waiting for rollout
+Deployment image fields to the new `YYYY-MM-DD-shortsha` tag. It skips waiting for rollout
 completion because no pods are running. The next manual scale-up starts pods
 from that exact image tag.
