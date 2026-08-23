@@ -5,6 +5,7 @@
 # Kubernetes secrets and generated manifests
 *secret*.yaml
 *secret*.yml
+!ansible/playbooks/backend-secret.yml
 kubeconfig
 
 # Terraform local state

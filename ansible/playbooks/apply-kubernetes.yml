@@ -1,0 +1,33 @@
+---
+- name: Apply HospitalSystem Kubernetes manifests
+  hosts: local
+  gather_facts: false
+
+  tasks:
+    - name: Configure kubeconfig
+      ansible.builtin.command:
+        argv:
+          - aws
+          - eks
+          - update-kubeconfig
+          - --region
+          - "{{ aws_region }}"
+          - --name
+          - "{{ eks_cluster_name }}"
+      changed_when: false
+
+    - name: Apply Kubernetes manifests
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - apply
+          - -f
+          - "{{ playbook_dir }}/../../{{ item }}"
+      loop: "{{ kubernetes_manifest_files }}"
+      register: apply_results
+      changed_when: "'created' in apply_results.stdout or 'configured' in apply_results.stdout"
+
+    - name: Show apply results
+      ansible.builtin.debug:
+        msg: "{{ item.stdout }}"
+      loop: "{{ apply_results.results }}"

@@ -1,0 +1,54 @@
+---
+- name: Show HospitalSystem deployment status
+  hosts: local
+  gather_facts: false
+
+  tasks:
+    - name: Configure kubeconfig
+      ansible.builtin.command:
+        argv:
+          - aws
+          - eks
+          - update-kubeconfig
+          - --region
+          - "{{ aws_region }}"
+          - --name
+          - "{{ eks_cluster_name }}"
+      changed_when: false
+
+    - name: Show deployment images
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - get
+          - deployment
+          - "{{ backend_deployment }}"
+          - "{{ frontend_deployment }}"
+          - -n
+          - "{{ k8s_namespace }}"
+          - -o
+          - custom-columns=NAME:.metadata.name,IMAGE:.spec.template.spec.containers[0].image,READY:.status.readyReplicas,DESIRED:.spec.replicas
+          - --no-headers
+      register: deployment_images
+      changed_when: false
+
+    - name: Print deployment images
+      ansible.builtin.debug:
+        msg: "{{ deployment_images.stdout_lines }}"
+
+    - name: Show pods
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - get
+          - pods
+          - -n
+          - "{{ k8s_namespace }}"
+          - -o
+          - wide
+      register: pods
+      changed_when: false
+
+    - name: Print pods
+      ansible.builtin.debug:
+        var: pods.stdout_lines
