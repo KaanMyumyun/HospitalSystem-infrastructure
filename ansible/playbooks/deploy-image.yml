@@ -1,0 +1,77 @@
+---
+- name: Deploy a specific image tag to EKS
+  hosts: local
+  gather_facts: false
+
+  tasks:
+    - name: Require image_tag variable
+      ansible.builtin.fail:
+        msg: "Pass the image tag with -e image_tag=YYYY-MM-DD-shortsha"
+      when: image_tag is not defined or image_tag | length == 0
+
+    - name: Configure kubeconfig
+      ansible.builtin.command:
+        argv:
+          - aws
+          - eks
+          - update-kubeconfig
+          - --region
+          - "{{ aws_region }}"
+          - --name
+          - "{{ eks_cluster_name }}"
+      changed_when: false
+
+    - name: Update backend image
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - set
+          - image
+          - "deployment/{{ backend_deployment }}"
+          - "{{ backend_container }}={{ ecr_registry }}/{{ backend_image_name }}:{{ image_tag }}"
+          - -n
+          - "{{ k8s_namespace }}"
+      register: backend_update
+
+    - name: Update frontend image
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - set
+          - image
+          - "deployment/{{ frontend_deployment }}"
+          - "{{ frontend_container }}={{ ecr_registry }}/{{ frontend_image_name }}:{{ image_tag }}"
+          - -n
+          - "{{ k8s_namespace }}"
+      register: frontend_update
+
+    - name: Wait for backend rollout
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - rollout
+          - status
+          - "deployment/{{ backend_deployment }}"
+          - -n
+          - "{{ k8s_namespace }}"
+          - --timeout=180s
+      changed_when: false
+
+    - name: Wait for frontend rollout
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - rollout
+          - status
+          - "deployment/{{ frontend_deployment }}"
+          - -n
+          - "{{ k8s_namespace }}"
+          - --timeout=180s
+      changed_when: false
+
+    - name: Show update results
+      ansible.builtin.debug:
+        msg:
+          - "{{ backend_update.stdout }}"
+          - "{{ frontend_update.stdout }}"
+

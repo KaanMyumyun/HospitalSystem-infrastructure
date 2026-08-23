@@ -1,0 +1,47 @@
+---
+- name: Configure EKS aws-auth for GitHub Actions deploy role
+  hosts: local
+  gather_facts: false
+
+  tasks:
+    - name: Configure kubeconfig
+      ansible.builtin.command:
+        argv:
+          - aws
+          - eks
+          - update-kubeconfig
+          - --region
+          - "{{ aws_region }}"
+          - --name
+          - "{{ eks_cluster_name }}"
+      changed_when: false
+
+    - name: Read aws-auth ConfigMap
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - get
+          - configmap
+          - aws-auth
+          - -n
+          - kube-system
+          - -o
+          - yaml
+      register: aws_auth_current
+      changed_when: false
+
+    - name: Map GitHub Actions deploy role in aws-auth
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - patch
+          - configmap
+          - aws-auth
+          - -n
+          - kube-system
+          - --type
+          - merge
+          - -p
+          - |
+            {"data":{"mapRoles":"- rolearn: {{ eks_node_role_arn }}\n  groups:\n  - system:bootstrappers\n  - system:nodes\n  username: system:node:{{ '{{' }}EC2PrivateDNSName{{ '}}' }}\n- rolearn: {{ github_actions_deploy_role_arn }}\n  groups:\n  - {{ github_actions_deploy_group }}\n  username: {{ github_actions_deploy_username }}\n"}}
+      when: github_actions_deploy_role_arn not in aws_auth_current.stdout

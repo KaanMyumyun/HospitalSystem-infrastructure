@@ -1,0 +1,21 @@
+---
+- name: Bootstrap HospitalSystem Kubernetes configuration
+  ansible.builtin.import_playbook: kubeconfig.yml
+
+- name: Configure backend runtime secret
+  ansible.builtin.import_playbook: backend-secret.yml
+
+- name: Install AWS Load Balancer Controller
+  ansible.builtin.import_playbook: load-balancer-controller.yml
+
+- name: Apply Kubernetes manifests
+  ansible.builtin.import_playbook: apply-kubernetes.yml
+
+- name: Configure GitHub Actions Kubernetes authentication
+  ansible.builtin.import_playbook: aws-auth.yml
+
+- name: Configure Cloudflare DNS
+  ansible.builtin.import_playbook: cloudflare-dns.yml
+
+- name: Show final deployment status
+  ansible.builtin.import_playbook: status.yml

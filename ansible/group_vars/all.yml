@@ -1,0 +1,38 @@
+aws_region: eu-north-1
+eks_cluster_name: eks-pr1
+k8s_namespace: hospitalsystem
+
+ecr_registry: 147914447694.dkr.ecr.eu-north-1.amazonaws.com
+backend_image_name: hospital-backend
+frontend_image_name: hospital-frontend
+
+backend_deployment: hospital-backend
+backend_container: backend
+frontend_deployment: hospital-frontend
+frontend_container: frontend
+
+github_actions_deploy_role_arn: arn:aws:iam::147914447694:role/eks-deploy-hospitalsystem
+github_actions_deploy_group: hospitalsystem:deployers
+github_actions_deploy_username: github-actions-eks-deploy
+eks_node_role_arn: arn:aws:iam::147914447694:role/hospital-pr1-node-role
+load_balancer_controller_role_arn: arn:aws:iam::147914447694:role/AmazonEKSLoadBalancerControllerRole
+
+ingress_name: hospital-ingress
+
+cloudflare_zone_name: hospitalsyst.cc
+cloudflare_record_name: app.hospitalsyst.cc
+cloudflare_record_type: CNAME
+cloudflare_record_proxied: false
+cloudflare_record_ttl: 1
+cloudflare_alb_wait_retries: 30
+cloudflare_alb_wait_delay: 20
+
+kubernetes_manifest_files:
+  - kubernetes/namespace.yaml
+  - kubernetes/backend/configmap.yaml
+  - kubernetes/backend/deployment.yaml
+  - kubernetes/backend/service.yaml
+  - kubernetes/frontend/deployment.yaml
+  - kubernetes/frontend/service.yaml
+  - kubernetes/ingress/ingress.yaml
+  - kubernetes/rbac/github-actions-deploy.yaml

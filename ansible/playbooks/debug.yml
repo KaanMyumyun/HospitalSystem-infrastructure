@@ -1,0 +1,81 @@
+---
+- name: Collect HospitalSystem debug information
+  hosts: local
+  gather_facts: false
+
+  tasks:
+    - name: Configure kubeconfig
+      ansible.builtin.command:
+        argv:
+          - aws
+          - eks
+          - update-kubeconfig
+          - --region
+          - "{{ aws_region }}"
+          - --name
+          - "{{ eks_cluster_name }}"
+      changed_when: false
+
+    - name: Get deployment images
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - get
+          - deployment
+          - "{{ backend_deployment }}"
+          - "{{ frontend_deployment }}"
+          - -n
+          - "{{ k8s_namespace }}"
+          - -o
+          - jsonpath={range .items[*]}{.metadata.name}{"\t"}{.spec.template.spec.containers[0].image}{"\n"}{end}
+      register: deployment_images
+      changed_when: false
+
+    - name: Get pods
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - get
+          - pods
+          - -n
+          - "{{ k8s_namespace }}"
+          - -o
+          - wide
+      register: pods
+      changed_when: false
+
+    - name: Get backend rollout history
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - rollout
+          - history
+          - "deployment/{{ backend_deployment }}"
+          - -n
+          - "{{ k8s_namespace }}"
+      register: backend_history
+      changed_when: false
+
+    - name: Get frontend rollout history
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - rollout
+          - history
+          - "deployment/{{ frontend_deployment }}"
+          - -n
+          - "{{ k8s_namespace }}"
+      register: frontend_history
+      changed_when: false
+
+    - name: Print debug summary
+      ansible.builtin.debug:
+        msg:
+          - "Deployment images:"
+          - "{{ deployment_images.stdout_lines }}"
+          - "Pods:"
+          - "{{ pods.stdout_lines }}"
+          - "Backend rollout history:"
+          - "{{ backend_history.stdout_lines }}"
+          - "Frontend rollout history:"
+          - "{{ frontend_history.stdout_lines }}"

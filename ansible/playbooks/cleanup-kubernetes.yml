@@ -1,0 +1,52 @@
+---
+- name: Clean up Kubernetes-managed AWS resources before Terraform destroy
+  hosts: local
+  gather_facts: false
+
+  tasks:
+    - name: Configure kubeconfig
+      ansible.builtin.command:
+        argv:
+          - aws
+          - eks
+          - update-kubeconfig
+          - --region
+          - "{{ aws_region }}"
+          - --name
+          - "{{ eks_cluster_name }}"
+      changed_when: false
+      failed_when: false
+
+    - name: Delete Ingress so the AWS Load Balancer Controller removes the ALB
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - delete
+          - ingress
+          - "{{ ingress_name }}"
+          - -n
+          - "{{ k8s_namespace }}"
+          - --ignore-not-found=true
+      register: delete_ingress
+      changed_when: "'deleted' in delete_ingress.stdout"
+      failed_when: false
+
+    - name: Wait for ALB deletion
+      ansible.builtin.command:
+        argv:
+          - aws
+          - elbv2
+          - describe-load-balancers
+          - --names
+          - hospital-system-alb
+          - --query
+          - LoadBalancers[0].DNSName
+          - --output
+          - text
+      register: alb_lookup
+      changed_when: false
+      failed_when: false
+      until: alb_lookup.rc != 0
+      retries: 30
+      delay: 10
+

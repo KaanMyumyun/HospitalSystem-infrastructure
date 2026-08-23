@@ -1,0 +1,42 @@
+---
+- name: Scale HospitalSystem deployments
+  hosts: local
+  gather_facts: false
+
+  tasks:
+    - name: Require replicas variable
+      ansible.builtin.fail:
+        msg: "Pass the replica count with -e replicas=0, -e replicas=1, or -e replicas=2"
+      when: replicas is not defined
+
+    - name: Configure kubeconfig
+      ansible.builtin.command:
+        argv:
+          - aws
+          - eks
+          - update-kubeconfig
+          - --region
+          - "{{ aws_region }}"
+          - --name
+          - "{{ eks_cluster_name }}"
+      changed_when: false
+
+    - name: Scale backend and frontend
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - scale
+          - "deployment/{{ item }}"
+          - -n
+          - "{{ k8s_namespace }}"
+          - "--replicas={{ replicas }}"
+      loop:
+        - "{{ backend_deployment }}"
+        - "{{ frontend_deployment }}"
+      register: scale_results
+
+    - name: Show scale results
+      ansible.builtin.debug:
+        msg: "{{ item.stdout }}"
+      loop: "{{ scale_results.results }}"
+

@@ -27,3 +27,9 @@ variable "acm_certificate_arn" {
   type        = string
   default     = "arn:aws:acm:eu-north-1:147914447694:certificate/f82d2036-d650-45a0-bd19-3e67ccc16e39"
 }
+
+variable "run_ansible_bootstrap" {
+  description = "Run the local Ansible bootstrap after Terraform creates or updates the EKS infrastructure."
+  type        = bool
+  default     = true
+}

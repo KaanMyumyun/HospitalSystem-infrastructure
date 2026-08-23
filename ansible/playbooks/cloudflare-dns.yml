@@ -1,0 +1,124 @@
+---
+- name: Point Cloudflare DNS to the Kubernetes Ingress ALB
+  hosts: local
+  gather_facts: false
+
+  vars:
+    cloudflare_api_token: "{{ lookup('ansible.builtin.env', 'CLOUDFLARE_API_TOKEN') }}"
+    cloudflare_zone_id_env: "{{ lookup('ansible.builtin.env', 'CLOUDFLARE_ZONE_ID') }}"
+
+  tasks:
+    - name: Require Cloudflare API token
+      ansible.builtin.fail:
+        msg: >-
+          Set CLOUDFLARE_API_TOKEN before running this playbook. The token needs
+          Zone:Read and DNS:Edit permissions for {{ cloudflare_zone_name }}.
+      when: cloudflare_api_token | length == 0
+
+    - name: Configure kubeconfig
+      ansible.builtin.command:
+        argv:
+          - aws
+          - eks
+          - update-kubeconfig
+          - --region
+          - "{{ aws_region }}"
+          - --name
+          - "{{ eks_cluster_name }}"
+      changed_when: false
+
+    - name: Read ALB hostname from Kubernetes Ingress
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - get
+          - ingress
+          - "{{ ingress_name }}"
+          - -n
+          - "{{ k8s_namespace }}"
+          - -o
+          - jsonpath={.status.loadBalancer.ingress[0].hostname}
+      register: ingress_alb
+      changed_when: false
+      until: ingress_alb.stdout | length > 0
+      retries: "{{ cloudflare_alb_wait_retries }}"
+      delay: "{{ cloudflare_alb_wait_delay }}"
+
+    - name: Require Ingress ALB hostname
+      ansible.builtin.fail:
+        msg: "Ingress {{ ingress_name }} does not have an ALB hostname yet."
+      when: ingress_alb.stdout | length == 0
+
+    - name: Look up Cloudflare zone ID
+      ansible.builtin.uri:
+        url: "https://api.cloudflare.com/client/v4/zones?name={{ cloudflare_zone_name }}"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ cloudflare_api_token }}"
+          Content-Type: application/json
+        return_content: true
+      register: cloudflare_zone_lookup
+      when: cloudflare_zone_id_env | length == 0
+      no_log: true
+
+    - name: Set Cloudflare zone ID
+      ansible.builtin.set_fact:
+        cloudflare_zone_id: >-
+          {{ cloudflare_zone_id_env
+             if cloudflare_zone_id_env | length > 0
+             else cloudflare_zone_lookup.json.result[0].id }}
+
+    - name: Look up existing Cloudflare DNS record
+      ansible.builtin.uri:
+        url: "https://api.cloudflare.com/client/v4/zones/{{ cloudflare_zone_id }}/dns_records?type={{ cloudflare_record_type }}&name={{ cloudflare_record_name }}"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ cloudflare_api_token }}"
+          Content-Type: application/json
+        return_content: true
+      register: cloudflare_record_lookup
+      no_log: true
+
+    - name: Set existing Cloudflare DNS record ID
+      ansible.builtin.set_fact:
+        cloudflare_record_id: "{{ (cloudflare_record_lookup.json.result | first).id | default('') }}"
+
+    - name: Create Cloudflare DNS record
+      ansible.builtin.uri:
+        url: "https://api.cloudflare.com/client/v4/zones/{{ cloudflare_zone_id }}/dns_records"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ cloudflare_api_token }}"
+          Content-Type: application/json
+        body_format: json
+        body:
+          type: "{{ cloudflare_record_type }}"
+          name: "{{ cloudflare_record_name }}"
+          content: "{{ ingress_alb.stdout }}"
+          ttl: "{{ cloudflare_record_ttl }}"
+          proxied: "{{ cloudflare_record_proxied }}"
+        status_code: 200
+      when: cloudflare_record_id | length == 0
+      no_log: true
+
+    - name: Update Cloudflare DNS record
+      ansible.builtin.uri:
+        url: "https://api.cloudflare.com/client/v4/zones/{{ cloudflare_zone_id }}/dns_records/{{ cloudflare_record_id }}"
+        method: PUT
+        headers:
+          Authorization: "Bearer {{ cloudflare_api_token }}"
+          Content-Type: application/json
+        body_format: json
+        body:
+          type: "{{ cloudflare_record_type }}"
+          name: "{{ cloudflare_record_name }}"
+          content: "{{ ingress_alb.stdout }}"
+          ttl: "{{ cloudflare_record_ttl }}"
+          proxied: "{{ cloudflare_record_proxied }}"
+        status_code: 200
+      when: cloudflare_record_id | length > 0
+      no_log: true
+
+    - name: Show DNS target
+      ansible.builtin.debug:
+        msg: "{{ cloudflare_record_name }} -> {{ ingress_alb.stdout }}"

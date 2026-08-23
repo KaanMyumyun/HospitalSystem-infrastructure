@@ -189,6 +189,153 @@ terraform plan
 
 Do not run `terraform apply` until the imported state and plan are reviewed.
 
+## Ansible Operations
+
+Ansible is used here as an operational wrapper around `aws eks` and `kubectl`.
+It runs locally against the current AWS account and does not require SSH access
+to the EKS nodes.
+
+Requirements:
+
+- `ansible-playbook`
+- `aws`
+- `kubectl`
+- `helm`
+- AWS credentials that can access the `eks-pr1` cluster
+
+Terraform is wired to run the Ansible bootstrap automatically after the EKS
+cluster and managed node group are created or updated. The bootstrap creates
+`ansible/inventory.ini`, configures kubeconfig, creates the backend Kubernetes
+Secret from local environment variables, installs the AWS Load Balancer
+Controller, applies the Kubernetes manifests, maps the GitHub Actions deploy
+role in `aws-auth`, points the Cloudflare DNS record at the ALB hostname from
+the Kubernetes Ingress, and prints the final app status.
+
+Terraform also runs a destroy-time Ansible cleanup before deleting EKS. That
+cleanup deletes the Kubernetes Ingress and waits for the AWS-managed ALB to be
+removed, so unmanaged ALB ENIs and security groups do not block VPC deletion.
+
+Before running `terraform apply`, export the backend secret values locally:
+
+```bash
+export HOSPITALSYSTEM_CONNECTION_STRING='Host=...;Database=...;Username=...;Password=...'
+export HOSPITALSYSTEM_JWT_SECRET='your-long-jwt-secret'
+export CLOUDFLARE_API_TOKEN='your-cloudflare-api-token'
+```
+
+The Cloudflare token needs `Zone:Read` and `DNS:Edit` permissions for
+`hospitalsyst.cc`. If you already know the zone ID, you can export it too:
+
+```bash
+export CLOUDFLARE_ZONE_ID='your-zone-id'
+```
+
+Then run Terraform:
+
+```bash
+cd terraform
+terraform apply
+```
+
+If you only want Terraform to manage AWS resources and skip the Ansible
+bootstrap:
+
+```bash
+terraform apply -var run_ansible_bootstrap=false
+```
+
+The automatic bootstrap is intentionally local. It uses your local `aws`,
+`kubectl`, `helm`, and `ansible-playbook` binaries from the machine where
+Terraform is running.
+
+After a fresh Terraform bootstrap, the Kubernetes manifests start the app from
+the bootstrap/default `latest` image tag. The GitHub Actions deploy workflow
+updates the live Deployments to the date + short SHA tag after CI/CD runs.
+
+Configure kubeconfig:
+
+```bash
+ansible-playbook ansible/playbooks/kubeconfig.yml
+```
+
+Apply the Kubernetes manifests:
+
+```bash
+ansible-playbook ansible/playbooks/apply-kubernetes.yml
+```
+
+This applies the namespace, ConfigMap, Deployments, Services, Ingress, and
+GitHub Actions deploy RBAC. Runtime secrets such as
+`hospital-backend-secrets` are not stored in this repository and must be managed
+through environment variables or another secret-management system.
+
+Create or update the backend Secret manually from local environment variables:
+
+```bash
+export HOSPITALSYSTEM_CONNECTION_STRING='Host=...;Database=...;Username=...;Password=...'
+export HOSPITALSYSTEM_JWT_SECRET='your-long-jwt-secret'
+
+ansible-playbook ansible/playbooks/backend-secret.yml
+```
+
+Configure the `aws-auth` mapping for the GitHub Actions deploy role:
+
+```bash
+ansible-playbook ansible/playbooks/aws-auth.yml
+```
+
+Install or update the AWS Load Balancer Controller:
+
+```bash
+ansible-playbook ansible/playbooks/load-balancer-controller.yml
+```
+
+Point the Cloudflare `app.hospitalsyst.cc` CNAME at the current ALB hostname
+from the Kubernetes Ingress:
+
+```bash
+export CLOUDFLARE_API_TOKEN='your-cloudflare-api-token'
+ansible-playbook ansible/playbooks/cloudflare-dns.yml
+```
+
+Run the Kubernetes cleanup that Terraform uses before destroy:
+
+```bash
+ansible-playbook ansible/playbooks/cleanup-kubernetes.yml
+```
+
+Run the full Kubernetes bootstrap manually:
+
+```bash
+ansible-playbook ansible/playbooks/bootstrap.yml
+```
+
+Show current Deployment images and Pods:
+
+```bash
+ansible-playbook ansible/playbooks/status.yml
+```
+
+Deploy a specific image tag manually:
+
+```bash
+ansible-playbook ansible/playbooks/deploy-image.yml \
+  -e image_tag=2026-08-22-8f88481
+```
+
+Scale the app up or down:
+
+```bash
+ansible-playbook ansible/playbooks/scale.yml -e replicas=2
+ansible-playbook ansible/playbooks/scale.yml -e replicas=0
+```
+
+Collect basic debug information:
+
+```bash
+ansible-playbook ansible/playbooks/debug.yml
+```
+
 ## Operational Notes
 
 The cluster is intentionally run in a low-cost mode while not testing:
