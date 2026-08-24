@@ -27,12 +27,20 @@ cloudflare_record_ttl: 1
 cloudflare_alb_wait_retries: 30
 cloudflare_alb_wait_delay: 20
 
+monitoring_alarm_prefix: hospitalsystem
+monitoring_alb_name: hospital-system-alb
+monitoring_nodegroup_name: hospitalsystempr1
+monitoring_alert_sns_topic_arn: ""
+terraform_vpc_name_tag: kubes-Terraform
+
 kubernetes_manifest_files:
   - kubernetes/namespace.yaml
   - kubernetes/backend/configmap.yaml
   - kubernetes/backend/deployment.yaml
   - kubernetes/backend/service.yaml
+  - kubernetes/backend/hpa.yaml
   - kubernetes/frontend/deployment.yaml
   - kubernetes/frontend/service.yaml
+  - kubernetes/frontend/hpa.yaml
   - kubernetes/ingress/ingress.yaml
   - kubernetes/rbac/github-actions-deploy.yaml

@@ -1,0 +1,256 @@
+---
+- name: Configure cost-aware CloudWatch alarms
+  hosts: local
+  gather_facts: false
+
+  tasks:
+    - name: Look up ALB ARN suffix
+      ansible.builtin.command:
+        argv:
+          - aws
+          - elbv2
+          - describe-load-balancers
+          - --names
+          - "{{ monitoring_alb_name }}"
+          - --query
+          - LoadBalancers[0].LoadBalancerArn
+          - --output
+          - text
+      register: alb_arn
+      changed_when: false
+
+    - name: Look up target groups attached to ALB
+      ansible.builtin.command:
+        argv:
+          - aws
+          - elbv2
+          - describe-target-groups
+          - --load-balancer-arn
+          - "{{ alb_arn.stdout }}"
+          - --query
+          - TargetGroups[].TargetGroupArn
+          - --output
+          - text
+      register: target_group_arns
+      changed_when: false
+
+    - name: Require backend and frontend target groups
+      ansible.builtin.fail:
+        msg: "Expected at least two target groups attached to {{ monitoring_alb_name }}."
+      when: target_group_arns.stdout.split() | length < 2
+
+    - name: Set ALB CloudWatch dimension value
+      ansible.builtin.set_fact:
+        alb_dimension: "{{ alb_arn.stdout | regex_replace('^arn:aws:elasticloadbalancing:[^:]+:[0-9]+:loadbalancer/', '') }}"
+        target_group_dimensions: >-
+          {{ target_group_arns.stdout.split()
+             | map('regex_replace', '^arn:aws:elasticloadbalancing:[^:]+:[0-9]+:', '')
+             | list }}
+        current_target_group_alarm_names: []
+
+    - name: Set current target group alarm names
+      ansible.builtin.set_fact:
+        current_target_group_alarm_names: >-
+          {{ current_target_group_alarm_names
+             + [monitoring_alarm_prefix ~ '-unhealthy-targets-' ~ (item | regex_replace('[^A-Za-z0-9-]', '-'))] }}
+      loop: "{{ target_group_dimensions }}"
+
+    - name: Look up existing target group alarms
+      ansible.builtin.command:
+        argv:
+          - aws
+          - cloudwatch
+          - describe-alarms
+          - --region
+          - "{{ aws_region }}"
+          - --alarm-name-prefix
+          - "{{ monitoring_alarm_prefix }}-unhealthy-targets-"
+          - --query
+          - MetricAlarms[].AlarmName
+          - --output
+          - text
+      register: existing_target_group_alarms
+      changed_when: false
+
+    - name: Delete stale target group alarms
+      ansible.builtin.command:
+        argv:
+          - aws
+          - cloudwatch
+          - delete-alarms
+          - --region
+          - "{{ aws_region }}"
+          - --alarm-names
+          - "{{ item }}"
+      loop: "{{ existing_target_group_alarms.stdout.split() | difference(current_target_group_alarm_names) }}"
+      when: existing_target_group_alarms.stdout | length > 0
+
+    - name: Configure ALB 5xx alarm
+      ansible.builtin.command:
+        argv:
+          - aws
+          - cloudwatch
+          - put-metric-alarm
+          - --region
+          - "{{ aws_region }}"
+          - --alarm-name
+          - "{{ monitoring_alarm_prefix }}-alb-5xx"
+          - --alarm-description
+          - "HospitalSystem ALB is returning HTTP 5xx responses"
+          - --namespace
+          - AWS/ApplicationELB
+          - --metric-name
+          - HTTPCode_ELB_5XX_Count
+          - --statistic
+          - Sum
+          - --period
+          - "300"
+          - --evaluation-periods
+          - "1"
+          - --threshold
+          - "5"
+          - --comparison-operator
+          - GreaterThanOrEqualToThreshold
+          - --dimensions
+          - "Name=LoadBalancer,Value={{ alb_dimension }}"
+          - --treat-missing-data
+          - notBreaching
+          - --alarm-actions
+          - "{{ monitoring_alert_sns_topic_arn }}"
+      when: monitoring_alert_sns_topic_arn | length > 0
+
+    - name: Configure ALB 5xx alarm without notification action
+      ansible.builtin.command:
+        argv:
+          - aws
+          - cloudwatch
+          - put-metric-alarm
+          - --region
+          - "{{ aws_region }}"
+          - --alarm-name
+          - "{{ monitoring_alarm_prefix }}-alb-5xx"
+          - --alarm-description
+          - "HospitalSystem ALB is returning HTTP 5xx responses"
+          - --namespace
+          - AWS/ApplicationELB
+          - --metric-name
+          - HTTPCode_ELB_5XX_Count
+          - --statistic
+          - Sum
+          - --period
+          - "300"
+          - --evaluation-periods
+          - "1"
+          - --threshold
+          - "5"
+          - --comparison-operator
+          - GreaterThanOrEqualToThreshold
+          - --dimensions
+          - "Name=LoadBalancer,Value={{ alb_dimension }}"
+          - --treat-missing-data
+          - notBreaching
+      when: monitoring_alert_sns_topic_arn | length == 0
+
+    - name: Configure unhealthy targets alarm for each target group
+      ansible.builtin.command:
+        argv:
+          - aws
+          - cloudwatch
+          - put-metric-alarm
+          - --region
+          - "{{ aws_region }}"
+          - --alarm-name
+          - "{{ monitoring_alarm_prefix }}-unhealthy-targets-{{ item | regex_replace('[^A-Za-z0-9-]', '-') }}"
+          - --alarm-description
+          - "HospitalSystem target group has unhealthy targets"
+          - --namespace
+          - AWS/ApplicationELB
+          - --metric-name
+          - UnHealthyHostCount
+          - --statistic
+          - Average
+          - --period
+          - "300"
+          - --evaluation-periods
+          - "1"
+          - --threshold
+          - "1"
+          - --comparison-operator
+          - GreaterThanOrEqualToThreshold
+          - --dimensions
+          - "Name=LoadBalancer,Value={{ alb_dimension }}"
+          - "Name=TargetGroup,Value={{ item }}"
+          - --treat-missing-data
+          - notBreaching
+      loop: "{{ target_group_dimensions }}"
+
+    - name: Look up node group Auto Scaling Group name
+      ansible.builtin.command:
+        argv:
+          - aws
+          - eks
+          - describe-nodegroup
+          - --region
+          - "{{ aws_region }}"
+          - --cluster-name
+          - "{{ eks_cluster_name }}"
+          - --nodegroup-name
+          - "{{ monitoring_nodegroup_name }}"
+          - --query
+          - nodegroup.resources.autoScalingGroups[0].name
+          - --output
+          - text
+      register: nodegroup_asg_name
+      changed_when: false
+
+    - name: Configure node group empty alarm
+      ansible.builtin.command:
+        argv:
+          - aws
+          - cloudwatch
+          - put-metric-alarm
+          - --region
+          - "{{ aws_region }}"
+          - --alarm-name
+          - "{{ monitoring_alarm_prefix }}-nodegroup-no-running-nodes"
+          - --alarm-description
+          - "HospitalSystem EKS node group has no in-service instances"
+          - --namespace
+          - AWS/AutoScaling
+          - --metric-name
+          - GroupInServiceInstances
+          - --statistic
+          - Average
+          - --period
+          - "300"
+          - --evaluation-periods
+          - "1"
+          - --threshold
+          - "1"
+          - --comparison-operator
+          - LessThanThreshold
+          - --dimensions
+          - "Name=AutoScalingGroupName,Value={{ nodegroup_asg_name.stdout }}"
+          - --treat-missing-data
+          - notBreaching
+
+    - name: Show configured alarms
+      ansible.builtin.command:
+        argv:
+          - aws
+          - cloudwatch
+          - describe-alarms
+          - --region
+          - "{{ aws_region }}"
+          - --alarm-name-prefix
+          - "{{ monitoring_alarm_prefix }}"
+          - --query
+          - MetricAlarms[].{Name:AlarmName,State:StateValue,Metric:MetricName}
+          - --output
+          - table
+      register: alarms
+      changed_when: false
+
+    - name: Print alarms
+      ansible.builtin.debug:
+        var: alarms.stdout_lines

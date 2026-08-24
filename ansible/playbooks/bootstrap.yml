@@ -8,6 +8,9 @@
 - name: Install AWS Load Balancer Controller
   ansible.builtin.import_playbook: load-balancer-controller.yml
 
+- name: Install Kubernetes Metrics Server
+  ansible.builtin.import_playbook: metrics-server.yml
+
 - name: Apply Kubernetes manifests
   ansible.builtin.import_playbook: apply-kubernetes.yml
 
@@ -16,6 +19,9 @@
 
 - name: Configure Cloudflare DNS
   ansible.builtin.import_playbook: cloudflare-dns.yml
+
+- name: Configure monitoring
+  ansible.builtin.import_playbook: monitoring.yml
 
 - name: Show final deployment status
   ansible.builtin.import_playbook: status.yml

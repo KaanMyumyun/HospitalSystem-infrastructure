@@ -213,9 +213,13 @@ the Kubernetes Ingress, and prints the final app status.
 
 Terraform also runs a destroy-time Ansible cleanup before deleting EKS. That
 cleanup deletes the Kubernetes Ingress and waits for the AWS-managed ALB to be
-removed, so unmanaged ALB ENIs and security groups do not block VPC deletion.
+removed. If the AWS Load Balancer Controller is unavailable, the cleanup falls
+back to deleting the ALB and Kubernetes-managed security groups directly, so
+unmanaged ALB ENIs and security groups do not block VPC deletion.
 
-Before running `terraform apply`, export the backend secret values locally:
+Before running `terraform apply`, either export the backend secret values
+locally or put them in ignored `.env.local`. Terraform automatically sources
+`.env.local` before running the Ansible bootstrap.
 
 ```bash
 export HOSPITALSYSTEM_CONNECTION_STRING='Host=...;Database=...;Username=...;Password=...'
@@ -330,11 +334,58 @@ ansible-playbook ansible/playbooks/scale.yml -e replicas=2
 ansible-playbook ansible/playbooks/scale.yml -e replicas=0
 ```
 
+Backend and frontend also have HorizontalPodAutoscalers. After the Kubernetes
+manifests are applied, each workload scales between 1 and 3 pods when average
+CPU utilization goes above the configured target. Manual scaling is temporary
+while HPA is enabled because Kubernetes reconciles the replica count.
+
 Collect basic debug information:
 
 ```bash
 ansible-playbook ansible/playbooks/debug.yml
 ```
+
+## Monitoring
+
+Monitoring is intentionally lightweight to avoid running a paid in-cluster
+observability stack. The project does not deploy Prometheus, Grafana, CloudWatch
+Observability, or EKS runtime monitoring.
+
+The Ansible monitoring playbook creates CloudWatch alarms from existing AWS
+metrics:
+
+- ALB HTTP 5xx responses
+- unhealthy targets for each ALB target group
+- EKS node group with no in-service instances
+
+Configure or refresh the alarms:
+
+```bash
+ansible-playbook ansible/playbooks/monitoring.yml
+```
+
+Show current alarm states and Kubernetes runtime health:
+
+```bash
+ansible-playbook ansible/playbooks/monitoring-status.yml
+```
+
+The status playbook also shows the HPA targets and pod CPU/memory usage from
+metrics-server. You can query the same Kubernetes metrics directly:
+
+```bash
+kubectl get hpa -n hospitalsystem
+kubectl top pods -n hospitalsystem
+```
+
+Show recent app container logs:
+
+```bash
+ansible-playbook ansible/playbooks/logs.yml
+```
+
+By default, alarms are created without notification actions. To attach an SNS
+topic, set `monitoring_alert_sns_topic_arn` in `ansible/group_vars/all.yml`.
 
 ## Disaster Recovery
 
@@ -350,6 +401,9 @@ export HOSPITALSYSTEM_JWT_SECRET='your-long-jwt-secret'
 export CLOUDFLARE_API_TOKEN='your-cloudflare-api-token'
 export CLOUDFLARE_ZONE_ID='your-zone-id' # optional
 ```
+
+These can also live in ignored `.env.local`; `terraform apply` sources that file
+automatically before running Ansible.
 
 Full recreate:
 
@@ -458,5 +512,3 @@ Planned infrastructure improvements:
 - Import the existing AWS resources into the cleaned Terraform state and review plans before applying changes.
 - Replace the current `Recreate` deployment strategy with `RollingUpdate` once there is enough node capacity to run old and new pods at the same time.
 - Add readiness-aware rollout settings such as `maxUnavailable`, `maxSurge`, and deployment history limits for safer releases and rollbacks.
-- Add Ansible configuration for repeatable operational tasks such as applying Kubernetes manifests, scaling workloads, waiting for rollouts, and checking Ingress readiness.
-- Add monitoring and logging after the deployment path is stable, starting with cost-aware metrics, workload health, container logs, and basic alerting.
