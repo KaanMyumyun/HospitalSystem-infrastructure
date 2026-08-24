@@ -336,6 +336,55 @@ Collect basic debug information:
 ansible-playbook ansible/playbooks/debug.yml
 ```
 
+## Disaster Recovery
+
+The full recreate path has been tested with `terraform destroy` followed by
+`terraform apply`. Terraform recreates the AWS layer, then runs the local
+Ansible bootstrap to configure Kubernetes and Cloudflare.
+
+Required local environment:
+
+```bash
+export HOSPITALSYSTEM_CONNECTION_STRING='Host=...;Database=...;Username=...;Password=...'
+export HOSPITALSYSTEM_JWT_SECRET='your-long-jwt-secret'
+export CLOUDFLARE_API_TOKEN='your-cloudflare-api-token'
+export CLOUDFLARE_ZONE_ID='your-zone-id' # optional
+```
+
+Full recreate:
+
+```bash
+cd terraform
+terraform destroy
+terraform apply
+```
+
+During destroy, Terraform runs `ansible/playbooks/cleanup-kubernetes.yml` to
+remove the Ingress first. This gives the AWS Load Balancer Controller time to
+delete the ALB before Terraform deletes the VPC.
+
+During apply, Terraform recreates AWS resources and then runs
+`ansible/playbooks/bootstrap.yml`, which:
+
+- creates the backend Kubernetes Secret from local environment variables
+- installs the AWS Load Balancer Controller
+- applies the app Kubernetes manifests
+- maps the GitHub Actions deploy role in `aws-auth`
+- updates the Cloudflare CNAME to the new ALB hostname
+- prints the final deployment status
+
+After a fresh recreate, Kubernetes starts from the bootstrap/default `latest`
+image tag. The GitHub Actions deploy workflow should be run afterward to update
+the live Deployments to the date + short SHA image tag.
+
+Post-recreate checks:
+
+```bash
+ansible-playbook ../ansible/playbooks/status.yml
+kubectl get ingress hospital-ingress -n hospitalsystem -o wide
+dig +short app.hospitalsyst.cc CNAME
+```
+
 ## Operational Notes
 
 The cluster is intentionally run in a low-cost mode while not testing:
