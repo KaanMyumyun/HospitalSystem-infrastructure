@@ -27,8 +27,43 @@
           - -n
           - "{{ k8s_namespace }}"
           - --ignore-not-found=true
+          - --wait=false
+          - --request-timeout=20s
       register: delete_ingress
       changed_when: "'deleted' in delete_ingress.stdout"
+      failed_when: false
+
+    - name: Look up Kubernetes ALB
+      ansible.builtin.command:
+        argv:
+          - aws
+          - elbv2
+          - describe-load-balancers
+          - --region
+          - "{{ aws_region }}"
+          - --names
+          - "{{ monitoring_alb_name }}"
+          - --query
+          - LoadBalancers[0].LoadBalancerArn
+          - --output
+          - text
+      register: alb_lookup
+      changed_when: false
+      failed_when: false
+
+    - name: Delete Kubernetes ALB directly when controller is unavailable
+      ansible.builtin.command:
+        argv:
+          - aws
+          - elbv2
+          - delete-load-balancer
+          - --region
+          - "{{ aws_region }}"
+          - --load-balancer-arn
+          - "{{ alb_lookup.stdout }}"
+      when: alb_lookup.rc == 0 and alb_lookup.stdout | length > 0 and alb_lookup.stdout != "None"
+      register: delete_alb
+      changed_when: delete_alb.rc == 0
       failed_when: false
 
     - name: Wait for ALB deletion
@@ -37,16 +72,73 @@
           - aws
           - elbv2
           - describe-load-balancers
+          - --region
+          - "{{ aws_region }}"
           - --names
-          - hospital-system-alb
+          - "{{ monitoring_alb_name }}"
           - --query
           - LoadBalancers[0].DNSName
           - --output
           - text
-      register: alb_lookup
+      register: alb_wait
       changed_when: false
       failed_when: false
-      until: alb_lookup.rc != 0
+      until: alb_wait.rc != 0
       retries: 30
       delay: 10
 
+    - name: Look up Terraform VPC
+      ansible.builtin.command:
+        argv:
+          - aws
+          - ec2
+          - describe-vpcs
+          - --region
+          - "{{ aws_region }}"
+          - --filters
+          - "Name=tag:Name,Values={{ terraform_vpc_name_tag }}"
+          - --query
+          - Vpcs[0].VpcId
+          - --output
+          - text
+      register: vpc_lookup
+      changed_when: false
+      failed_when: false
+
+    - name: Look up Kubernetes-managed security groups
+      ansible.builtin.command:
+        argv:
+          - aws
+          - ec2
+          - describe-security-groups
+          - --region
+          - "{{ aws_region }}"
+          - --filters
+          - "Name=vpc-id,Values={{ vpc_lookup.stdout }}"
+          - "Name=group-name,Values=k8s-*"
+          - --query
+          - SecurityGroups[].GroupId
+          - --output
+          - text
+      register: k8s_security_groups
+      changed_when: false
+      failed_when: false
+      when: vpc_lookup.rc == 0 and vpc_lookup.stdout | length > 0 and vpc_lookup.stdout != "None"
+
+    - name: Delete Kubernetes-managed security groups
+      ansible.builtin.command:
+        argv:
+          - aws
+          - ec2
+          - delete-security-group
+          - --region
+          - "{{ aws_region }}"
+          - --group-id
+          - "{{ item }}"
+      loop: "{{ k8s_security_groups.stdout.split() }}"
+      register: delete_security_groups
+      changed_when: delete_security_groups.rc == 0
+      failed_when: false
+      when:
+        - k8s_security_groups is not skipped
+        - k8s_security_groups.stdout | length > 0

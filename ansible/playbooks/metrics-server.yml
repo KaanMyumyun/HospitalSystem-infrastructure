@@ -1,0 +1,54 @@
+---
+- name: Install Kubernetes Metrics Server
+  hosts: local
+  gather_facts: false
+
+  tasks:
+    - name: Configure kubeconfig
+      ansible.builtin.command:
+        argv:
+          - aws
+          - eks
+          - update-kubeconfig
+          - --region
+          - "{{ aws_region }}"
+          - --name
+          - "{{ eks_cluster_name }}"
+      changed_when: false
+
+    - name: Add metrics-server Helm repository
+      ansible.builtin.command:
+        argv:
+          - helm
+          - repo
+          - add
+          - metrics-server
+          - https://kubernetes-sigs.github.io/metrics-server/
+          - --force-update
+      changed_when: false
+
+    - name: Update metrics-server Helm repository
+      ansible.builtin.command:
+        argv:
+          - helm
+          - repo
+          - update
+          - metrics-server
+      changed_when: false
+
+    - name: Install or upgrade metrics-server
+      ansible.builtin.command:
+        argv:
+          - helm
+          - upgrade
+          - --install
+          - metrics-server
+          - metrics-server/metrics-server
+          - --namespace
+          - kube-system
+      register: metrics_server
+      changed_when: "'deployed' in metrics_server.stdout or 'upgraded' in metrics_server.stdout"
+
+    - name: Show metrics-server result
+      ansible.builtin.debug:
+        msg: "{{ metrics_server.stdout }}"
