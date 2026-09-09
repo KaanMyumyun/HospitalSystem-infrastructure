@@ -14,6 +14,25 @@ Current AWS deployment target:
 - Database: Neon PostgreSQL
 - Frontend API base: `/api`
 
+## How This Was Built
+
+I built the AWS infrastructure by hand first, working through the deployment
+flow until the application was serving real traffic on EKS. Once it worked, I
+imported the live resources with
+[Terracognita](https://github.com/cycloidio/terracognita) and rewrote the
+generated output into the Terraform under `terraform/`, split by concern into
+network, EKS, IAM, ECR, ACM, and monitoring files.
+
+That order was deliberate. Building it in the console first meant I understood
+what each resource did and how the pieces connected before codifying any of it,
+and the import brought a working environment under version control without
+retyping every resource by hand. Turning generated output into readable,
+maintainable Terraform was most of the work. The raw Terracognita output stays
+under `terraform/imports/` locally and is not committed.
+
+See [Terraform Workflow](#terraform-workflow) for how the cleaned Terraform is
+being adopted as the source of truth for the AWS layer.
+
 ## Architecture
 
 ![AWS infrastructure architecture](assets/images/aws-architecture.png)
@@ -87,13 +106,6 @@ The Kubernetes manifests define:
 - HTTPS listener using ACM
 - `/api` routing to the backend
 - `/` routing to the frontend
-
-The AWS infrastructure was first created by hand while learning the deployment
-flow. After it was working, Terracognita was used to reverse engineer the live
-resources into Terraform so the setup could be ported without manually typing
-every resource from scratch. The generated output was then split and cleaned
-into readable Terraform files. The raw Terracognita output is kept under
-`terraform/imports/` locally and ignored by Git.
 
 Terraform manages the AWS infrastructure layer:
 
@@ -219,7 +231,8 @@ unmanaged ALB ENIs and security groups do not block VPC deletion.
 
 Before running `terraform apply`, either export the backend secret values
 locally or put them in ignored `.env.local`. Terraform automatically sources
-`.env.local` before running the Ansible bootstrap.
+`.env.local` before running the Ansible bootstrap. The Cloudflare token is also
+used by Terraform to create the ACM certificate validation record.
 
 ```bash
 export HOSPITALSYSTEM_CONNECTION_STRING='Host=...;Database=...;Username=...;Password=...'
@@ -234,12 +247,23 @@ The Cloudflare token needs `Zone:Read` and `DNS:Edit` permissions for
 export CLOUDFLARE_ZONE_ID='your-zone-id'
 ```
 
-Then run Terraform:
+Then run Terraform through the wrapper, which loads `.env.local`, exports
+`TF_VAR_cloudflare_api_token`, and checks that Docker is running before it
+starts:
 
 ```bash
-cd terraform
-terraform apply
+./scripts/tf.sh apply
 ```
+
+Running `terraform apply` directly also works, but only if
+`TF_VAR_cloudflare_api_token` (or `CLOUDFLARE_API_TOKEN`) is already exported.
+Without it the Cloudflare provider fails with a `403 Missing X-Auth-Email
+header` before any resource is created.
+
+On a fresh AWS account, Terraform detects the active account ID, creates the
+ECR repositories, builds and pushes initial backend/frontend `latest` images
+from the local application source, requests and validates the ACM certificate
+through Cloudflare DNS, and then runs the Ansible Kubernetes bootstrap.
 
 If you only want Terraform to manage AWS resources and skip the Ansible
 bootstrap:
@@ -248,9 +272,15 @@ bootstrap:
 terraform apply -var run_ansible_bootstrap=false
 ```
 
+If you want to skip the local Docker image build/push during a later apply:
+
+```bash
+terraform apply -var push_initial_ecr_images=false
+```
+
 The automatic bootstrap is intentionally local. It uses your local `aws`,
-`kubectl`, `helm`, and `ansible-playbook` binaries from the machine where
-Terraform is running.
+`docker`, `kubectl`, `helm`, and `ansible-playbook` binaries from the machine
+where Terraform is running.
 
 After a fresh Terraform bootstrap, the Kubernetes manifests start the app from
 the bootstrap/default `latest` image tag. The GitHub Actions deploy workflow
@@ -390,7 +420,8 @@ topic, set `monitoring_alert_sns_topic_arn` in `ansible/group_vars/all.yml`.
 ## Disaster Recovery
 
 The full recreate path has been tested with `terraform destroy` followed by
-`terraform apply`. Terraform recreates the AWS layer, then runs the local
+`terraform apply`. Terraform recreates the AWS layer, pushes the initial ECR
+images from local source, validates ACM through Cloudflare, then runs the local
 Ansible bootstrap to configure Kubernetes and Cloudflare.
 
 Required local environment:
@@ -402,15 +433,16 @@ export CLOUDFLARE_API_TOKEN='your-cloudflare-api-token'
 export CLOUDFLARE_ZONE_ID='your-zone-id' # optional
 ```
 
-These can also live in ignored `.env.local`; `terraform apply` sources that file
-automatically before running Ansible.
+These can also live in ignored `.env.local`. The Ansible bootstrap sources that
+file itself, but the Cloudflare provider reads its token from the environment,
+so use `./scripts/tf.sh` (which exports both) rather than calling `terraform`
+directly.
 
 Full recreate:
 
 ```bash
-cd terraform
-terraform destroy
-terraform apply
+./scripts/tf.sh destroy
+./scripts/tf.sh apply
 ```
 
 During destroy, Terraform runs `ansible/playbooks/cleanup-kubernetes.yml` to
@@ -418,13 +450,21 @@ remove the Ingress first. This gives the AWS Load Balancer Controller time to
 delete the ALB before Terraform deletes the VPC.
 
 During apply, Terraform recreates AWS resources and then runs
-`ansible/playbooks/bootstrap.yml`, which:
+`ansible/playbooks/bootstrap.yml`. The complete apply path:
 
+- detects the active AWS account ID
+- creates ECR repositories for backend and frontend images
+- builds and pushes backend/frontend `latest` images from local source
+- creates the GitHub Actions OIDC provider and IAM roles
+- creates the EKS cluster and node group
+- requests the ACM certificate for `app.hospitalsyst.cc`
+- creates the Cloudflare ACM validation CNAME
+- waits for ACM to issue the certificate
 - creates the backend Kubernetes Secret from local environment variables
 - installs the AWS Load Balancer Controller
-- applies the app Kubernetes manifests
+- applies rendered app Kubernetes manifests with current ECR URLs and ACM ARN
 - maps the GitHub Actions deploy role in `aws-auth`
-- updates the Cloudflare CNAME to the new ALB hostname
+- updates the Cloudflare app CNAME to the new ALB hostname
 - prints the final deployment status
 
 After a fresh recreate, Kubernetes starts from the bootstrap/default `latest`

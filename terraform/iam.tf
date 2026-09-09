@@ -5,7 +5,7 @@ data "aws_iam_policy_document" "github_actions_assume_role" {
 
     principals {
       type        = "Federated"
-      identifiers = [local.oidc_provider_arn]
+      identifiers = [aws_iam_openid_connect_provider.github_actions.arn]
     }
 
     condition {
@@ -74,6 +74,17 @@ resource "aws_iam_openid_connect_provider" "eks" {
   url             = aws_eks_cluster.main.identity[0].oidc[0].issuer
   client_id_list  = ["sts.amazonaws.com"]
   thumbprint_list = ["06b25927c42a721631c1efd9431e648fa62e1e39"]
+}
+
+resource "aws_iam_openid_connect_provider" "github_actions" {
+  url = "https://token.actions.githubusercontent.com"
+
+  client_id_list = ["sts.amazonaws.com"]
+
+  thumbprint_list = [
+    "6938fd4d98bab03faadb97b34396831e3780aea1",
+    "1c58a3a8518e8759bf075b76b750d4f2df264fcd"
+  ]
 }
 
 resource "aws_iam_policy" "load_balancer_controller" {
@@ -318,8 +329,8 @@ resource "aws_iam_role_policy" "ecr_push_hospitalsystem" {
           "ecr:UploadLayerPart"
         ]
         Resource = [
-          "arn:aws:ecr:${var.aws_region}:${local.account_id}:repository/hospital-backend",
-          "arn:aws:ecr:${var.aws_region}:${local.account_id}:repository/hospital-frontend"
+          aws_ecr_repository.backend.arn,
+          aws_ecr_repository.frontend.arn
         ]
       }
     ]

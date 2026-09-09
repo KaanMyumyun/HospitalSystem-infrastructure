@@ -22,14 +22,69 @@ variable "github_repository" {
   default     = "KaanMyumyun/HospitalSystem"
 }
 
-variable "acm_certificate_arn" {
-  description = "ACM certificate used by the HTTPS ALB listener."
+variable "app_domain_name" {
+  description = "Public application domain name."
   type        = string
-  default     = "arn:aws:acm:eu-north-1:147914447694:certificate/f82d2036-d650-45a0-bd19-3e67ccc16e39"
+  default     = "app.hospitalsyst.cc"
+}
+
+variable "cloudflare_zone_name" {
+  description = "Cloudflare DNS zone used for ACM validation and the public app CNAME."
+  type        = string
+  default     = "hospitalsyst.cc"
 }
 
 variable "run_ansible_bootstrap" {
   description = "Run the local Ansible bootstrap after Terraform creates or updates the EKS infrastructure."
   type        = bool
   default     = true
+}
+
+variable "push_initial_ecr_images" {
+  description = "Build and push initial backend/frontend images from local source before Kubernetes bootstrap."
+  type        = bool
+  default     = true
+}
+
+variable "backend_source_dir" {
+  description = "Backend application source directory. Empty defaults to the HospitalSystem repo checked out beside this one."
+  type        = string
+  default     = ""
+}
+
+variable "frontend_source_dir" {
+  description = "Frontend application source directory. Empty defaults to hospital-frontend inside the backend source directory."
+  type        = string
+  default     = ""
+}
+
+variable "backend_dockerfile" {
+  description = "Backend Dockerfile path relative to backend_source_dir."
+  type        = string
+  default     = "HospitalSystem/Dockerfile"
+}
+
+variable "frontend_dockerfile" {
+  description = "Frontend Dockerfile path relative to frontend_source_dir."
+  type        = string
+  default     = "Dockerfile"
+}
+
+variable "initial_image_tag" {
+  description = "Image tag used by first-push bootstrap and initial Kubernetes manifests."
+  type        = string
+  default     = "latest"
+}
+
+variable "cloudflare_api_token" {
+  description = "Cloudflare API token. Leave empty to let the provider read CLOUDFLARE_API_TOKEN from the environment."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "frontend_api_url" {
+  description = "API base URL baked into the frontend image at build time. Empty derives https://<app_domain_name>/api."
+  type        = string
+  default     = ""
 }
