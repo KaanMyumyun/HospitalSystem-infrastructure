@@ -23,8 +23,11 @@ terraform/imports/
 tmp/
 dist/
 build/
+.generated/
 
 # Local handoff and operator notes
 instructions.txt
+OWN_PROJECT.local.txt
+ownership.local/
 docs/
 commands/

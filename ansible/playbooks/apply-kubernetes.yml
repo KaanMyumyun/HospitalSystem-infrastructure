@@ -27,7 +27,31 @@
       register: apply_results
       changed_when: "'created' in apply_results.stdout or 'configured' in apply_results.stdout"
 
+    - name: Ensure generated Kubernetes manifest directory exists
+      ansible.builtin.file:
+        path: "{{ playbook_dir }}/../../.generated/kubernetes"
+        state: directory
+        mode: "0755"
+
+    - name: Render generated Kubernetes manifests
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../../{{ item.src }}"
+        dest: "{{ playbook_dir }}/../../.generated/kubernetes/{{ item.dest }}"
+        mode: "0644"
+      loop: "{{ kubernetes_manifest_templates }}"
+      register: rendered_manifests
+
+    - name: Apply generated Kubernetes manifests
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - apply
+          - -f
+          - "{{ playbook_dir }}/../../.generated/kubernetes/{{ item.item.dest }}"
+      loop: "{{ rendered_manifests.results }}"
+      register: apply_generated_results
+      changed_when: "'created' in apply_generated_results.stdout or 'configured' in apply_generated_results.stdout"
+
     - name: Show apply results
       ansible.builtin.debug:
-        msg: "{{ item.stdout }}"
-      loop: "{{ apply_results.results }}"
+        msg: "{{ (apply_results.results + apply_generated_results.results) | map(attribute='stdout') | list }}"
