@@ -508,6 +508,10 @@ After a fresh recreate, Kubernetes starts from the bootstrap/default `latest`
 image tag. The GitHub Actions deploy workflow should be run afterward to update
 the live Deployments to the date + short SHA image tag.
 
+A recreate also gives the NAT gateways new public IPs. If Neon's IP Allow list
+is in use (see Database Access), replace the old addresses with the new ones or
+the backend loses its database connection.
+
 Post-recreate checks:
 
 ```bash
@@ -515,6 +519,20 @@ ansible-playbook ../ansible/playbooks/status.yml
 kubectl get ingress hospital-ingress -n hospitalsystem -o wide
 dig +short app.hospitalsyst.cc CNAME
 ```
+
+## Database Access
+
+The backend reaches Neon through the two NAT gateways, so all of its database
+traffic comes from two public IPs. Restricting Neon to those addresses means a
+leaked connection string is useless from anywhere else:
+
+```bash
+./scripts/tf.sh output nat_public_ips
+```
+
+Add both addresses to the Neon project's IP Allow list (a Neon plan feature),
+plus any address you connect from yourself. The addresses change on every full
+destroy and recreate, so update the list after a rebuild.
 
 ## Operational Notes
 

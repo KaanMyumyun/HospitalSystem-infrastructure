@@ -77,3 +77,8 @@ output "private_subnet_ids" {
   description = "Private subnet IDs used by EKS workloads."
   value       = [aws_subnet.private_a.id, aws_subnet.private_b.id]
 }
+
+output "nat_public_ips" {
+  description = "Public IPs the cluster's outbound traffic comes from. Allow only these (plus your own) in Neon's IP Allow list."
+  value       = [aws_eip.nat_a.public_ip, aws_eip.nat_b.public_ip]
+}
