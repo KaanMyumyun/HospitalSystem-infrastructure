@@ -247,9 +247,12 @@ The Cloudflare token needs `Zone:Read` and `DNS:Edit` permissions for
 export CLOUDFLARE_ZONE_ID='your-zone-id'
 ```
 
-Then run Terraform through the wrapper, which loads `.env.local`, exports
-`TF_VAR_cloudflare_api_token`, and checks that Docker is running before it
-starts:
+Then run Terraform through the wrapper, which loads `.env.local` and exports
+`TF_VAR_cloudflare_api_token`. It only checks what the command needs: `apply`
+requires the backend secrets, the Cloudflare token, and a running Docker
+daemon; `plan`, `destroy`, `refresh`, and `import` require the Cloudflare
+token; read-only commands such as `output`, `state`, and `validate` require
+nothing:
 
 ```bash
 ./scripts/tf.sh apply
