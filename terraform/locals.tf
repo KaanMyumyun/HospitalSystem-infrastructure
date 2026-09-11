@@ -39,6 +39,10 @@ locals {
       for file in sort(fileset("${path.module}/../ansible/playbooks", "*.yml")) :
       filesha256("${path.module}/../ansible/playbooks/${file}")
     ],
+    [
+      for file in sort(fileset("${path.module}/../ansible/tasks", "*.yml")) :
+      filesha256("${path.module}/../ansible/tasks/${file}")
+    ],
     [filesha256("${path.module}/../ansible/group_vars/all.yml")],
     [
       for file in sort(fileset("${path.module}/../kubernetes", "**/*.yaml")) :

@@ -5,17 +5,9 @@
 
   tasks:
     - name: Configure kubeconfig
-      ansible.builtin.command:
-        argv:
-          - aws
-          - eks
-          - update-kubeconfig
-          - --region
-          - "{{ aws_region }}"
-          - --name
-          - "{{ eks_cluster_name }}"
-      changed_when: false
-      failed_when: false
+      ansible.builtin.import_tasks: ../tasks/kubeconfig.yml
+      vars:
+        kubeconfig_optional: true
 
     - name: Delete Ingress so the AWS Load Balancer Controller removes the ALB
       ansible.builtin.command:

@@ -10,16 +10,7 @@
       when: image_tag is not defined or image_tag | length == 0
 
     - name: Configure kubeconfig
-      ansible.builtin.command:
-        argv:
-          - aws
-          - eks
-          - update-kubeconfig
-          - --region
-          - "{{ aws_region }}"
-          - --name
-          - "{{ eks_cluster_name }}"
-      changed_when: false
+      ansible.builtin.import_tasks: ../tasks/kubeconfig.yml
 
     - name: Update backend image
       ansible.builtin.command:

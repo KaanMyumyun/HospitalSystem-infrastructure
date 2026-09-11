@@ -16,16 +16,7 @@
       when: cloudflare_api_token | length == 0
 
     - name: Configure kubeconfig
-      ansible.builtin.command:
-        argv:
-          - aws
-          - eks
-          - update-kubeconfig
-          - --region
-          - "{{ aws_region }}"
-          - --name
-          - "{{ eks_cluster_name }}"
-      changed_when: false
+      ansible.builtin.import_tasks: ../tasks/kubeconfig.yml
 
     - name: Read ALB hostname from Kubernetes Ingress
       ansible.builtin.command:

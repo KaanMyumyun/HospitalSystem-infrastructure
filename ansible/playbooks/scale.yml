@@ -10,16 +10,7 @@
       when: replicas is not defined
 
     - name: Configure kubeconfig
-      ansible.builtin.command:
-        argv:
-          - aws
-          - eks
-          - update-kubeconfig
-          - --region
-          - "{{ aws_region }}"
-          - --name
-          - "{{ eks_cluster_name }}"
-      changed_when: false
+      ansible.builtin.import_tasks: ../tasks/kubeconfig.yml
 
     - name: Scale backend and frontend
       ansible.builtin.command:
