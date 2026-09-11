@@ -14,12 +14,6 @@ resource "terraform_data" "ansible_bootstrap" {
     command     = <<-EOT
       set -euo pipefail
 
-      mkdir -p ansible
-      cat > ansible/inventory.ini <<'INVENTORY'
-      [local]
-      localhost ansible_connection=local ansible_python_interpreter=/usr/bin/python3
-      INVENTORY
-
       if [ -f .env.local ]; then
         set -a
         source .env.local

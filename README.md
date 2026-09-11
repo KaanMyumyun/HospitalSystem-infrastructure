@@ -216,8 +216,8 @@ Requirements:
 - AWS credentials that can access the `eks-pr1` cluster
 
 Terraform is wired to run the Ansible bootstrap automatically after the EKS
-cluster and managed node group are created or updated. The bootstrap creates
-`ansible/inventory.ini`, configures kubeconfig, creates the backend Kubernetes
+cluster and managed node group are created or updated. The bootstrap
+configures kubeconfig, creates the backend Kubernetes
 Secret from local environment variables, installs the AWS Load Balancer
 Controller, applies the Kubernetes manifests, maps the GitHub Actions deploy
 role in `aws-auth`, points the Cloudflare DNS record at the ALB hostname from
