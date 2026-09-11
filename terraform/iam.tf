@@ -1,4 +1,13 @@
 data "aws_iam_policy_document" "github_actions_assume_role" {
+  # The OIDC subject each role trusts. Docker Image CI is triggered by
+  # workflow_run, which runs on the default branch. The deploy job uses a
+  # GitHub environment, and a job with an environment gets the environment as
+  # its subject instead of the branch.
+  for_each = {
+    ecr_push   = "repo:${var.github_repository}:ref:refs/heads/${var.github_deploy_branch}"
+    eks_deploy = "repo:${var.github_repository}:environment:${var.github_deploy_environment}"
+  }
+
   statement {
     effect  = "Allow"
     actions = ["sts:AssumeRoleWithWebIdentity"]
@@ -14,12 +23,10 @@ data "aws_iam_policy_document" "github_actions_assume_role" {
       values   = ["sts.amazonaws.com"]
     }
 
-    # The build and deploy workflows are triggered by workflow_run, which runs
-    # on the default branch, so their tokens carry this subject.
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repository}:ref:refs/heads/${var.github_deploy_branch}"]
+      values   = [each.value]
     }
   }
 }
@@ -302,7 +309,7 @@ resource "aws_iam_role" "ecr_push_hospitalsystem" {
   path                 = "/"
   description          = "GitHub Actions OIDC role for pushing HospitalSystem images to ECR"
   max_session_duration = 3600
-  assume_role_policy   = data.aws_iam_policy_document.github_actions_assume_role.json
+  assume_role_policy   = data.aws_iam_policy_document.github_actions_assume_role["ecr_push"].json
 }
 
 resource "aws_iam_role_policy" "ecr_push_hospitalsystem" {
@@ -343,7 +350,7 @@ resource "aws_iam_role" "eks_deploy_hospitalsystem" {
   name                 = "eks-deploy-hospitalsystem"
   path                 = "/"
   max_session_duration = 3600
-  assume_role_policy   = data.aws_iam_policy_document.github_actions_assume_role.json
+  assume_role_policy   = data.aws_iam_policy_document.github_actions_assume_role["eks_deploy"].json
 }
 
 resource "aws_iam_role_policy" "eks_deploy_hospitalsystem" {

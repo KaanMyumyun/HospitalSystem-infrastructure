@@ -157,14 +157,16 @@ documentation and review. Because it is not at the repository root
 The workflows are chained so deployment only happens after build and test
 success:
 
-1. `.NET`
+1. `CI`
    - runs on pull requests and pushes to `main`
-   - restores dependencies
-   - builds the solution
-   - runs tests
+   - restores, builds and tests the backend
+   - lints and builds the frontend
+   - builds both Docker images and scans them with Trivy; a fixable `HIGH` or
+     `CRITICAL` vulnerability fails the run. The scan runs here, in a job with
+     no AWS or Docker Hub credentials.
 
 2. `Docker Image CI`
-   - runs after the `.NET` workflow succeeds on a push to `main`
+   - runs after the `CI` workflow succeeds on a push to `main`
    - checks out the exact commit that passed CI
    - builds backend and frontend Docker images
    - logs in to Docker Hub and Amazon ECR
@@ -181,8 +183,10 @@ Images are tagged three ways:
 
 3. `Deploy to EKS`
    - runs after the Docker image workflow succeeds
+   - waits for a reviewer to approve it in the `production` GitHub environment
    - assumes the AWS EKS deployment role through OIDC
-   - updates kubeconfig for `eks-pr1`
+   - updates kubeconfig for the cluster in the `EKS_CLUSTER_NAME` repository
+     variable, in the `K8S_NAMESPACE` namespace
    - sets backend and frontend Deployment images to the date + short SHA tag
    - checks whether the app deployments are scaled above `0`
    - waits for rollout completion
@@ -198,12 +202,23 @@ mode. The GitHub Actions deploy role must be mapped there to the
 `kubernetes/rbac/github-actions-deploy.yaml.j2` to update Deployments only in the
 application namespace.
 
-Both GitHub Actions roles trust only workflows running on `main` of
-`KaanMyumyun/HospitalSystem` (`github_deploy_branch` in Terraform). The build
-and deploy workflows qualify because `workflow_run` jobs run on the default
-branch; workflows on any other branch are refused. That makes `main` the only
-way into AWS, so protect it in GitHub: require pull requests and block force
-pushes and deletion.
+The GitHub Actions roles trust only `KaanMyumyun/HospitalSystem`, each with one
+OIDC subject:
+
+- The ECR push role trusts workflows running on `main` (`github_deploy_branch`
+  in Terraform). Docker Image CI qualifies because `workflow_run` jobs run on
+  the default branch. Protect `main` in GitHub: require pull requests and
+  block force pushes and deletion.
+- The EKS deploy role trusts jobs that use the `production` environment
+  (`github_deploy_environment`). A job with an environment gets a token whose
+  subject is the environment, not the branch, so GitHub has to enforce the
+  branch. In Settings, Environments, `production`, set Deployment branches to
+  `main` only and add required reviewers, so every deploy waits for approval.
+
+The workflows pin every action to a commit SHA, and Dependabot keeps the pins
+current. The deploy workflow reads the cluster name and namespace from the
+`EKS_CLUSTER_NAME` and `K8S_NAMESPACE` repository variables; the application
+README lists all the variables the workflows need.
 
 ## Terraform Workflow
 

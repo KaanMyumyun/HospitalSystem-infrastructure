@@ -1,0 +1,434 @@
+HospitalSystem-infrastructure - improvement list
+Reviewed 2026-09-11 on branch history-cleanup (2c67e26)
+
+Priority: HIGH = can break production or leak access
+          MED  = worth doing soon
+          LOW  = nice to have
+Effort:   S = under an hour, M = a few hours, L = a day or more
+
+Already done: one source for config values (Terraform writes
+ansible/group_vars/all/terraform.yml), shared kubeconfig task, Terraform no
+longer rewrites inventory.ini, tf.sh only checks what each command needs.
+
+Database-leak chain (items 15, 20, 21, 22, 24): fixed in the repo in commits
+3c80d07..f8baecd on history-cleanup. Still needed outside the repo:
+  - GitHub: protect main in KaanMyumyun/HospitalSystem (require pull requests,
+    block force pushes and deletion). main is now the only way into AWS.
+  - Neon: after the next apply, add the IPs from
+    `./scripts/tf.sh output nat_public_ips` to the IP Allow list.
+  - App repo: pass secrets through env: (item 16).
+  - GitHub, before merging harden-ci-workflows (items 31, 35): create the
+    `production` environment with required reviewers and deployment branches
+    limited to main, and set the EKS_CLUSTER_NAME and K8S_NAMESPACE
+    repository variables.
+
+
+==============================================================================
+1. BUGS AND OUTAGE RISKS
+==============================================================================
+
+ 1. Deploy can ask for an image tag that doesn't exist           [HIGH | S]
+    Where: CICD/.github/workflows/deploy.yml:47
+    The deploy workflow rebuilds the date+sha tag with `date -u` when it
+    runs, but the image was tagged with the date when it was built. A build
+    that finishes just before midnight UTC deploys a tag that was never
+    pushed: ImagePullBackOff, and with Recreate the old pod is already gone.
+    Fix: deploy the full-SHA tag that the build already pushes.
+
+ 2. Re-running Terraform undoes deploys and scaling               [HIGH | M]
+    Where: terraform/locals.tf (ansible_bootstrap_file_hashes)
+           kubernetes/*/deployment.yaml.j2:10
+           ansible/group_vars/all/main.yml:7
+    Editing any playbook, even status.yml or debug.yml, re-runs the whole
+    bootstrap on the next apply. It re-applies both Deployments with the
+    `latest` tag and `replicas: 1`, which overwrites the tag CI set, undoes
+    a manual rollback, starts an app you scaled to 0, and fights the HPA.
+    Fix: remove `replicas` from the Deployments (the HPA owns it), only hash
+    the files bootstrap uses, keep the live image when a Deployment exists.
+
+ 3. Local code can overwrite `latest` in ECR                      [HIGH | S]
+    Where: terraform/ecr.tf:53, scripts/push-initial-ecr-images.sh
+    The initial image push re-runs whenever the script, source paths or API
+    URL change, and pushes whatever is checked out locally as `latest`.
+    Together with item 2, unreviewed local code can end up running live.
+    Fix: skip the push when the tag already exists in ECR, or push to a
+    separate `bootstrap` tag.
+
+ 4. Turning off the bootstrap deletes the live ALB                [HIGH | S]
+    Where: terraform/ansible.tf:44, README.md:297
+    The README suggests `terraform apply -var run_ansible_bootstrap=false`.
+    On a running environment that removes terraform_data.kubernetes_cleanup,
+    and its destroy step deletes the Ingress and the ALB.
+    Fix: give the cleanup resource its own flag (or no count) and correct
+    the README advice.
+
+ 5. Terraform state exists only on this laptop                   [HIGH | M]
+    Where: terraform/versions.tf (no backend block)
+    Losing terraform/terraform.tfstate orphans the whole environment while
+    the NAT gateways and EKS keep billing.
+    Fix: S3 backend with `use_lockfile = true` (needs Terraform >= 1.10,
+    so bump required_version at terraform/versions.tf:2).
+
+ 6. aws-auth.yml can lock the nodes out of the cluster            [HIGH | M]
+    Where: ansible/playbooks/aws-auth.yml:35,46
+    The merge patch replaces the whole mapRoles list. The "already mapped"
+    check only looks for the deploy role ARN, so group or username changes
+    never apply. Any kubectl error (network, expired auth) is treated as
+    "ConfigMap missing" and triggers the create path.
+    Fix: switch the cluster to EKS access entries (access_config plus
+    aws_eks_access_entry in Terraform) and delete this playbook.
+
+ 7. Pod autoscaling has no node capacity behind it                [MED | S]
+    Where: terraform/eks.tf:48,61, kubernetes/*/deployment.yaml.j2:51,
+           kubernetes/*/hpa.yaml.j2
+    - Each HPA can triple its pods, but the node group stops at 2 t3.small
+      nodes and no cluster autoscaler is installed, even though the node
+      group carries cluster-autoscaler tags.
+    - Requests are far below limits (backend 128Mi/100m vs 512Mi/500m) on
+      2 GiB nodes, so the scheduler packs pods that together can use more
+      memory than the node has. Under load: OOM kills and evictions.
+    - The HPA targets 70% of a 100m request, so it scales out at ~70m CPU.
+    Fix: set requests from `kubectl top pods` under load, then either run
+    Cluster Autoscaler/Karpenter with a higher max_size, or cap HPA
+    maxReplicas to what 2 nodes can run and remove the autoscaler tags.
+
+ 8. Nothing in this repo runs database migrations                 [MED | M]
+    Where: kubernetes/backend/configmap.yaml.j2:8
+    RunMigrationsOnStartup is false and no workflow or playbook runs EF
+    migrations, so a release with a schema change relies on someone running
+    them by hand before the deploy.
+    Fix: a Kubernetes Job (or CI step) that runs migrations before
+    `kubectl set image`.
+
+ 9. The deploy has no safety net                                  [MED | S]
+    Where: CICD/.github/workflows/deploy.yml,
+           ansible/playbooks/deploy-image.yml:15
+    - no `concurrency:` group, so runs that arrive out of order can deploy
+      an older commit last
+    - no check that the image exists in ECR before `set image`
+    - no `kubectl rollout undo` when the rollout fails
+    - the post-deploy smoke test was removed in 7e8e3ed
+      ("Deploy pinned image tags and add architecture diagrams")
+    With Recreate, a bad image means full downtime. Fix: add all four.
+
+10. Monitoring can't alert anyone                                 [MED | M]
+    Where: terraform/monitoring.tf:6, ansible/playbooks/monitoring.yml:158
+    - GroupInServiceInstances needs ASG group metrics collection, which EKS
+      node groups don't enable by default (check EnabledMetrics with
+      `aws autoscaling describe-auto-scaling-groups`). With notBreaching,
+      the alarm just stays OK.
+    - No alarm has an action. The unhealthy-targets task never adds one,
+      even when an SNS topic is set.
+    - Alarms created by Ansible aren't in Terraform and survive destroy.
+    Fix: SNS topic with an email subscription in Terraform, actions on every
+    alarm, enable group metrics, delete the Ansible alarms during cleanup.
+
+11. Destroy cleanup races the controller and fails silently       [MED | M]
+    Where: ansible/playbooks/cleanup-kubernetes.yml:22,46,
+           terraform/ansible.tf:57
+    It deletes the ALB directly right after `--wait=false` on the Ingress,
+    leaves the target groups behind, doesn't retry security-group deletes
+    while network interfaces detach, and leaves the Cloudflare CNAME
+    pointing at a deleted ALB. `|| true` hides all of it until the VPC
+    delete fails with DependencyViolation.
+    Fix: wait for the controller first, retry the security-group deletes,
+    remove the CNAME, and fail loudly.
+
+12. Helm charts aren't pinned                                     [MED | S]
+    Where: ansible/playbooks/load-balancer-controller.yml:26,
+           ansible/playbooks/metrics-server.yml:37
+    A new Load Balancer Controller chart can need IAM permissions that the
+    hardcoded policy in terraform/iam.tf doesn't grant.
+    Fix: pass --version to both, matching the IAM policy's version.
+
+13. VPC DNS hostnames are off                                     [MED | S]
+    Where: terraform/network.tf:4
+    EKS documents enable_dns_hostnames as a requirement for the private
+    endpoint. It works today only because nodes reach the public endpoint
+    through NAT. Fix: set it to true.
+
+14. Probes restart pods when the database blips                   [LOW | S]
+    Where: kubernetes/*/deployment.yaml.j2:41
+    Liveness and readiness both use /health. If that checks the database,
+    a short Neon outage restarts every backend pod.
+    Fix: a cheap /health/live for liveness, keep /health for readiness.
+
+
+==============================================================================
+2. SECURITY
+==============================================================================
+
+15. GitHub OIDC trust allows any branch                  [DONE 3c80d07] [HIGH | S]
+    Where: terraform/iam.tf:20
+    `repo:KaanMyumyun/HospitalSystem:*` lets a workflow on any branch assume
+    both the ECR push role and the EKS deploy role.
+    Fix: `repo:KaanMyumyun/HospitalSystem:ref:refs/heads/main` (or a GitHub
+    environment, see item 35), with one trust policy per role.
+
+16. Secrets pasted straight into CI shell scripts                 [MED | S]
+    Where: CICD/.github/workflows/docker-image.yml:35,68
+    `${{ secrets.* }}` inside `run:` is the script-injection pattern GitHub
+    warns about. Fix: pass them through `env:` or use docker/login-action.
+
+17. No TLS policy on the ALB                                      [MED | S]
+    Where: kubernetes/ingress/ingress.yaml.j2:6
+    Without alb.ingress.kubernetes.io/ssl-policy, depending on the
+    controller version the default can still allow TLS 1.0/1.1. Not what
+    you want for patient data.
+    Fix: ssl-policy: ELBSecurityPolicy-TLS13-1-2-2021-06
+
+18. EKS API open to the internet, no audit logs                   [MED | S]
+    Where: terraform/eks.tf:18
+    public_access_cidrs is 0.0.0.0/0 and enabled_cluster_log_types is unset.
+    Fix: enable ["audit", "authenticator"] logs now. Restricting the CIDRs
+    also needs a plan for CI: GitHub-hosted runners have no fixed IPs, so
+    that means a self-hosted runner or GitHub's static-IP runners.
+
+19. Pods can probably use the node's AWS credentials              [MED | M]
+    Where: terraform/eks.tf (node group has no launch template)
+    If the instance metadata hop limit is 2 (check MetadataOptions with
+    `aws ec2 describe-instances`), any pod can use the node role. The Load
+    Balancer Controller already gets region and VPC ID explicitly.
+    Fix: launch template with http_tokens = "required" and hop limit 1.
+
+20. Pod hardening                  [PARTLY: Pod Security baseline in be0c7fd] [MED | S]
+    Where: kubernetes/*/deployment.yaml.j2:22, kubernetes/namespace.yaml.j2
+    No securityContext, app pods mount a service account token they never
+    use, and the namespace has no Pod Security labels.
+    Fix: runAsNonRoot, allowPrivilegeEscalation: false, drop ALL
+    capabilities, readOnlyRootFilesystem (with an emptyDir at /tmp),
+    automountServiceAccountToken: false, and
+    pod-security.kubernetes.io/enforce: restricted on the namespace.
+
+21. Runtime secrets only live in a Kubernetes Secret  [PARTLY: ps fixed in 81936e0] [MED | M]
+    Where: ansible/playbooks/backend-secret.yml:34
+    The connection string and JWT key are copied from .env.local with no
+    rotation or audit trail, and are passed as kubectl command-line
+    arguments, visible in `ps` while it runs.
+    Fix: AWS Secrets Manager with External Secrets Operator (or at least
+    --from-env-file).
+
+22. The database accepts connections from anywhere  [REPO DONE f8baecd, Neon pending] [LOW | S]
+    Where: Neon (outside this repo)
+    All cluster traffic leaves through the two NAT gateway IPs.
+    Fix: if your Neon plan has IP Allow, restrict it to those IPs. They
+    change on every full rebuild, so output them from Terraform.
+
+23. ECR: no scanning, mutable tags, short rollback window         [LOW | S]
+    Where: terraform/ecr.tf:3,22
+    Fix: scan_on_push = true; IMMUTABLE tags once CI stops re-pushing
+    `latest`; the lifecycle rule keeps only 10 images, so you can roll back
+    at most ~10 builds.
+
+24. Deploy RBAC is broader than it needs to be   [DONE differently: policy 32044c1] [LOW | S]
+    Where: kubernetes/rbac/github-actions-deploy.yaml.j2:9
+    The deploy identity can patch any Deployment in the namespace.
+    Fix: resourceNames: [hospital-backend, hospital-frontend] for get,
+    patch and update.
+
+25. Unused security groups                                        [LOW | S]
+    Where: terraform/security_groups.tf:1,33
+    `postgres` allows 5432 from all IPv6 addresses and nothing uses it (the
+    database is on Neon). `http_https` is unused too. Delete both.
+
+26. Nothing in front of the ALB                                   [LOW | M]
+    No WAF and no ALB access logs. Options: AWS WAF on the ALB, or turn on
+    Cloudflare proxying and limit the ALB security group to Cloudflare's
+    IPs. Send access logs to S3.
+
+
+==============================================================================
+3. COST
+==============================================================================
+
+27. "Low-cost mode" still costs roughly $170 a month              [MED | S]
+    Where: README.md:509-513
+    Scaling nodes to 0 still leaves the EKS control plane (~$73), two NAT
+    gateways (~$67 plus data), the ALB (~$17) and public IPv4 charges. The
+    real saving is the full destroy and recreate you already support.
+    Fix: say so in the README, and add an AWS Budgets alert in Terraform.
+
+28. Two NAT gateways                                              [MED | S]
+    Where: terraform/network.tf:112
+    Pointing both private route tables at nat_a halves the NAT cost. You
+    lose AZ redundancy for outbound traffic, which is fine for this setup.
+
+29. No command to scale the nodes to 0                            [LOW | S]
+    README.md:512 says the node group can go to 0, but scale.yml only
+    scales Deployments. Add pause/resume playbooks that handle both the
+    Deployments and the node group's desired size.
+
+30. Slow, duplicated CI builds                                    [LOW | S]
+    Where: CICD/.github/workflows/docker-image.yml:48,67
+    `--no-cache` on every build and 12 separate pushes (6 to Docker Hub).
+    Fix: buildx with the GitHub Actions cache, `docker push --all-tags`,
+    and drop Docker Hub if nothing pulls from it.
+
+
+==============================================================================
+4. CI/CD WORKFLOWS (these copies actually run in the app repo)
+==============================================================================
+
+Items 31-35: done, not committed. App repo: branch harden-ci-workflows in
+~/HospitalSystem. This repo: CICD/ mirror, terraform/iam.tf (deploy role now
+trusts the production environment), README.md.
+
+31. Hardcoded cluster, namespace and account ID          [DONE, uncommitted] [MED | S]
+    Where: CICD/.github/workflows/deploy.yml:22,23,35
+    Fix: EKS_CLUSTER_NAME and K8S_NAMESPACE as repository variables,
+    validated like the others; drop the account-specific ARN from the
+    error message.
+
+32. dotnet.yml has no permissions block    [DONE, uncommitted; now ci.yml] [LOW | S]
+    Where: CICD/.github/workflows/dotnet.yml:9
+    Fix: `permissions: contents: read`, so the token's rights don't depend
+    on the repository setting.
+
+33. Actions are pinned by tag, not commit SHA            [DONE, uncommitted] [LOW | S]
+    A tag can be moved to different code. Pin actions/* and aws-actions/*
+    to SHAs and let Dependabot keep them current.
+
+34. No frontend checks or image scan before deploy       [DONE, uncommitted] [LOW | M]
+    The frontend is only exercised by `docker build`, and images go live
+    unscanned. Fix: an npm lint/test/build job and a Trivy (or ECR scan)
+    gate before the deploy.
+
+35. No approval step for production                      [DONE, uncommitted] [LOW | S]
+    Fix: `environment: production` on the deploy job with required
+    reviewers. That also gives the OIDC trust in item 15 a precise subject.
+
+
+==============================================================================
+5. OPERATIONS AND MAINTAINABILITY
+==============================================================================
+
+36. Playbooks switch your kubectl context                         [MED | S]
+    Where: ansible/tasks/kubeconfig.yml
+    `aws eks update-kubeconfig` edits ~/.kube/config and changes the
+    current context every time a playbook runs.
+    Fix: write to .generated/kubeconfig with --kubeconfig and set
+    KUBECONFIG in the playbooks' environment.
+
+37. Rolling updates will cause 502s through the ALB               [MED | S]
+    Where: kubernetes/*/deployment.yaml.j2:12, kubernetes/namespace.yaml.j2
+    Once you move from Recreate to RollingUpdate (it's on the README
+    roadmap), the ALB keeps sending traffic to terminating pods and new
+    pods count as ready before the ALB sees them healthy.
+    Fix: label the namespace elbv2.k8s.aws/pod-readiness-gate-inject=enabled
+    and add a preStop sleep (~15s) with a matching grace period.
+
+38. EKS add-ons aren't managed                                    [MED | M]
+    Where: terraform/eks.tf, terraform/iam.tf:76
+    vpc-cni, coredns and kube-proxy stay at whatever version the cluster
+    started with. Fix: aws_eks_addon resources. Consider EKS Pod Identity
+    for the controller instead of IRSA with a hardcoded thumbprint.
+    metrics-server is also available as an EKS community add-on.
+
+39. Five overlapping status tools                                 [LOW | M]
+    status.yml, debug.yml, monitoring-status.yml, logs.yml and
+    scripts/monitoring.sh print mostly the same things; monitoring.sh runs
+    two of the playbooks and then repeats their kubectl calls.
+    Fix: one status playbook with tags, called by monitoring.sh.
+
+40. monitoring.sh isn't ready for cron                            [LOW | S]
+    Where: scripts/monitoring.sh:101
+    No timestamps, exits 0 even when things are unhealthy, and a failing
+    `kubectl get ingress` aborts the run while other checks are optional.
+    Fix: timestamped output, a non-zero exit when pods aren't ready or an
+    alarm is firing, and consistent handling of optional checks.
+
+41. Initial image push isn't portable                             [LOW | S]
+    Where: scripts/push-initial-ecr-images.sh:63
+    Without --platform, building on an Apple Silicon Mac makes arm64 images
+    that won't run on the x86 t3 nodes. Fix: --platform linux/amd64.
+
+42. Hardcoded Python path in the inventory                        [LOW | S]
+    Where: ansible/inventory.ini:2
+    /usr/bin/python3 may not be the Python Ansible runs under (pipx,
+    Homebrew). Fix: ansible_python_interpreter="{{ ansible_playbook_python }}"
+
+43. Frontend image is tied to one domain                          [LOW | S]
+    The API URL (https://app.hospitalsyst.cc/api) is baked into the
+    frontend at build time, although both are served from the same host.
+    If the frontend only prefixes request paths with it, build with
+    VITE_API_URL=/api and drop frontend_api_url from Terraform.
+
+44. Cloudflare edge cases                                         [LOW | S]
+    Where: ansible/playbooks/cloudflare-dns.yml:60,64, terraform/acm.tf:25
+    An unknown zone fails with an index error instead of a clear message,
+    and an existing A record with the same name makes the create fail.
+    Fix: check the zone lookup returned something; look records up by name
+    only.
+
+45. Alarm task written twice                                      [LOW | S]
+    Where: ansible/playbooks/monitoring.yml:126
+    The 5xx alarm exists twice, with and without SNS. Build argv once and
+    append --alarm-actions only when a topic is set; reuse that for item 10.
+
+46. Account-wide names that collide                               [LOW | S]
+    Where: terraform/iam.tf:91 and the GitHub OIDC provider
+    AWSLoadBalancerControllerIAMPolicy, AmazonEKSLoadBalancerControllerRole
+    and the token.actions.githubusercontent.com provider can only exist
+    once per account, so a second cluster or project in the same account
+    collides. Fix: prefix names with the cluster name; accept an existing
+    OIDC provider ARN as a variable.
+
+47. Leftovers from the Terracognita import                        [LOW | S]
+    Where: terraform/network.tf:20,161, terraform/eks.tf:29,67
+    A detached internet gateway, an unused `default` route table, tags such
+    as `hello-Terraform` and `pr1 = "kubenetes"`, and ignore_changes on
+    subnet_ids that hides drift.
+
+48. Pinned EKS version with no upgrade notes                      [LOW | S]
+    Where: terraform/eks.tf:4
+    Fix: make it a variable and document the upgrade order (control plane,
+    add-ons, node group, then chart versions).
+
+49. No CI for this repo                                           [MED | M]
+    Nothing checks changes here. Fix: a .github/workflows job running
+    terraform fmt/validate, tflint, ansible-lint, shellcheck, and
+    kubeconform on the rendered manifests.
+
+
+==============================================================================
+6. DOCS
+==============================================================================
+
+50. README contradicts itself about Terraform                     [LOW | S]
+    README.md:196-211 still says to import resources first and not to run
+    apply, which the Disaster Recovery section contradicts. The roadmap
+    item at README.md:577 is already done.
+
+51. README says Ansible creates the node group alarm              [LOW | S]
+    README.md:409. Terraform creates it (terraform/monitoring.tf).
+
+52. PLAN.md reads like open work                                  [LOW | S]
+    The rebuild plan is implemented and some steps now differ; section 9
+    (PLAN.md:479) describes -e vars, but Terraform writes a vars file now.
+    Mark it as done or move it out of the repo root.
+
+53. No .env.example                                               [LOW | S]
+    .gitignore:3 whitelists it but it doesn't exist. List
+    CLOUDFLARE_API_TOKEN, CLOUDFLARE_ZONE_ID (optional),
+    HOSPITALSYSTEM_CONNECTION_STRING and HOSPITALSYSTEM_JWT_SECRET.
+
+54. Database recovery isn't documented                            [LOW | S]
+    The Disaster Recovery section only covers AWS. Add where the Neon
+    backups are, how long they're kept, and how to restore.
+
+
+==============================================================================
+7. HOUSEKEEPING
+==============================================================================
+
+55. Finish the history rewrite
+    history-cleanup isn't pushed and main still has the old history. Either
+    publish it:
+        git branch -f main history-cleanup
+        git checkout main
+        git push --force-with-lease origin main
+    or delete the branch. implement-portable-terraform-rebuild (local and
+    on GitHub) points at the old history and can be deleted either way.
+
+
+Suggested order: 1, 15, 2, 3, 4, 5, 6, 9, 10, then the remaining MED items.
