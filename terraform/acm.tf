@@ -32,5 +32,7 @@ resource "cloudflare_dns_record" "acm_validation" {
 
 resource "aws_acm_certificate_validation" "app" {
   certificate_arn         = aws_acm_certificate.app.arn
-  validation_record_fqdns = [local.acm_validation_record.name]
+  validation_record_fqdns = [trimsuffix(local.acm_validation_record.name, ".")]
+
+  depends_on = [cloudflare_dns_record.acm_validation]
 }
