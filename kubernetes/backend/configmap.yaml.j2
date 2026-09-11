@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: hospital-backend-config
-  namespace: hospitalsystem
+  namespace: "{{ k8s_namespace }}"
 data:
   ASPNETCORE_ENVIRONMENT: "Production"
   Database__RunMigrationsOnStartup: "false"

@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: hospital-frontend
-  namespace: hospitalsystem
+  namespace: "{{ k8s_namespace }}"
   labels:
     app.kubernetes.io/name: hospital-frontend
     app.kubernetes.io/part-of: hospitalsystem

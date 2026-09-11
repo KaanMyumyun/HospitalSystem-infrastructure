@@ -22,6 +22,18 @@ variable "github_repository" {
   default     = "KaanMyumyun/HospitalSystem"
 }
 
+variable "github_deploy_branch" {
+  description = "Only workflows running on this branch of github_repository can assume the ECR push role."
+  type        = string
+  default     = "main"
+}
+
+variable "github_deploy_environment" {
+  description = "Only jobs using this GitHub environment of github_repository can assume the EKS deploy role. Limit the environment to github_deploy_branch in the repository settings."
+  type        = string
+  default     = "production"
+}
+
 variable "app_domain_name" {
   description = "Public application domain name."
   type        = string

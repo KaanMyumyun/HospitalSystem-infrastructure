@@ -5,33 +5,7 @@
 
   tasks:
     - name: Configure kubeconfig
-      ansible.builtin.command:
-        argv:
-          - aws
-          - eks
-          - update-kubeconfig
-          - --region
-          - "{{ aws_region }}"
-          - --name
-          - "{{ eks_cluster_name }}"
-      changed_when: false
-
-    - name: Read EKS VPC ID
-      ansible.builtin.command:
-        argv:
-          - aws
-          - eks
-          - describe-cluster
-          - --region
-          - "{{ aws_region }}"
-          - --name
-          - "{{ eks_cluster_name }}"
-          - --query
-          - cluster.resourcesVpcConfig.vpcId
-          - --output
-          - text
-      register: eks_vpc_id
-      changed_when: false
+      ansible.builtin.import_tasks: ../tasks/kubeconfig.yml
 
     - name: Add or update EKS Helm chart repository
       ansible.builtin.shell: |
@@ -57,7 +31,7 @@
           - --set
           - "region={{ aws_region }}"
           - --set
-          - "vpcId={{ eks_vpc_id.stdout }}"
+          - "vpcId={{ vpc_id }}"
           - --set
           - serviceAccount.name=aws-load-balancer-controller
           - --set

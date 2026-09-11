@@ -5,17 +5,9 @@
 
   tasks:
     - name: Configure kubeconfig
-      ansible.builtin.command:
-        argv:
-          - aws
-          - eks
-          - update-kubeconfig
-          - --region
-          - "{{ aws_region }}"
-          - --name
-          - "{{ eks_cluster_name }}"
-      changed_when: false
-      failed_when: false
+      ansible.builtin.import_tasks: ../tasks/kubeconfig.yml
+      vars:
+        kubeconfig_optional: true
 
     - name: Delete Ingress so the AWS Load Balancer Controller removes the ALB
       ansible.builtin.command:
@@ -42,7 +34,7 @@
           - --region
           - "{{ aws_region }}"
           - --names
-          - "{{ monitoring_alb_name }}"
+          - "{{ alb_name }}"
           - --query
           - LoadBalancers[0].LoadBalancerArn
           - --output
@@ -75,7 +67,7 @@
           - --region
           - "{{ aws_region }}"
           - --names
-          - "{{ monitoring_alb_name }}"
+          - "{{ alb_name }}"
           - --query
           - LoadBalancers[0].DNSName
           - --output
@@ -87,24 +79,6 @@
       retries: 30
       delay: 10
 
-    - name: Look up Terraform VPC
-      ansible.builtin.command:
-        argv:
-          - aws
-          - ec2
-          - describe-vpcs
-          - --region
-          - "{{ aws_region }}"
-          - --filters
-          - "Name=tag:Name,Values={{ terraform_vpc_name_tag }}"
-          - --query
-          - Vpcs[0].VpcId
-          - --output
-          - text
-      register: vpc_lookup
-      changed_when: false
-      failed_when: false
-
     - name: Look up Kubernetes-managed security groups
       ansible.builtin.command:
         argv:
@@ -114,7 +88,7 @@
           - --region
           - "{{ aws_region }}"
           - --filters
-          - "Name=vpc-id,Values={{ vpc_lookup.stdout }}"
+          - "Name=vpc-id,Values={{ vpc_id }}"
           - "Name=group-name,Values=k8s-*"
           - --query
           - SecurityGroups[].GroupId
@@ -123,7 +97,6 @@
       register: k8s_security_groups
       changed_when: false
       failed_when: false
-      when: vpc_lookup.rc == 0 and vpc_lookup.stdout | length > 0 and vpc_lookup.stdout != "None"
 
     - name: Delete Kubernetes-managed security groups
       ansible.builtin.command:
@@ -139,6 +112,4 @@
       register: delete_security_groups
       changed_when: delete_security_groups.rc == 0
       failed_when: false
-      when:
-        - k8s_security_groups is not skipped
-        - k8s_security_groups.stdout | length > 0
+      when: k8s_security_groups.stdout | length > 0

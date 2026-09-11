@@ -24,6 +24,7 @@ tmp/
 dist/
 build/
 .generated/
+ansible/group_vars/all/terraform.yml
 
 # Local handoff and operator notes
 instructions.txt

@@ -2,7 +2,7 @@ apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: hospital-backend
-  namespace: hospitalsystem
+  namespace: "{{ k8s_namespace }}"
   labels:
     app.kubernetes.io/name: hospital-backend
     app.kubernetes.io/part-of: hospitalsystem
