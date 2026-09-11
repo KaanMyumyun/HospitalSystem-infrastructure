@@ -3,6 +3,18 @@
   hosts: local
   gather_facts: false
 
+  vars:
+    aws_auth_map_roles: |
+      - rolearn: {{ eks_node_role_arn }}
+        groups:
+        - system:bootstrappers
+        - system:nodes
+        username: system:node:{{ '{{' }}EC2PrivateDNSName{{ '}}' }}
+      - rolearn: {{ github_actions_deploy_role_arn }}
+        groups:
+        - {{ github_actions_deploy_group }}
+        username: {{ github_actions_deploy_username }}
+
   tasks:
     - name: Configure kubeconfig
       ansible.builtin.command:
@@ -29,6 +41,18 @@
           - yaml
       register: aws_auth_current
       changed_when: false
+      failed_when: false
+
+    - name: Create aws-auth ConfigMap when missing
+      ansible.builtin.shell: |
+        set -euo pipefail
+        kubectl create configmap aws-auth -n kube-system \
+          --from-file=mapRoles=/dev/stdin --dry-run=client -o yaml <<'MAPROLES' | kubectl apply -f -
+        {{ aws_auth_map_roles }}
+        MAPROLES
+      args:
+        executable: /bin/bash
+      when: aws_auth_current.rc != 0
 
     - name: Map GitHub Actions deploy role in aws-auth
       ansible.builtin.command:
@@ -42,6 +66,7 @@
           - --type
           - merge
           - -p
-          - |
-            {"data":{"mapRoles":"- rolearn: {{ eks_node_role_arn }}\n  groups:\n  - system:bootstrappers\n  - system:nodes\n  username: system:node:{{ '{{' }}EC2PrivateDNSName{{ '}}' }}\n- rolearn: {{ github_actions_deploy_role_arn }}\n  groups:\n  - {{ github_actions_deploy_group }}\n  username: {{ github_actions_deploy_username }}\n"}}
-      when: github_actions_deploy_role_arn not in aws_auth_current.stdout
+          - "{{ {'data': {'mapRoles': aws_auth_map_roles}} | to_json }}"
+      when:
+        - aws_auth_current.rc == 0
+        - github_actions_deploy_role_arn not in aws_auth_current.stdout
