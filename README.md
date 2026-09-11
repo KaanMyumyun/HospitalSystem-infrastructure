@@ -109,7 +109,7 @@ kubernetes/             # Jinja templates rendered by apply-kubernetes.yml
 
 The Kubernetes manifests define:
 
-- `hospitalsystem` namespace
+- `hospitalsystem` namespace, which enforces the baseline Pod Security Standard
 - backend Deployment and Service
 - frontend Deployment and Service
 - namespace-scoped RBAC for the GitHub Actions deploy role
