@@ -1,0 +1,41 @@
+# Limits what anyone who can edit the app Deployments, including the GitHub
+# Actions deploy role, can make them run: only this account's app images, with
+# the image's own entrypoint.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: "{{ k8s_namespace }}-trusted-workloads"
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments"]
+  variables:
+    - name: allowedRepositories
+      expression: "['{{ backend_repository_url }}', '{{ frontend_repository_url }}']"
+    - name: containers
+      expression: >-
+        object.spec.template.spec.containers +
+        (has(object.spec.template.spec.initContainers) ? object.spec.template.spec.initContainers : [])
+  validations:
+    - expression: >-
+        variables.containers.all(c, variables.allowedRepositories.exists(r,
+        c.image.startsWith(r + ':') || c.image.startsWith(r + '@')))
+      message: "Containers must use the hospital-backend or hospital-frontend image from this account's ECR."
+    - expression: "variables.containers.all(c, !has(c.command) && !has(c.args))"
+      message: "Containers must run their image's entrypoint; command and args overrides are not allowed."
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: "{{ k8s_namespace }}-trusted-workloads"
+spec:
+  policyName: "{{ k8s_namespace }}-trusted-workloads"
+  validationActions: ["Deny"]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: "{{ k8s_namespace }}"

@@ -36,6 +36,7 @@ kubernetes_manifests:
   - frontend/service.yaml.j2
   - frontend/hpa.yaml.j2
   - rbac/github-actions-deploy.yaml.j2
+  - policy/trusted-workloads.yaml.j2
   - backend/deployment.yaml.j2
   - frontend/deployment.yaml.j2
   - ingress/ingress.yaml.j2

@@ -92,6 +92,8 @@ kubernetes/             # Jinja templates rendered by apply-kubernetes.yml
 ├── namespace.yaml.j2
 ├── rbac/
 │   └── github-actions-deploy.yaml.j2
+├── policy/
+│   └── trusted-workloads.yaml.j2
 ├── backend/
 │   ├── configmap.yaml.j2
 │   ├── deployment.yaml.j2
@@ -111,6 +113,9 @@ The Kubernetes manifests define:
 - backend Deployment and Service
 - frontend Deployment and Service
 - namespace-scoped RBAC for the GitHub Actions deploy role
+- an admission policy that only lets the app Deployments run this account's
+  backend and frontend ECR images with their own entrypoint, so the deploy
+  role can change which release runs but not what code runs
 - ALB-backed Ingress for `app.hospitalsyst.cc`
 - HTTPS listener using ACM
 - `/api` routing to the backend
