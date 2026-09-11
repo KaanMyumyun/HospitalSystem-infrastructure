@@ -193,6 +193,13 @@ mode. The GitHub Actions deploy role must be mapped there to the
 `kubernetes/rbac/github-actions-deploy.yaml.j2` to update Deployments only in the
 application namespace.
 
+Both GitHub Actions roles trust only workflows running on `main` of
+`KaanMyumyun/HospitalSystem` (`github_deploy_branch` in Terraform). The build
+and deploy workflows qualify because `workflow_run` jobs run on the default
+branch; workflows on any other branch are refused. That makes `main` the only
+way into AWS, so protect it in GitHub: require pull requests and block force
+pushes and deletion.
+
 ## Terraform Workflow
 
 The cleaned Terraform files are intended to become the source of truth for the
