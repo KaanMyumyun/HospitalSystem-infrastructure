@@ -17,39 +17,33 @@ locals {
   backend_source_dir  = var.backend_source_dir != "" ? var.backend_source_dir : abspath("${path.module}/../../HospitalSystem")
   frontend_source_dir = var.frontend_source_dir != "" ? var.frontend_source_dir : "${local.backend_source_dir}/hospital-frontend"
 
-  ansible_bootstrap_vars = {
+  # Values Terraform owns. They are written to ansible/group_vars/all/terraform.yml
+  # so the bootstrap, standalone playbooks, and scripts share one source.
+  ansible_vars = {
     aws_region                        = var.aws_region
     eks_cluster_name                  = local.cluster_name
-    ecr_registry                      = local.ecr_registry
+    vpc_id                            = aws_vpc.kubes.id
     backend_repository_url            = aws_ecr_repository.backend.repository_url
     frontend_repository_url           = aws_ecr_repository.frontend.repository_url
-    backend_image                     = "${aws_ecr_repository.backend.repository_url}:${var.initial_image_tag}"
-    frontend_image                    = "${aws_ecr_repository.frontend.repository_url}:${var.initial_image_tag}"
+    initial_image_tag                 = var.initial_image_tag
     github_actions_deploy_role_arn    = aws_iam_role.eks_deploy_hospitalsystem.arn
     eks_node_role_arn                 = aws_iam_role.eks_node.arn
     load_balancer_controller_role_arn = aws_iam_role.load_balancer_controller.arn
     acm_certificate_arn               = aws_acm_certificate.app.arn
     app_domain_name                   = var.app_domain_name
     cloudflare_zone_name              = var.cloudflare_zone_name
-    cloudflare_record_name            = var.app_domain_name
+    monitoring_alarm_prefix           = var.project_name
   }
 
+  # The generated vars file is excluded; its content is tracked through ansible_vars.
   ansible_bootstrap_file_hashes = concat(
     [
-      for file in sort(fileset("${path.module}/../ansible/playbooks", "*.yml")) :
-      filesha256("${path.module}/../ansible/playbooks/${file}")
+      for file in sort(fileset("${path.module}/../ansible", "**/*.yml")) :
+      filesha256("${path.module}/../ansible/${file}")
+      if file != "group_vars/all/terraform.yml"
     ],
     [
-      for file in sort(fileset("${path.module}/../ansible/tasks", "*.yml")) :
-      filesha256("${path.module}/../ansible/tasks/${file}")
-    ],
-    [filesha256("${path.module}/../ansible/group_vars/all.yml")],
-    [
-      for file in sort(fileset("${path.module}/../kubernetes", "**/*.yaml")) :
-      filesha256("${path.module}/../kubernetes/${file}")
-    ],
-    [
-      for file in sort(fileset("${path.module}/../kubernetes", "**/*.yaml.j2")) :
+      for file in sort(fileset("${path.module}/../kubernetes", "**/*.j2")) :
       filesha256("${path.module}/../kubernetes/${file}")
     ]
   )

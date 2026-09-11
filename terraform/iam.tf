@@ -362,7 +362,7 @@ resource "aws_iam_role_policy" "eks_deploy_hospitalsystem" {
 }
 
 resource "aws_iam_role" "eks_cluster" {
-  name                 = "eks-pr1-cluster-role"
+  name                 = "${local.cluster_name}-cluster-role"
   path                 = "/"
   max_session_duration = 3600
   assume_role_policy   = data.aws_iam_policy_document.eks_cluster_assume_role.json

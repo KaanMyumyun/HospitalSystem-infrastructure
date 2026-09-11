@@ -1,5 +1,5 @@
 resource "aws_cloudwatch_metric_alarm" "nodegroup_no_running_nodes" {
-  alarm_name          = "hospitalsystem-nodegroup-no-running-nodes"
+  alarm_name          = "${var.project_name}-nodegroup-no-running-nodes"
   alarm_description   = "HospitalSystem EKS node group has no in-service instances"
   comparison_operator = "LessThanThreshold"
   evaluation_periods  = 1

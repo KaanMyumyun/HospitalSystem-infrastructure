@@ -10,8 +10,10 @@
           - aws
           - elbv2
           - describe-load-balancers
+          - --region
+          - "{{ aws_region }}"
           - --names
-          - "{{ monitoring_alb_name }}"
+          - "{{ alb_name }}"
           - --query
           - LoadBalancers[0].LoadBalancerArn
           - --output
@@ -25,6 +27,8 @@
           - aws
           - elbv2
           - describe-target-groups
+          - --region
+          - "{{ aws_region }}"
           - --load-balancer-arn
           - "{{ alb_arn.stdout }}"
           - --query
@@ -36,7 +40,7 @@
 
     - name: Require backend and frontend target groups
       ansible.builtin.fail:
-        msg: "Expected at least two target groups attached to {{ monitoring_alb_name }}."
+        msg: "Expected at least two target groups attached to {{ alb_name }}."
       when: target_group_arns.stdout.split() | length < 2
 
     - name: Set ALB CloudWatch dimension value

@@ -19,7 +19,7 @@
           - set
           - image
           - "deployment/{{ backend_deployment }}"
-          - "{{ backend_container }}={{ backend_repository_url | default(ecr_registry ~ '/' ~ backend_image_name) }}:{{ image_tag }}"
+          - "{{ backend_container }}={{ backend_repository_url }}:{{ image_tag }}"
           - -n
           - "{{ k8s_namespace }}"
       register: backend_update
@@ -31,7 +31,7 @@
           - set
           - image
           - "deployment/{{ frontend_deployment }}"
-          - "{{ frontend_container }}={{ frontend_repository_url | default(ecr_registry ~ '/' ~ frontend_image_name) }}:{{ image_tag }}"
+          - "{{ frontend_container }}={{ frontend_repository_url }}:{{ image_tag }}"
           - -n
           - "{{ k8s_namespace }}"
       register: frontend_update

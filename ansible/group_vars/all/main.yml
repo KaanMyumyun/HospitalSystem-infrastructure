@@ -1,0 +1,41 @@
+# Settings owned by Ansible. Values owned by Terraform (region, cluster name,
+# VPC, ECR URLs, IAM role ARNs, ACM ARN, domains) are generated next to this
+# file in terraform.yml by `./scripts/tf.sh apply`.
+
+k8s_namespace: hospitalsystem
+
+backend_image: "{{ backend_repository_url }}:{{ initial_image_tag }}"
+frontend_image: "{{ frontend_repository_url }}:{{ initial_image_tag }}"
+
+backend_deployment: hospital-backend
+backend_container: backend
+frontend_deployment: hospital-frontend
+frontend_container: frontend
+
+github_actions_deploy_group: "{{ k8s_namespace }}:deployers"
+github_actions_deploy_username: github-actions-eks-deploy
+
+ingress_name: hospital-ingress
+alb_name: hospital-system-alb
+
+cloudflare_record_name: "{{ app_domain_name }}"
+cloudflare_record_type: CNAME
+cloudflare_record_proxied: false
+cloudflare_record_ttl: 1
+cloudflare_alb_wait_retries: 30
+cloudflare_alb_wait_delay: 20
+
+monitoring_alert_sns_topic_arn: ""
+
+# Paths under kubernetes/, rendered and applied in this order.
+kubernetes_manifests:
+  - namespace.yaml.j2
+  - backend/configmap.yaml.j2
+  - backend/service.yaml.j2
+  - backend/hpa.yaml.j2
+  - frontend/service.yaml.j2
+  - frontend/hpa.yaml.j2
+  - rbac/github-actions-deploy.yaml.j2
+  - backend/deployment.yaml.j2
+  - frontend/deployment.yaml.j2
+  - ingress/ingress.yaml.j2
