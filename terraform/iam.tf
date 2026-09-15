@@ -79,6 +79,24 @@ data "aws_iam_policy_document" "load_balancer_controller_assume_role" {
   }
 }
 
+data "aws_iam_policy_document" "vpc_flow_logs_assume_role" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["vpc-flow-logs.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [local.account_id]
+    }
+  }
+}
+
 resource "aws_iam_openid_connect_provider" "eks" {
   url             = aws_eks_cluster.main.identity[0].oidc[0].issuer
   client_id_list  = ["sts.amazonaws.com"]
@@ -96,6 +114,9 @@ resource "aws_iam_openid_connect_provider" "github_actions" {
   ]
 }
 
+# Based on AWS's published controller policy, with every resource that supports
+# it limited to this account, region and VPC. Only actions that have no
+# resource-level permissions (Describe*, List*, Get*) keep "*".
 resource "aws_iam_policy" "load_balancer_controller" {
   name = "AWSLoadBalancerControllerIAMPolicy"
   path = "/"
@@ -106,7 +127,7 @@ resource "aws_iam_policy" "load_balancer_controller" {
       {
         Effect   = "Allow"
         Action   = ["iam:CreateServiceLinkedRole"]
-        Resource = "*"
+        Resource = "arn:aws:iam::${local.account_id}:role/aws-service-role/elasticloadbalancing.amazonaws.com/AWSServiceRoleForElasticLoadBalancing"
         Condition = {
           StringEquals = {
             "iam:AWSServiceName" = "elasticloadbalancing.amazonaws.com"
@@ -144,47 +165,67 @@ resource "aws_iam_policy" "load_balancer_controller" {
           "elasticloadbalancing:DescribeTargetGroupAttributes",
           "elasticloadbalancing:DescribeTargetGroups",
           "elasticloadbalancing:DescribeTargetHealth",
-          "elasticloadbalancing:DescribeTrustStores"
+          "elasticloadbalancing:DescribeTrustStores",
+          "acm:ListCertificates",
+          "iam:ListServerCertificates",
+          "shield:GetSubscriptionState"
         ]
         Resource = "*"
       },
       {
+        Effect   = "Allow"
+        Action   = ["acm:DescribeCertificate"]
+        Resource = aws_acm_certificate.app.arn
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["iam:GetServerCertificate"]
+        Resource = "arn:aws:iam::${local.account_id}:server-certificate/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["cognito-idp:DescribeUserPoolClient"]
+        Resource = "arn:aws:cognito-idp:${var.aws_region}:${local.account_id}:userpool/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["shield:CreateProtection", "shield:DeleteProtection", "shield:DescribeProtection"]
+        Resource = concat(["arn:aws:shield::${local.account_id}:protection/*"], local.elb_arns)
+      },
+      {
         Effect = "Allow"
         Action = [
-          "acm:DescribeCertificate",
-          "acm:ListCertificates",
-          "cognito-idp:DescribeUserPoolClient",
-          "iam:GetServerCertificate",
-          "iam:ListServerCertificates",
-          "shield:CreateProtection",
-          "shield:DeleteProtection",
-          "shield:DescribeProtection",
-          "shield:GetSubscriptionState",
           "waf-regional:AssociateWebACL",
           "waf-regional:DisassociateWebACL",
           "waf-regional:GetWebACL",
-          "waf-regional:GetWebACLForResource",
+          "waf-regional:GetWebACLForResource"
+        ]
+        Resource = concat(["arn:aws:waf-regional:${var.aws_region}:${local.account_id}:webacl/*"], local.elb_arns)
+      },
+      {
+        Effect = "Allow"
+        Action = [
           "wafv2:AssociateWebACL",
           "wafv2:DisassociateWebACL",
           "wafv2:GetWebACL",
           "wafv2:GetWebACLForResource"
         ]
-        Resource = "*"
+        Resource = concat(["arn:aws:wafv2:${var.aws_region}:${local.account_id}:regional/webacl/*/*"], local.elb_arns)
       },
       {
         Effect   = "Allow"
         Action   = ["ec2:AuthorizeSecurityGroupIngress", "ec2:RevokeSecurityGroupIngress"]
-        Resource = "*"
+        Resource = "${local.ec2_arn_prefix}:security-group/*"
       },
       {
         Effect   = "Allow"
         Action   = ["ec2:CreateSecurityGroup"]
-        Resource = "*"
+        Resource = ["${local.ec2_arn_prefix}:security-group/*", aws_vpc.kubes.arn]
       },
       {
         Effect   = "Allow"
         Action   = ["ec2:CreateTags"]
-        Resource = "arn:aws:ec2:*:*:security-group/*"
+        Resource = "${local.ec2_arn_prefix}:security-group/*"
         Condition = {
           StringEquals = {
             "ec2:CreateAction" = "CreateSecurityGroup"
@@ -197,7 +238,7 @@ resource "aws_iam_policy" "load_balancer_controller" {
       {
         Effect   = "Allow"
         Action   = ["ec2:CreateTags", "ec2:DeleteTags"]
-        Resource = "arn:aws:ec2:*:*:security-group/*"
+        Resource = "${local.ec2_arn_prefix}:security-group/*"
         Condition = {
           Null = {
             "aws:RequestTag/elbv2.k8s.aws/cluster"  = "true"
@@ -207,8 +248,8 @@ resource "aws_iam_policy" "load_balancer_controller" {
       },
       {
         Effect   = "Allow"
-        Action   = ["ec2:AuthorizeSecurityGroupIngress", "ec2:DeleteSecurityGroup", "ec2:RevokeSecurityGroupIngress"]
-        Resource = "*"
+        Action   = ["ec2:DeleteSecurityGroup"]
+        Resource = "${local.ec2_arn_prefix}:security-group/*"
         Condition = {
           Null = {
             "aws:ResourceTag/elbv2.k8s.aws/cluster" = "false"
@@ -218,7 +259,7 @@ resource "aws_iam_policy" "load_balancer_controller" {
       {
         Effect   = "Allow"
         Action   = ["elasticloadbalancing:CreateLoadBalancer", "elasticloadbalancing:CreateTargetGroup"]
-        Resource = "*"
+        Resource = concat(local.elb_arns, local.target_grp_arns)
         Condition = {
           Null = {
             "aws:RequestTag/elbv2.k8s.aws/cluster" = "false"
@@ -226,9 +267,14 @@ resource "aws_iam_policy" "load_balancer_controller" {
         }
       },
       {
-        Effect   = "Allow"
-        Action   = ["elasticloadbalancing:CreateListener", "elasticloadbalancing:CreateRule", "elasticloadbalancing:DeleteListener", "elasticloadbalancing:DeleteRule"]
-        Resource = "*"
+        Effect = "Allow"
+        Action = [
+          "elasticloadbalancing:CreateListener",
+          "elasticloadbalancing:CreateRule",
+          "elasticloadbalancing:DeleteListener",
+          "elasticloadbalancing:DeleteRule"
+        ]
+        Resource = concat(local.elb_arns, local.listener_arns, local.rule_arns)
       },
       {
         Effect = "Allow"
@@ -236,11 +282,7 @@ resource "aws_iam_policy" "load_balancer_controller" {
           "elasticloadbalancing:AddTags",
           "elasticloadbalancing:RemoveTags"
         ]
-        Resource = [
-          "arn:aws:elasticloadbalancing:*:*:loadbalancer/app/*/*",
-          "arn:aws:elasticloadbalancing:*:*:loadbalancer/net/*/*",
-          "arn:aws:elasticloadbalancing:*:*:targetgroup/*/*"
-        ]
+        Resource = concat(local.elb_arns, local.target_grp_arns)
         Condition = {
           Null = {
             "aws:RequestTag/elbv2.k8s.aws/cluster"  = "true"
@@ -260,7 +302,7 @@ resource "aws_iam_policy" "load_balancer_controller" {
           "elasticloadbalancing:SetRulePriorities",
           "elasticloadbalancing:SetWebAcl"
         ]
-        Resource = "*"
+        Resource = concat(local.elb_arns, local.listener_arns, local.rule_arns, local.target_grp_arns)
       },
       {
         Effect = "Allow"
@@ -277,7 +319,7 @@ resource "aws_iam_policy" "load_balancer_controller" {
           "elasticloadbalancing:SetSecurityGroups",
           "elasticloadbalancing:SetSubnets"
         ]
-        Resource = "*"
+        Resource = concat(local.elb_arns, local.listener_arns, local.target_grp_arns)
         Condition = {
           Null = {
             "aws:ResourceTag/elbv2.k8s.aws/cluster" = "false"
@@ -287,7 +329,7 @@ resource "aws_iam_policy" "load_balancer_controller" {
       {
         Effect   = "Allow"
         Action   = ["elasticloadbalancing:DeregisterTargets", "elasticloadbalancing:RegisterTargets"]
-        Resource = "arn:aws:elasticloadbalancing:*:*:targetgroup/*/*"
+        Resource = local.target_grp_arns
       }
     ]
   })
@@ -302,6 +344,34 @@ resource "aws_iam_role" "load_balancer_controller" {
 resource "aws_iam_role_policy_attachment" "load_balancer_controller" {
   role       = aws_iam_role.load_balancer_controller.name
   policy_arn = aws_iam_policy.load_balancer_controller.arn
+}
+
+resource "aws_iam_role" "vpc_flow_logs" {
+  name                 = "${local.vpc_name}-vpc-flow-logs"
+  path                 = "/"
+  max_session_duration = 3600
+  assume_role_policy   = data.aws_iam_policy_document.vpc_flow_logs_assume_role.json
+}
+
+resource "aws_iam_role_policy" "vpc_flow_logs" {
+  name = "${local.vpc_name}-vpc-flow-logs-write"
+  role = aws_iam_role.vpc_flow_logs.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "WriteFlowLogs"
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogStream",
+          "logs:DescribeLogStreams",
+          "logs:PutLogEvents"
+        ]
+        Resource = "${aws_cloudwatch_log_group.vpc_flow_logs.arn}:*"
+      }
+    ]
+  })
 }
 
 resource "aws_iam_role" "ecr_push_hospitalsystem" {
@@ -353,21 +423,63 @@ resource "aws_iam_role" "eks_deploy_hospitalsystem" {
   assume_role_policy   = data.aws_iam_policy_document.github_actions_assume_role["eks_deploy"].json
 }
 
+# The EKS endpoint is private, so the deploy job doesn't call the Kubernetes
+# API. It may only send the deploy document to the ops instance and read the
+# result.
 resource "aws_iam_role_policy" "eks_deploy_hospitalsystem" {
-  name = "eks-deploy-hospitalsystem-cluster-describe"
+  name = "eks-deploy-hospitalsystem-ssm-deploy"
   role = aws_iam_role.eks_deploy_hospitalsystem.id
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
-        Sid      = "AllowEksDescribeCluster"
+        Sid      = "SendDeployDocumentToOpsInstance"
         Effect   = "Allow"
-        Action   = "eks:DescribeCluster"
-        Resource = aws_eks_cluster.main.arn
+        Action   = "ssm:SendCommand"
+        Resource = [aws_ssm_document.deploy.arn, aws_instance.ops.arn]
+      },
+      {
+        Sid    = "FindOpsInstanceAndReadResults"
+        Effect = "Allow"
+        Action = [
+          "ec2:DescribeInstances",
+          "ssm:ListCommandInvocations",
+          "ssm:ListCommands"
+        ]
+        Resource = "*"
       }
     ]
   })
+}
+
+data "aws_iam_policy_document" "ops_assume_role" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["ec2.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role" "ops" {
+  name                 = local.ops_name
+  path                 = "/"
+  max_session_duration = 3600
+  assume_role_policy   = data.aws_iam_policy_document.ops_assume_role.json
+}
+
+resource "aws_iam_role_policy_attachment" "ops_ssm" {
+  role       = aws_iam_role.ops.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+resource "aws_iam_instance_profile" "ops" {
+  name = local.ops_name
+  role = aws_iam_role.ops.name
 }
 
 resource "aws_iam_role" "eks_cluster" {

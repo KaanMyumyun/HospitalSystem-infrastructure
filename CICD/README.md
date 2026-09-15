@@ -12,8 +12,10 @@ this infrastructure repository.
 ## Workflow Order
 
 1. `CI`
+   - runs on pull requests, pushes to `main`, and weekly (Mondays 03:00 UTC)
+     so published images pick up base image security fixes
    - restores, builds and tests the backend
-   - lints and builds the frontend
+   - lints, tests and builds the frontend
    - builds both Docker images and fails on fixable `HIGH` or `CRITICAL`
      vulnerabilities found by Trivy
 
@@ -28,9 +30,12 @@ this infrastructure repository.
    - runs after image build and push succeeds
    - waits for approval in the `production` GitHub environment
    - assumes the AWS EKS deploy role through OIDC
-   - updates kubeconfig for the `EKS_CLUSTER_NAME` repository variable
-   - sets backend and frontend Deployment images to the `YYYY-MM-DD-shortsha` tag
-   - waits for rollout completion when deployments are scaled above zero
+   - finds the ops instance named in the `DEPLOY_INSTANCE_NAME` repository
+     variable and sends it the `DEPLOY_SSM_DOCUMENT` SSM document, because the
+     EKS API endpoint is private
+   - on the instance, the document sets backend and frontend Deployment images
+     to the `YYYY-MM-DD-shortsha` tag and waits for rollout completion when
+     deployments are scaled above zero
 
 If the app is scaled down to zero, the deploy workflow still updates the
 Deployment image fields to the new `YYYY-MM-DD-shortsha` tag. It skips waiting for rollout

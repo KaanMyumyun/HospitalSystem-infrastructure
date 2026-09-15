@@ -36,7 +36,14 @@ resource "terraform_data" "ansible_bootstrap" {
     aws_iam_role.eks_deploy_hospitalsystem,
     aws_acm_certificate_validation.app,
     terraform_data.initial_ecr_image_push,
-    local_file.ansible_vars
+    local_file.ansible_vars,
+    # The playbooks reach the private API through an SSM session on this instance.
+    aws_instance.ops,
+    aws_iam_role_policy_attachment.ops_ssm,
+    aws_vpc_endpoint.ssm,
+    aws_vpc_security_group_egress_rule.ops_vpc_https,
+    aws_vpc_security_group_ingress_rule.eks_api_from_ops,
+    aws_vpc_security_group_ingress_rule.vpc_endpoints_https
   ]
 }
 
@@ -48,6 +55,8 @@ resource "terraform_data" "kubernetes_cleanup" {
     eks_cluster_name = aws_eks_cluster.main.name
     aws_region       = var.aws_region
     vpc_id           = aws_vpc.kubes.id
+    k8s_namespace    = local.k8s_namespace
+    ops_instance_id  = aws_instance.ops.id
   }
 
   provisioner "local-exec" {
@@ -57,8 +66,15 @@ resource "terraform_data" "kubernetes_cleanup" {
     command     = "ansible-playbook ansible/playbooks/cleanup-kubernetes.yml -e '${jsonencode(self.input)}' || true"
   }
 
+  # Destroyed after the cleanup runs, so it can still reach the private API.
   depends_on = [
     aws_eks_cluster.main,
-    aws_eks_node_group.hospitalsystempr1
+    aws_eks_node_group.hospitalsystempr1,
+    aws_instance.ops,
+    aws_iam_role_policy_attachment.ops_ssm,
+    aws_vpc_endpoint.ssm,
+    aws_vpc_security_group_egress_rule.ops_vpc_https,
+    aws_vpc_security_group_ingress_rule.eks_api_from_ops,
+    aws_vpc_security_group_ingress_rule.vpc_endpoints_https
   ]
 }

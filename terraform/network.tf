@@ -1,11 +1,73 @@
 resource "aws_vpc" "kubes" {
   cidr_block           = "10.0.0.0/16"
   enable_dns_support   = true
-  enable_dns_hostnames = false
+  enable_dns_hostnames = true
   instance_tenancy     = "default"
 
   tags = {
     Name = "${local.vpc_name}-Terraform"
+  }
+}
+
+# AWS creates every VPC with a default security group that allows all traffic
+# between its members and all outbound traffic. Adopting it with no rule blocks
+# removes those rules, so anything launched without a group gets no access.
+resource "aws_default_security_group" "kubes" {
+  vpc_id = aws_vpc.kubes.id
+
+  tags = {
+    Name = "${local.vpc_name}-default-Terraform"
+  }
+}
+
+# Records connections in and out of the VPC so there is something to look at
+# after an incident.
+resource "aws_cloudwatch_log_group" "vpc_flow_logs" {
+  name              = "/aws/vpc/${local.vpc_name}/flow-logs"
+  retention_in_days = 365
+  kms_key_id        = aws_kms_key.main.arn
+}
+
+resource "aws_flow_log" "kubes" {
+  vpc_id               = aws_vpc.kubes.id
+  traffic_type         = "ALL"
+  log_destination_type = "cloud-watch-logs"
+  log_destination      = aws_cloudwatch_log_group.vpc_flow_logs.arn
+  iam_role_arn         = aws_iam_role.vpc_flow_logs.arn
+
+  tags = {
+    Name = "${local.vpc_name}-flow-logs-Terraform"
+  }
+}
+
+# Let the ops instance, which has no internet access, register with Systems
+# Manager and run sessions and commands. One AZ keeps the cost down; the ops
+# instance runs in the same one.
+resource "aws_vpc_endpoint" "ssm" {
+  for_each = toset(["ssm", "ssmmessages", "ec2messages"])
+
+  vpc_id              = aws_vpc.kubes.id
+  service_name        = "com.amazonaws.${var.aws_region}.${each.key}"
+  vpc_endpoint_type   = "Interface"
+  private_dns_enabled = true
+  subnet_ids          = [aws_subnet.private_a.id]
+  security_group_ids  = [aws_security_group.vpc_endpoints.id]
+
+  tags = {
+    Name = "${local.vpc_name}-${each.key}-Terraform"
+  }
+}
+
+# Free. Carries S3 traffic from the private subnets, including Amazon Linux
+# package downloads and ECR image layers, without going through the NAT gateways.
+resource "aws_vpc_endpoint" "s3" {
+  vpc_id            = aws_vpc.kubes.id
+  service_name      = "com.amazonaws.${var.aws_region}.s3"
+  vpc_endpoint_type = "Gateway"
+  route_table_ids   = [aws_route_table.private_a.id, aws_route_table.private_b.id]
+
+  tags = {
+    Name = "${local.vpc_name}-s3-Terraform"
   }
 }
 

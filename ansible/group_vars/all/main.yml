@@ -1,8 +1,10 @@
 # Settings owned by Ansible. Values owned by Terraform (region, cluster name,
-# VPC, ECR URLs, IAM role ARNs, ACM ARN, domains) are generated next to this
-# file in terraform.yml by `./scripts/tf.sh apply`.
+# namespace, deploy group, VPC, ECR URLs, IAM role ARNs, ACM ARN, domains, ops
+# instance ID) are generated next to this file in terraform.yml by
+# `./scripts/tf.sh apply`.
 
-k8s_namespace: hospitalsystem
+# Local end of the SSM tunnel to the private EKS API (tasks/kubeconfig.yml).
+eks_tunnel_local_port: 8443
 
 backend_image: "{{ backend_repository_url }}:{{ initial_image_tag }}"
 frontend_image: "{{ frontend_repository_url }}:{{ initial_image_tag }}"
@@ -12,7 +14,6 @@ backend_container: backend
 frontend_deployment: hospital-frontend
 frontend_container: frontend
 
-github_actions_deploy_group: "{{ k8s_namespace }}:deployers"
 github_actions_deploy_username: github-actions-eks-deploy
 
 ingress_name: hospital-ingress

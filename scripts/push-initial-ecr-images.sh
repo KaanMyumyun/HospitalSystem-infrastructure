@@ -57,26 +57,41 @@ frontend_local_image="hospitalsystem-frontend-initial:${IMAGE_TAG}"
 backend_remote_image="${BACKEND_REPOSITORY_URL}:${IMAGE_TAG}"
 frontend_remote_image="${FRONTEND_REPOSITORY_URL}:${IMAGE_TAG}"
 
+# Skip an image whose tag is already in ECR, so a later apply doesn't replace
+# what CI pushed with whatever is checked out locally.
+image_exists() {
+  aws ecr describe-images \
+    --region "$AWS_REGION" \
+    --repository-name "${1#*/}" \
+    --image-ids "imageTag=$IMAGE_TAG" >/dev/null 2>&1
+}
+
 aws ecr get-login-password --region "$AWS_REGION" \
   | docker login --username AWS --password-stdin "$ECR_REGISTRY"
 
-docker build \
-  -t "$backend_local_image" \
-  -f "$BACKEND_SOURCE_DIR/$BACKEND_DOCKERFILE" \
-  "$BACKEND_SOURCE_DIR"
+if image_exists "$BACKEND_REPOSITORY_URL"; then
+  echo "$backend_remote_image already exists; not rebuilding it."
+else
+  docker build \
+    -t "$backend_local_image" \
+    -f "$BACKEND_SOURCE_DIR/$BACKEND_DOCKERFILE" \
+    "$BACKEND_SOURCE_DIR"
 
-docker tag "$backend_local_image" "$backend_remote_image"
-docker push "$backend_remote_image"
+  docker tag "$backend_local_image" "$backend_remote_image"
+  docker push "$backend_remote_image"
+  echo "Pushed $backend_remote_image"
+fi
 
-docker build \
-  --build-arg "VITE_API_URL=$FRONTEND_API_URL" \
-  -t "$frontend_local_image" \
-  -f "$FRONTEND_SOURCE_DIR/$FRONTEND_DOCKERFILE" \
-  "$FRONTEND_SOURCE_DIR"
+if image_exists "$FRONTEND_REPOSITORY_URL"; then
+  echo "$frontend_remote_image already exists; not rebuilding it."
+else
+  docker build \
+    --build-arg "VITE_API_URL=$FRONTEND_API_URL" \
+    -t "$frontend_local_image" \
+    -f "$FRONTEND_SOURCE_DIR/$FRONTEND_DOCKERFILE" \
+    "$FRONTEND_SOURCE_DIR"
 
-docker tag "$frontend_local_image" "$frontend_remote_image"
-docker push "$frontend_remote_image"
-
-echo "Pushed initial images:"
-echo "$backend_remote_image"
-echo "$frontend_remote_image"
+  docker tag "$frontend_local_image" "$frontend_remote_image"
+  docker push "$frontend_remote_image"
+  echo "Pushed $frontend_remote_image"
+fi

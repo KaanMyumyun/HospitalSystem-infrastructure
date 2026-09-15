@@ -10,7 +10,20 @@ locals {
   }
 
   eks_cluster_tag_key = "kubernetes.io/cluster/${local.cluster_name}"
-  ecr_registry        = "${local.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com"
+
+  k8s_namespace = "hospitalsystem"
+  # Bound to the deploy Role by kubernetes/rbac/github-actions-deploy.yaml.j2.
+  k8s_deploy_group = "${local.k8s_namespace}:deployers"
+  ops_name         = "${var.project_name}-ops"
+  ecr_registry     = "${local.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com"
+
+  # ARN prefixes that keep IAM policies to this account and region.
+  ec2_arn_prefix  = "arn:aws:ec2:${var.aws_region}:${local.account_id}"
+  elb_arn_prefix  = "arn:aws:elasticloadbalancing:${var.aws_region}:${local.account_id}"
+  elb_arns        = ["${local.elb_arn_prefix}:loadbalancer/app/*/*", "${local.elb_arn_prefix}:loadbalancer/net/*/*"]
+  listener_arns   = ["${local.elb_arn_prefix}:listener/app/*/*/*", "${local.elb_arn_prefix}:listener/net/*/*/*"]
+  rule_arns       = ["${local.elb_arn_prefix}:listener-rule/app/*/*/*/*", "${local.elb_arn_prefix}:listener-rule/net/*/*/*/*"]
+  target_grp_arns = ["${local.elb_arn_prefix}:targetgroup/*/*"]
 
   frontend_api_url = var.frontend_api_url != "" ? var.frontend_api_url : "https://${var.app_domain_name}/api"
 
@@ -33,6 +46,9 @@ locals {
     app_domain_name                   = var.app_domain_name
     cloudflare_zone_name              = var.cloudflare_zone_name
     monitoring_alarm_prefix           = var.project_name
+    k8s_namespace                     = local.k8s_namespace
+    github_actions_deploy_group       = local.k8s_deploy_group
+    ops_instance_id                   = aws_instance.ops.id
   }
 
   # The generated vars file is excluded; its content is tracked through ansible_vars.

@@ -1,7 +1,24 @@
+# Created before the cluster so EKS doesn't create it with no expiry.
+resource "aws_cloudwatch_log_group" "eks_cluster" {
+  name              = "/aws/eks/${local.cluster_name}/cluster"
+  retention_in_days = 365
+  kms_key_id        = aws_kms_key.main.arn
+}
+
 resource "aws_eks_cluster" "main" {
   name     = local.cluster_name
   role_arn = aws_iam_role.eks_cluster.arn
-  version  = "1.36"
+  version  = "1.35"
+
+  enabled_cluster_log_types = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
+
+  encryption_config {
+    resources = ["secrets"]
+
+    provider {
+      key_arn = aws_kms_key.main.arn
+    }
+  }
 
   kubernetes_network_config {
     ip_family         = "ipv4"
@@ -12,10 +29,17 @@ resource "aws_eks_cluster" "main" {
     enabled = false
   }
 
+  # Access entries grant the ops instance's role Kubernetes access. aws-auth
+  # still maps the nodes and the GitHub Actions deploy role.
+  access_config {
+    authentication_mode                         = "API_AND_CONFIG_MAP"
+    bootstrap_cluster_creator_admin_permissions = true
+  }
+
+  # Private only: reach the API through the ops instance (see ops.tf).
   vpc_config {
     endpoint_private_access = true
-    endpoint_public_access  = true
-    public_access_cidrs     = ["0.0.0.0/0"]
+    endpoint_public_access  = false
     subnet_ids              = [aws_subnet.private_a.id, aws_subnet.private_b.id]
   }
 
@@ -29,7 +53,10 @@ resource "aws_eks_cluster" "main" {
     ignore_changes = [vpc_config[0].subnet_ids]
   }
 
-  depends_on = [aws_iam_role_policy_attachment.eks_cluster_policy]
+  depends_on = [
+    aws_cloudwatch_log_group.eks_cluster,
+    aws_iam_role_policy_attachment.eks_cluster_policy
+  ]
 }
 
 resource "aws_eks_node_group" "hospitalsystempr1" {

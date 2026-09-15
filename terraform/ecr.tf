@@ -1,11 +1,29 @@
 resource "aws_ecr_repository" "backend" {
   name         = "hospital-backend"
   force_delete = true
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  encryption_configuration {
+    encryption_type = "KMS"
+    kms_key         = aws_kms_key.main.arn
+  }
 }
 
 resource "aws_ecr_repository" "frontend" {
   name         = "hospital-frontend"
   force_delete = true
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  encryption_configuration {
+    encryption_type = "KMS"
+    kms_key         = aws_kms_key.main.arn
+  }
 }
 
 resource "aws_ecr_lifecycle_policy" "backend" {

@@ -77,7 +77,9 @@ if [[ "$RUN_ANSIBLE_PLAYBOOKS" == "true" ]]; then
 fi
 
 section "Kubeconfig"
-aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME" >/dev/null
+# The EKS endpoint is private; the playbook opens the SSM tunnel kubectl uses.
+require_command ansible-playbook
+(cd "$REPO_ROOT" && ansible-playbook ansible/playbooks/kubeconfig.yml >/dev/null)
 kubectl config current-context
 
 section "Namespace"

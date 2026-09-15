@@ -27,8 +27,8 @@ That order was deliberate. Building it in the console first meant I understood
 what each resource did and how the pieces connected before codifying any of it,
 and the import brought a working environment under version control without
 retyping every resource by hand. Turning generated output into readable,
-maintainable Terraform was most of the work. The raw Terracognita output stays
-under `terraform/imports/` locally and is not committed.
+maintainable Terraform was most of the work. The raw Terracognita output was
+only a starting point and was never committed.
 
 See [Terraform Workflow](#terraform-workflow) for how the cleaned Terraform is
 being adopted as the source of truth for the AWS layer.
@@ -56,8 +56,9 @@ Main AWS resources used by this deployment:
 | Network | VPC `kubes` with CIDR `10.0.0.0/16` | Isolated AWS network for the EKS deployment. |
 | Public subnets | `p1` `10.0.0.0/20` in `eu-north-1a`, `p2` `10.0.16.0/20` in `eu-north-1b` | Host internet-facing resources such as the ALB and NAT gateways. Tagged for Kubernetes external load balancers. |
 | Private subnets | `private1` `10.0.32.0/20` in `eu-north-1a`, `private2` `10.0.48.0/20` in `eu-north-1b` | Host EKS worker nodes and application pods away from direct public internet exposure. Tagged for internal Kubernetes load balancers. |
-| Routing | Internet gateway, public route table, private route tables, NAT gateways, and Elastic IPs | Public subnets route through the internet gateway. Private subnets route outbound traffic through NAT gateways. |
-| Compute | Amazon EKS cluster `eks-pr1`, managed node group `hospitalsystempr1`, Amazon Linux 2023 worker nodes | Runs the Kubernetes control plane and worker capacity for the app. The node group is sized for low-cost testing and can scale to zero. |
+| Routing | Internet gateway, public route table, private route tables, NAT gateways, Elastic IPs, and VPC endpoints for SSM and S3 | Public subnets route through the internet gateway. Private subnets route outbound traffic through NAT gateways, and S3 traffic through the free gateway endpoint. |
+| Compute | Amazon EKS cluster `eks-pr1`, managed node group `hospitalsystempr1`, Amazon Linux 2023 worker nodes | Runs the Kubernetes control plane and worker capacity for the app. The node group is sized for low-cost testing and can scale to zero. The Kubernetes API endpoint is private. |
+| Cluster access | EC2 instance `hospitalsystem-ops` in a private subnet, SSM document `hospitalsystem-deploy`, EKS access entry | Accepts no inbound connections and has no internet access. Operators reach the private API through an SSM port-forwarding session on it, and GitHub Actions deploys by sending it the SSM document. |
 | Containers | Amazon ECR repositories for `hospital-backend` and `hospital-frontend` | Stores backend and frontend images built by GitHub Actions. |
 | Ingress | AWS Application Load Balancer, HTTP/HTTPS listeners, target groups, and AWS Load Balancer Controller | Exposes the app publicly and maps Kubernetes Ingress rules to AWS load-balancing resources. |
 | TLS | AWS Certificate Manager certificate | Provides HTTPS for `app.hospitalsyst.cc`; HTTP traffic redirects to HTTPS. |
@@ -158,15 +159,17 @@ The workflows are chained so deployment only happens after build and test
 success:
 
 1. `CI`
-   - runs on pull requests and pushes to `main`
+   - runs on pull requests, pushes to `main`, and weekly (Mondays 03:00 UTC)
+     so published images pick up base image security fixes
    - restores, builds and tests the backend
-   - lints and builds the frontend
+   - lints, tests and builds the frontend
    - builds both Docker images and scans them with Trivy; a fixable `HIGH` or
      `CRITICAL` vulnerability fails the run. The scan runs here, in a job with
      no AWS or Docker Hub credentials.
 
 2. `Docker Image CI`
-   - runs after the `CI` workflow succeeds on a push to `main`
+   - runs after the `CI` workflow succeeds on a push to `main` or on the weekly
+     scheduled run
    - checks out the exact commit that passed CI
    - builds backend and frontend Docker images
    - logs in to Docker Hub and Amazon ECR
@@ -185,22 +188,31 @@ Images are tagged three ways:
    - runs after the Docker image workflow succeeds
    - waits for a reviewer to approve it in the `production` GitHub environment
    - assumes the AWS EKS deployment role through OIDC
-   - updates kubeconfig for the cluster in the `EKS_CLUSTER_NAME` repository
-     variable, in the `K8S_NAMESPACE` namespace
-   - sets backend and frontend Deployment images to the date + short SHA tag
-   - checks whether the app deployments are scaled above `0`
-   - waits for rollout completion
+   - finds the running ops instance and sends it the deploy SSM document with
+     the date + short SHA tag
+   - on the instance, the document sets the backend and frontend Deployment
+     images, checks whether the app is scaled above `0`, and waits for rollout
+     completion
+   - fails unless the SSM command succeeded, and prints its output
 
-If the app is scaled down to `0`, the deploy workflow still updates the
-Deployment image fields to the new date + short SHA tag. It skips waiting for a
-rollout because no pods are running. The next manual scale-up starts pods from
-that exact image tag.
+The Kubernetes API endpoint is private, so GitHub-hosted runners can't reach
+it. The deploy role may only send the `hospitalsystem-deploy` document to the
+ops instance. The document's only input is the image tag: it builds the image
+URLs from the ECR repositories itself, and the admission policy still rejects
+any other image. A self-hosted runner inside the VPC was ruled out because the
+application repository is public, and pull requests from forks could run
+workflows on it.
 
-The EKS cluster currently uses the legacy `aws-auth` ConfigMap authentication
-mode. The GitHub Actions deploy role must be mapped there to the
-`hospitalsystem:deployers` Kubernetes group, which is bound by
+If the app is scaled down to `0`, the deploy still updates the Deployment image
+fields to the new date + short SHA tag. It skips waiting for a rollout because
+no pods are running. The next manual scale-up starts pods from that exact image
+tag.
+
+The ops instance's IAM role gets Kubernetes access through an EKS access entry
+in the `hospitalsystem:deployers` group, which is bound by
 `kubernetes/rbac/github-actions-deploy.yaml.j2` to update Deployments only in the
-application namespace.
+application namespace. The cluster uses `API_AND_CONFIG_MAP` authentication, so
+the nodes and the GitHub Actions deploy role are still mapped in `aws-auth`.
 
 The GitHub Actions roles trust only `KaanMyumyun/HospitalSystem`, each with one
 OIDC subject:
@@ -216,9 +228,10 @@ OIDC subject:
   `main` only and add required reviewers, so every deploy waits for approval.
 
 The workflows pin every action to a commit SHA, and Dependabot keeps the pins
-current. The deploy workflow reads the cluster name and namespace from the
-`EKS_CLUSTER_NAME` and `K8S_NAMESPACE` repository variables; the application
-README lists all the variables the workflows need.
+current. The deploy workflow reads the SSM document and ops instance name from
+the `DEPLOY_SSM_DOCUMENT` and `DEPLOY_INSTANCE_NAME` repository variables (the
+`deploy_ssm_document_name` and `ops_instance_name` Terraform outputs); the
+application README lists all the variables the workflows need.
 
 ## Terraform Workflow
 
@@ -249,16 +262,19 @@ Requirements:
 - `aws`
 - `kubectl`
 - `helm`
-- AWS credentials that can access the `eks-pr1` cluster
+- `session-manager-plugin`, because the EKS API endpoint is private (see
+  [Cluster access](#cluster-access))
+- AWS credentials that can access the `eks-pr1` cluster and start SSM sessions
 
 Configuration values live in one place each:
 
-- Terraform writes the values it owns (region, cluster name, VPC ID, ECR
-  repository URLs, IAM role ARNs, ACM certificate ARN, domains, alarm prefix)
-  to the ignored `ansible/group_vars/all/terraform.yml` on every apply.
+- Terraform writes the values it owns (region, cluster name, namespace, deploy
+  group, VPC ID, ECR repository URLs, IAM role ARNs, ACM certificate ARN,
+  domains, alarm prefix, ops instance ID) to the ignored
+  `ansible/group_vars/all/terraform.yml` on every apply.
 - `ansible/group_vars/all/main.yml` holds the Ansible-owned settings: the
-  namespace, Deployment, Ingress, and ALB names, Cloudflare and monitoring
-  options, and the manifest list. The Kubernetes templates and
+  Deployment, Ingress, and ALB names, the SSM tunnel port, Cloudflare and
+  monitoring options, and the manifest list. The Kubernetes templates and
   `scripts/monitoring.sh` read these same values.
 
 Run `./scripts/tf.sh apply` once on a machine before running playbooks by hand;
@@ -314,7 +330,8 @@ header` before any resource is created.
 
 On a fresh AWS account, Terraform detects the active account ID, creates the
 ECR repositories, builds and pushes initial backend/frontend `latest` images
-from the local application source, requests and validates the ACM certificate
+from the local application source (skipping any image whose `latest` tag is
+already in ECR, so a later apply doesn't replace what CI pushed), requests and validates the ACM certificate
 through Cloudflare DNS, and then runs the Ansible Kubernetes bootstrap.
 
 If you only want Terraform to manage AWS resources and skip the Ansible
@@ -343,6 +360,28 @@ Configure kubeconfig:
 ```bash
 ansible-playbook ansible/playbooks/kubeconfig.yml
 ```
+
+### Cluster access
+
+The EKS API endpoint is private. Every playbook that talks to the cluster, and
+`scripts/monitoring.sh`, goes through `ansible/tasks/kubeconfig.yml`. It opens
+an SSM port-forwarding session through the ops instance to the endpoint and
+points the kubeconfig cluster at `https://127.0.0.1:8443`
+(`eks_tunnel_local_port`). The session stays open for plain `kubectl` commands
+and closes after 12 hours. Close it sooner, and always after rebuilding the
+cluster, since an open session still points at the old endpoint:
+
+```bash
+pkill -f AWS-StartPortForwardingSessionToRemoteHost
+```
+
+The ops instance has no internet access: its security group only allows HTTPS
+inside the VPC and to S3. It reaches Systems Manager through the `ssm`,
+`ssmmessages` and `ec2messages` interface endpoints (in one AZ, roughly $25 a
+month), and the Amazon Linux package repositories through the S3 gateway
+endpoint. Without kubectl on the instance, the deploy document calls the
+Kubernetes API with Python's standard library, using the cluster endpoint and CA
+that Terraform writes into the document.
 
 Apply the Kubernetes manifests:
 
@@ -506,7 +545,8 @@ During apply, Terraform recreates AWS resources and then runs
 
 - detects the active AWS account ID
 - creates ECR repositories for backend and frontend images
-- builds and pushes backend/frontend `latest` images from local source
+- builds and pushes backend/frontend `latest` images from local source, unless
+  ECR already has them
 - creates the GitHub Actions OIDC provider and IAM roles
 - creates the EKS cluster and node group
 - requests the ACM certificate for `app.hospitalsyst.cc`

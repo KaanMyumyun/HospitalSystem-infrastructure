@@ -29,8 +29,23 @@ output "github_actions_ecr_push_role_arn" {
 }
 
 output "github_actions_deploy_role_arn" {
-  description = "GitHub Actions role ARN for deploying to EKS."
+  description = "GitHub Actions role ARN for deploying to EKS. Set it as the AWS_DEPLOY_ROLE_TO_ASSUME repository variable."
   value       = aws_iam_role.eks_deploy_hospitalsystem.arn
+}
+
+output "deploy_ssm_document_name" {
+  description = "SSM document the deploy workflow sends to the ops instance. Set it as the DEPLOY_SSM_DOCUMENT repository variable."
+  value       = aws_ssm_document.deploy.name
+}
+
+output "ops_instance_name" {
+  description = "Name tag of the ops instance. Set it as the DEPLOY_INSTANCE_NAME repository variable."
+  value       = local.ops_name
+}
+
+output "ops_instance_id" {
+  description = "Ops instance ID, the SSM target for reaching the private EKS API."
+  value       = aws_instance.ops.id
 }
 
 output "load_balancer_controller_role_arn" {
