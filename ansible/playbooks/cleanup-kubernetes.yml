@@ -25,6 +25,27 @@
       changed_when: "'deleted' in delete_ingress.stdout"
       failed_when: false
 
+    # Let the controller remove the ALB first: it also deletes its security
+    # groups and the rule it added to the cluster security group. Deleting the
+    # ALB directly skips that and leaves them blocking VPC deletion.
+    - name: Wait for the controller to delete the ALB
+      ansible.builtin.command:
+        argv:
+          - aws
+          - elbv2
+          - describe-load-balancers
+          - --region
+          - "{{ aws_region }}"
+          - --names
+          - "{{ alb_name }}"
+      register: alb_controller_wait
+      changed_when: false
+      failed_when: false
+      until: alb_controller_wait.rc != 0
+      retries: 18
+      delay: 10
+      when: delete_ingress.changed
+
     - name: Look up Kubernetes ALB
       ansible.builtin.command:
         argv:
@@ -98,6 +119,38 @@
       changed_when: false
       failed_when: false
 
+    # A group can't be deleted while another group's rule references it, and
+    # the controller adds one to the EKS cluster security group.
+    - name: Revoke rules that reference Kubernetes-managed security groups
+      ansible.builtin.shell: |
+        set -euo pipefail
+        for referencing in $(aws ec2 describe-security-groups --region "$REGION" \
+            --filters "Name=vpc-id,Values=$VPC_ID" "Name=ip-permission.group-id,Values=$SG_ID" \
+            --query 'SecurityGroups[].GroupId' --output text); do
+          rules=$(aws ec2 describe-security-group-rules --region "$REGION" \
+            --filters "Name=group-id,Values=$referencing" \
+            --query "SecurityGroupRules[?!IsEgress && ReferencedGroupInfo.GroupId=='$SG_ID'].SecurityGroupRuleId" \
+            --output text)
+          if [ -n "$rules" ]; then
+            # shellcheck disable=SC2086
+            aws ec2 revoke-security-group-ingress --region "$REGION" \
+              --group-id "$referencing" --security-group-rule-ids $rules >/dev/null
+            echo "revoked $rules in $referencing"
+          fi
+        done
+      args:
+        executable: /bin/bash
+      environment:
+        REGION: "{{ aws_region }}"
+        VPC_ID: "{{ vpc_id }}"
+        SG_ID: "{{ item }}"
+      loop: "{{ k8s_security_groups.stdout.split() }}"
+      register: revoke_references
+      changed_when: "'revoked' in revoke_references.stdout"
+      failed_when: false
+      when: k8s_security_groups.stdout | length > 0
+
+    # The ALB's network interfaces can take a minute to release after it is gone.
     - name: Delete Kubernetes-managed security groups
       ansible.builtin.command:
         argv:
@@ -112,4 +165,7 @@
       register: delete_security_groups
       changed_when: delete_security_groups.rc == 0
       failed_when: false
+      until: delete_security_groups.rc == 0
+      retries: 12
+      delay: 10
       when: k8s_security_groups.stdout | length > 0

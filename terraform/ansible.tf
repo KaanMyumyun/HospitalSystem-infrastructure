@@ -37,6 +37,8 @@ resource "terraform_data" "ansible_bootstrap" {
     aws_acm_certificate_validation.app,
     terraform_data.initial_ecr_image_push,
     local_file.ansible_vars,
+    # The bootstrap installs the controller, which needs its permissions to create the ALB.
+    aws_iam_role_policy.load_balancer_controller,
     # The playbooks reach the private API through an SSM session on this instance.
     aws_instance.ops,
     aws_iam_role_policy_attachment.ops_ssm,
@@ -66,10 +68,12 @@ resource "terraform_data" "kubernetes_cleanup" {
     command     = "ansible-playbook ansible/playbooks/cleanup-kubernetes.yml -e '${jsonencode(self.input)}' || true"
   }
 
-  # Destroyed after the cleanup runs, so it can still reach the private API.
+  # Destroyed after the cleanup runs, so it can still reach the private API and
+  # the controller can still delete the ALB.
   depends_on = [
     aws_eks_cluster.main,
     aws_eks_node_group.hospitalsystempr1,
+    aws_iam_role_policy.load_balancer_controller,
     aws_instance.ops,
     aws_iam_role_policy_attachment.ops_ssm,
     aws_vpc_endpoint.ssm,

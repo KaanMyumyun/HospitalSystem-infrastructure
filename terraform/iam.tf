@@ -117,9 +117,12 @@ resource "aws_iam_openid_connect_provider" "github_actions" {
 # Based on AWS's published controller policy, with every resource that supports
 # it limited to this account, region and VPC. Only actions that have no
 # resource-level permissions (Describe*, List*, Get*) keep "*".
-resource "aws_iam_policy" "load_balancer_controller" {
+#
+# Inline, because the scoped ARNs push it past the 6,144-character limit for
+# managed policies; inline role policies allow 10,240.
+resource "aws_iam_role_policy" "load_balancer_controller" {
   name = "AWSLoadBalancerControllerIAMPolicy"
-  path = "/"
+  role = aws_iam_role.load_balancer_controller.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -339,11 +342,6 @@ resource "aws_iam_role" "load_balancer_controller" {
   name               = "AmazonEKSLoadBalancerControllerRole"
   path               = "/"
   assume_role_policy = data.aws_iam_policy_document.load_balancer_controller_assume_role.json
-}
-
-resource "aws_iam_role_policy_attachment" "load_balancer_controller" {
-  role       = aws_iam_role.load_balancer_controller.name
-  policy_arn = aws_iam_policy.load_balancer_controller.arn
 }
 
 resource "aws_iam_role" "vpc_flow_logs" {
