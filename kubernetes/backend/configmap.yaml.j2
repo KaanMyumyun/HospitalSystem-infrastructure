@@ -6,3 +6,4 @@ metadata:
 data:
   ASPNETCORE_ENVIRONMENT: "Production"
   Database__RunMigrationsOnStartup: "false"
+  Demo__Enabled: "{{ demo_login_enabled | string | lower }}"

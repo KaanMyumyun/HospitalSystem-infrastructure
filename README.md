@@ -334,6 +334,14 @@ from the local application source (skipping any image whose `latest` tag is
 already in ECR, so a later apply doesn't replace what CI pushed), requests and validates the ACM certificate
 through Cloudflare DNS, and then runs the Ansible Kubernetes bootstrap.
 
+Each bootstrap image is pushed under two tags: `latest`, which the Kubernetes
+manifests start from, and a `<date>-<short sha>` tag matching the deploy
+workflow's convention, so the image the cluster first runs is traceable to the
+commit it was built from. The short SHA comes from the application checkout and
+gains a `-dirty` suffix when that working tree has uncommitted or untracked
+files. The image also carries `org.opencontainers.image.revision` and
+`org.opencontainers.image.created` labels.
+
 If you only want Terraform to manage AWS resources and skip the Ansible
 bootstrap:
 

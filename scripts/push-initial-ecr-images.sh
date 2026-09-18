@@ -15,6 +15,7 @@ require_command() {
 
 require_command aws
 require_command docker
+require_command git
 
 : "${AWS_REGION:?Set AWS_REGION}"
 : "${ECR_REGISTRY:?Set ECR_REGISTRY}"
@@ -52,10 +53,30 @@ if [ ! -f "$FRONTEND_SOURCE_DIR/$FRONTEND_DOCKERFILE" ]; then
   exit 1
 fi
 
-backend_local_image="hospitalsystem-backend-initial:${IMAGE_TAG}"
-frontend_local_image="hospitalsystem-frontend-initial:${IMAGE_TAG}"
-backend_remote_image="${BACKEND_REPOSITORY_URL}:${IMAGE_TAG}"
-frontend_remote_image="${FRONTEND_REPOSITORY_URL}:${IMAGE_TAG}"
+# Short SHA of the source being built, with -dirty when the working tree has
+# uncommitted or untracked files. "unknown" when the source is not a checkout.
+source_revision() {
+  local dir="$1" rev
+  if ! rev="$(git -C "$dir" rev-parse --short=7 HEAD 2>/dev/null)"; then
+    echo "unknown"
+    return
+  fi
+  if [ -n "$(git -C "$dir" status --porcelain 2>/dev/null)" ]; then
+    rev="${rev}-dirty"
+  fi
+  echo "$rev"
+}
+
+build_date="$(date -u +%Y-%m-%d)"
+build_created="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+# Second tag on the bootstrap image, matching the date + short SHA convention
+# the deploy workflow uses, so the image the cluster starts on is traceable to
+# a commit instead of being an anonymous "latest".
+backend_revision="$(source_revision "$BACKEND_SOURCE_DIR")"
+frontend_revision="$(source_revision "$FRONTEND_SOURCE_DIR")"
+backend_revision_tag="${build_date}-${backend_revision}"
+frontend_revision_tag="${build_date}-${frontend_revision}"
 
 # Skip an image whose tag is already in ECR, so a later apply doesn't replace
 # what CI pushed with whatever is checked out locally.
@@ -63,35 +84,54 @@ image_exists() {
   aws ecr describe-images \
     --region "$AWS_REGION" \
     --repository-name "${1#*/}" \
-    --image-ids "imageTag=$IMAGE_TAG" >/dev/null 2>&1
+    --image-ids "imageTag=$2" >/dev/null 2>&1
+}
+
+# build_and_push <name> <source dir> <dockerfile> <repo url> <revision> <revision tag> [build args...]
+build_and_push() {
+  local name="$1" source_dir="$2" dockerfile="$3" repo_url="$4" revision="$5" revision_tag="$6"
+  shift 6
+
+  local local_image="hospitalsystem-${name}-initial:${IMAGE_TAG}"
+  local remote_image="${repo_url}:${IMAGE_TAG}"
+  local revision_image="${repo_url}:${revision_tag}"
+
+  if image_exists "$repo_url" "$IMAGE_TAG"; then
+    echo "$remote_image already exists; not rebuilding it."
+    return
+  fi
+
+  docker build \
+    "$@" \
+    --label "org.opencontainers.image.revision=${revision}" \
+    --label "org.opencontainers.image.created=${build_created}" \
+    -t "$local_image" \
+    -f "${source_dir}/${dockerfile}" \
+    "$source_dir"
+
+  docker tag "$local_image" "$remote_image"
+  docker tag "$local_image" "$revision_image"
+  docker push "$remote_image"
+  docker push "$revision_image"
+  echo "Pushed $remote_image and $revision_image (revision ${revision})"
 }
 
 aws ecr get-login-password --region "$AWS_REGION" \
   | docker login --username AWS --password-stdin "$ECR_REGISTRY"
 
-if image_exists "$BACKEND_REPOSITORY_URL"; then
-  echo "$backend_remote_image already exists; not rebuilding it."
-else
-  docker build \
-    -t "$backend_local_image" \
-    -f "$BACKEND_SOURCE_DIR/$BACKEND_DOCKERFILE" \
-    "$BACKEND_SOURCE_DIR"
+build_and_push \
+  backend \
+  "$BACKEND_SOURCE_DIR" \
+  "$BACKEND_DOCKERFILE" \
+  "$BACKEND_REPOSITORY_URL" \
+  "$backend_revision" \
+  "$backend_revision_tag"
 
-  docker tag "$backend_local_image" "$backend_remote_image"
-  docker push "$backend_remote_image"
-  echo "Pushed $backend_remote_image"
-fi
-
-if image_exists "$FRONTEND_REPOSITORY_URL"; then
-  echo "$frontend_remote_image already exists; not rebuilding it."
-else
-  docker build \
-    --build-arg "VITE_API_URL=$FRONTEND_API_URL" \
-    -t "$frontend_local_image" \
-    -f "$FRONTEND_SOURCE_DIR/$FRONTEND_DOCKERFILE" \
-    "$FRONTEND_SOURCE_DIR"
-
-  docker tag "$frontend_local_image" "$frontend_remote_image"
-  docker push "$frontend_remote_image"
-  echo "Pushed $frontend_remote_image"
-fi
+build_and_push \
+  frontend \
+  "$FRONTEND_SOURCE_DIR" \
+  "$FRONTEND_DOCKERFILE" \
+  "$FRONTEND_REPOSITORY_URL" \
+  "$frontend_revision" \
+  "$frontend_revision_tag" \
+  --build-arg "VITE_API_URL=$FRONTEND_API_URL"

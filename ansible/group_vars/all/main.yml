@@ -33,6 +33,13 @@ cloudflare_alb_wait_delay: 20
 
 monitoring_alert_sns_topic_arn: ""
 
+# Demo sign-in: the Demo Admin / Demo Reception buttons call
+# POST /api/Auth/demo-login, which issues a token with no password. Safe here
+# only because this deployment's data is fake. The accounts it signs in are
+# named by Demo:AdminUserName / Demo:FrontDeskUserName in appsettings.json
+# (DemoAdmin / DemoReception) and must still hold the demo roles.
+demo_login_enabled: true
+
 # Paths under kubernetes/, rendered and applied in this order.
 kubernetes_manifests:
   - namespace.yaml.j2
