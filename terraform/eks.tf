@@ -29,8 +29,6 @@ resource "aws_eks_cluster" "main" {
     enabled = false
   }
 
-  # Access entries grant the ops instance's role Kubernetes access. aws-auth
-  # still maps the nodes and the GitHub Actions deploy role.
   access_config {
     authentication_mode                         = "API_AND_CONFIG_MAP"
     bootstrap_cluster_creator_admin_permissions = true

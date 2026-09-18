@@ -1,3 +1,28 @@
+output "app_url" {
+  description = "Public HTTPS URL of the application."
+  value       = "https://${var.app_domain_name}"
+}
+
+output "api_url" {
+  description = "Backend API base URL behind the ALB."
+  value       = local.frontend_api_url
+}
+
+output "github_actions_variables" {
+  description = "Repository variables the workflows in KaanMyumyun/HospitalSystem read. Set these after every rebuild."
+  value = {
+    AWS_REGION                = var.aws_region
+    AWS_ROLE_TO_ASSUME        = aws_iam_role.ecr_push_hospitalsystem.arn
+    AWS_DEPLOY_ROLE_TO_ASSUME = aws_iam_role.eks_deploy_hospitalsystem.arn
+    ECR_REGISTRY              = local.ecr_registry
+    ECR_BACKEND_REPOSITORY    = aws_ecr_repository.backend.name
+    ECR_FRONTEND_REPOSITORY   = aws_ecr_repository.frontend.name
+    VITE_API_URL              = local.frontend_api_url
+    DEPLOY_SSM_DOCUMENT       = aws_ssm_document.deploy.name
+    DEPLOY_INSTANCE_NAME      = local.ops_name
+  }
+}
+
 output "cluster_name" {
   description = "EKS cluster name."
   value       = aws_eks_cluster.main.name
