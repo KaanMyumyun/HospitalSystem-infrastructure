@@ -19,6 +19,11 @@ github_actions_deploy_username: github-actions-eks-deploy
 ingress_name: hospital-ingress
 alb_name: hospital-system-alb
 
+# Helm charts for the in-cluster add-ons. Pinned so a rebuild months from now
+# installs what was tested, not whatever "latest" has become.
+load_balancer_controller_chart_version: "3.5.0"
+metrics_server_chart_version: "3.14.0"
+
 cloudflare_record_name: "{{ app_domain_name }}"
 cloudflare_record_type: CNAME
 cloudflare_record_proxied: false

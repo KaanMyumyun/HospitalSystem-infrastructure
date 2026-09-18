@@ -35,6 +35,8 @@
           - --install
           - metrics-server
           - metrics-server/metrics-server
+          - --version
+          - "{{ metrics_server_chart_version }}"
           - --namespace
           - kube-system
       register: metrics_server
