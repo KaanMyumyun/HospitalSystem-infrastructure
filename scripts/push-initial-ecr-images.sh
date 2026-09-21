@@ -94,6 +94,7 @@ build_and_push() {
   fi
 
   docker build \
+    --platform linux/amd64 \
     "$@" \
     --label "org.opencontainers.image.revision=${revision}" \
     --label "org.opencontainers.image.created=${build_created}" \

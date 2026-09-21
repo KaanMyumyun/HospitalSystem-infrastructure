@@ -16,6 +16,12 @@ variable "project_name" {
   default     = "hospitalsystem"
 }
 
+variable "eks_version" {
+  description = "Kubernetes version of the EKS control plane. EKS upgrades one minor version at a time; see the README for the order."
+  type        = string
+  default     = "1.36"
+}
+
 variable "github_repository" {
   description = "GitHub repository allowed to assume deployment roles through OIDC."
   type        = string

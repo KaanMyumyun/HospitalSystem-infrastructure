@@ -33,11 +33,11 @@ resource "aws_ecr_lifecycle_policy" "backend" {
     rules = [
       {
         rulePriority = 1
-        description  = "Keep the latest 10 backend images"
+        description  = "Keep the latest 30 backend images"
         selection = {
           tagStatus   = "any"
           countType   = "imageCountMoreThan"
-          countNumber = 10
+          countNumber = 30
         }
         action = {
           type = "expire"
@@ -54,11 +54,11 @@ resource "aws_ecr_lifecycle_policy" "frontend" {
     rules = [
       {
         rulePriority = 1
-        description  = "Keep the latest 10 frontend images"
+        description  = "Keep the latest 30 frontend images"
         selection = {
           tagStatus   = "any"
           countType   = "imageCountMoreThan"
-          countNumber = 10
+          countNumber = 30
         }
         action = {
           type = "expire"

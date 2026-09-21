@@ -1,5 +1,18 @@
 # Portable One-Apply AWS Rebuild Plan
 
+> **Status: done.** This plan is implemented and kept as a record of the
+> design; the README describes how things work now. Where the implementation
+> differs from the plan:
+>
+> - Section 9: Terraform doesn't pass values with `-e`. It writes them to the
+>   ignored `ansible/group_vars/all/terraform.yml` on every apply, and
+>   Ansible-owned settings live in `ansible/group_vars/all/main.yml`.
+> - The EKS API endpoint is private. Ansible reaches it through an SSM tunnel
+>   on the ops instance, and GitHub Actions deploys by sending that instance an
+>   SSM document instead of calling the cluster directly.
+> - Run Terraform through `./scripts/tf.sh`, which loads `.env.local`, rather
+>   than `terraform apply` in `terraform/`.
+
 ## Goal
 
 Make the HospitalSystem AWS infrastructure portable to a new AWS account so a fresh account can run:
@@ -477,6 +490,9 @@ Template values:
 Do not commit generated files unless the repo pattern requires it. Add generated output path to `.gitignore` if needed.
 
 ### 9. Pass Terraform Outputs Into Ansible
+
+> Implemented differently: Terraform writes `ansible/group_vars/all/terraform.yml`
+> instead of passing `-e` values (see the status note at the top).
 
 Current `ansible/group_vars/all.yml` contains hardcoded AWS account values.
 

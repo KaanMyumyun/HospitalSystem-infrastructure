@@ -30,8 +30,8 @@ retyping every resource by hand. Turning generated output into readable,
 maintainable Terraform was most of the work. The raw Terracognita output was
 only a starting point and was never committed.
 
-See [Terraform Workflow](#terraform-workflow) for how the cleaned Terraform is
-being adopted as the source of truth for the AWS layer.
+The Terraform is now the source of truth for the AWS layer; see
+[Terraform Workflow](#terraform-workflow).
 
 ## Architecture
 
@@ -235,20 +235,20 @@ application README lists all the variables the workflows need.
 
 ## Terraform Workflow
 
-The cleaned Terraform files are intended to become the source of truth for the
-AWS layer. Because the resources already exist, the safe workflow is to import
-the live resources into Terraform state first, then review the plan before any
-apply.
+Terraform is the source of truth for the AWS layer. It creates the whole
+environment from an empty account (see [Disaster Recovery](#disaster-recovery)),
+so there is nothing to import first. Check and review a change before applying
+it:
 
 ```bash
 cd terraform
 terraform init
 terraform fmt -check -recursive
 terraform validate
-terraform plan
+cd ..
+./scripts/tf.sh plan
+./scripts/tf.sh apply
 ```
-
-Do not run `terraform apply` until the imported state and plan are reviewed.
 
 ## Ansible Operations
 
@@ -295,7 +295,7 @@ back to deleting the ALB and Kubernetes-managed security groups directly, so
 unmanaged ALB ENIs and security groups do not block VPC deletion.
 
 Before running `terraform apply`, either export the backend secret values
-locally or put them in ignored `.env.local`. Terraform automatically sources
+locally or put them in ignored `.env.local` (start from `.env.example`). Terraform automatically sources
 `.env.local` before running the Ansible bootstrap. The Cloudflare token is also
 used by Terraform to create the ACM certificate validation record.
 
@@ -480,14 +480,18 @@ Monitoring is intentionally lightweight to avoid running a paid in-cluster
 observability stack. The project does not deploy Prometheus, Grafana, CloudWatch
 Observability, or EKS runtime monitoring.
 
-The Ansible monitoring playbook creates CloudWatch alarms from existing AWS
-metrics:
+CloudWatch alarms are built from existing AWS metrics. The Ansible monitoring
+playbook creates the ALB alarms, because the ALB only exists once the Load
+Balancer Controller has made it:
 
 - ALB HTTP 5xx responses
 - unhealthy targets for each ALB target group
+
+Terraform creates the node group alarm (`terraform/monitoring.tf`):
+
 - EKS node group with no in-service instances
 
-Configure or refresh the alarms:
+Configure or refresh the ALB alarms:
 
 ```bash
 ansible-playbook ansible/playbooks/monitoring.yml
@@ -513,8 +517,10 @@ Show recent app container logs:
 ansible-playbook ansible/playbooks/logs.yml
 ```
 
-By default, alarms are created without notification actions. To attach an SNS
-topic, set `monitoring_alert_sns_topic_arn` in `ansible/group_vars/all/main.yml`.
+By default, alarms are created without notification actions. Setting
+`monitoring_alert_sns_topic_arn` in `ansible/group_vars/all/main.yml` attaches
+an SNS topic to the 5xx alarm only; the unhealthy-target and node group alarms
+still have no actions.
 
 ## Disaster Recovery
 
@@ -599,11 +605,48 @@ destroy and recreate, so update the list after a rebuild.
 
 ## Operational Notes
 
-The cluster is intentionally run in a low-cost mode while not testing:
+Scaling down while not testing only saves the worker nodes (two t3.small,
+roughly $30 a month):
 
-- app Deployments can be scaled to `0`
-- EKS managed node group can be scaled to `desiredSize=0`
-- EKS control plane remains active while the cluster exists
+- app Deployments can be scaled to `0` with `scale.yml`
+- the EKS managed node group can be scaled to `desiredSize=0` (Terraform
+  ignores the desired size, so a later apply won't scale it back up):
+
+  ```bash
+  aws eks update-nodegroup-config --cluster-name eks-pr1 \
+    --nodegroup-name hospitalsystempr1 \
+    --scaling-config minSize=0,maxSize=2,desiredSize=0
+  ```
+
+Everything else keeps billing while the environment exists, roughly $200 a
+month before data transfer:
+
+| Resource | Approx. per month |
+| -------- | ----------------- |
+| EKS control plane | $73 |
+| Two NAT gateways | $67 plus data processed |
+| SSM interface endpoints | $25 |
+| ALB | $17 plus usage |
+| Public IPv4 addresses (NAT and ALB) | $15 |
+| Ops instance (t3.micro) | $9 |
+
+To stop paying for it, destroy the environment and recreate it when needed
+(see [Disaster Recovery](#disaster-recovery)).
+
+### Upgrading EKS
+
+The Kubernetes version is the `eks_version` Terraform variable. EKS upgrades one
+minor version at a time, in this order:
+
+1. Raise `eks_version` by one minor version and apply; this upgrades the
+   control plane.
+2. Update the vpc-cni, coredns and kube-proxy add-ons to versions that support
+   it.
+3. Update the node group AMI (`aws eks update-nodegroup-version`).
+4. Update the Helm charts pinned in `load-balancer-controller.yml` and
+   `metrics-server.yml` if their releases require it, and keep the Load
+   Balancer Controller IAM policy in `terraform/iam.tf` in step with its
+   chart version.
 
 The Kubernetes manifests keep `latest` as the bootstrap/default image tag, but
 the CI/CD deployment updates the live Deployments to date + short SHA tags.
@@ -667,6 +710,5 @@ kubectl logs -n hospitalsystem <pod-name>
 
 Planned infrastructure improvements:
 
-- Import the existing AWS resources into the cleaned Terraform state and review plans before applying changes.
 - Replace the current `Recreate` deployment strategy with `RollingUpdate` once there is enough node capacity to run old and new pods at the same time.
 - Add readiness-aware rollout settings such as `maxUnavailable`, `maxSurge`, and deployment history limits for safer releases and rollbacks.
