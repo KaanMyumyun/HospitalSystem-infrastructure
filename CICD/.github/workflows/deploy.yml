@@ -51,8 +51,6 @@ jobs:
           role-to-assume: ${{ env.AWS_DEPLOY_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # The EKS API endpoint is private. The deploy runs on the ops instance
-      # inside the VPC, through an SSM document whose only input is the tag.
       - name: Find the ops instance
         run: |
           INSTANCE_IDS=$(aws ec2 describe-instances \
@@ -79,7 +77,6 @@ jobs:
             --output text)
           echo "SSM command ${COMMAND_ID} on ${INSTANCE_ID}"
 
-          # The document times out after 600 seconds; poll a little longer.
           for _ in $(seq 1 70); do
             STATUS=$(aws ssm list-commands \
               --command-id "$COMMAND_ID" \

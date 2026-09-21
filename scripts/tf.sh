@@ -13,11 +13,6 @@ else
   echo "Warning: $env_file not found; relying on the existing environment." >&2
 fi
 
-# Only apply builds images and runs the Ansible bootstrap, so only apply needs
-# Docker and the app secrets. Commands that call the providers need the
-# Cloudflare token; read-only commands (output, state, validate, ...) need none.
-# apply and destroy run playbooks against the private EKS endpoint, which they
-# reach through an SSM session.
 required=""
 needs_docker=false
 needs_ssm_plugin=false

@@ -1,6 +1,3 @@
-# Customer-managed key for ECR images, Kubernetes Secrets and CloudWatch log
-# groups. Every decrypt is recorded in CloudTrail, and access can be revoked by
-# editing this policy.
 resource "aws_kms_key" "main" {
   description             = "HospitalSystem encryption key for ECR, EKS Secrets and CloudWatch Logs"
   enable_key_rotation     = true

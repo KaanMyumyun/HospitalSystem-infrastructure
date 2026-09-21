@@ -1,8 +1,4 @@
 data "aws_iam_policy_document" "github_actions_assume_role" {
-  # The OIDC subject each role trusts. Docker Image CI is triggered by
-  # workflow_run, which runs on the default branch. The deploy job uses a
-  # GitHub environment, and a job with an environment gets the environment as
-  # its subject instead of the branch.
   for_each = {
     ecr_push   = "repo:${var.github_repository}:ref:refs/heads/${var.github_deploy_branch}"
     eks_deploy = "repo:${var.github_repository}:environment:${var.github_deploy_environment}"
@@ -114,12 +110,6 @@ resource "aws_iam_openid_connect_provider" "github_actions" {
   ]
 }
 
-# Based on AWS's published controller policy, with every resource that supports
-# it limited to this account, region and VPC. Only actions that have no
-# resource-level permissions (Describe*, List*, Get*) keep "*".
-#
-# Inline, because the scoped ARNs push it past the 6,144-character limit for
-# managed policies; inline role policies allow 10,240.
 resource "aws_iam_role_policy" "load_balancer_controller" {
   name = "AWSLoadBalancerControllerIAMPolicy"
   role = aws_iam_role.load_balancer_controller.id
@@ -421,9 +411,6 @@ resource "aws_iam_role" "eks_deploy_hospitalsystem" {
   assume_role_policy   = data.aws_iam_policy_document.github_actions_assume_role["eks_deploy"].json
 }
 
-# The EKS endpoint is private, so the deploy job doesn't call the Kubernetes
-# API. It may only send the deploy document to the ops instance and read the
-# result.
 resource "aws_iam_role_policy" "eks_deploy_hospitalsystem" {
   name = "eks-deploy-hospitalsystem-ssm-deploy"
   role = aws_iam_role.eks_deploy_hospitalsystem.id

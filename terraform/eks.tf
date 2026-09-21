@@ -1,4 +1,3 @@
-# Created before the cluster so EKS doesn't create it with no expiry.
 resource "aws_cloudwatch_log_group" "eks_cluster" {
   name              = "/aws/eks/${local.cluster_name}/cluster"
   retention_in_days = 365
@@ -34,7 +33,6 @@ resource "aws_eks_cluster" "main" {
     bootstrap_cluster_creator_admin_permissions = true
   }
 
-  # Private only: reach the API through the ops instance (see ops.tf).
   vpc_config {
     endpoint_private_access = true
     endpoint_public_access  = false

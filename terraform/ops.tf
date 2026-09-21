@@ -1,25 +1,8 @@
-# The EKS API endpoint is private. This instance in a private subnet is the way
-# in: operators open SSM port-forwarding sessions through it
-# (ansible/tasks/kubeconfig.yml), and GitHub Actions deploys by sending it the
-# deploy SSM document. It accepts no inbound connections and has no internet
-# access (see security_groups.tf).
-
 data "aws_ssm_parameter" "al2023_ami" {
   name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
 }
 
 locals {
-  # ImageTag is the document's only input; its allowedPattern keeps it to
-  # characters valid in an image tag. The image URLs come from the ECR
-  # repositories here, not from the caller. Deployment and container names match
-  # backend_deployment, backend_container, frontend_deployment and
-  # frontend_container in ansible/group_vars/all/main.yml.
-  #
-  # The instance can't download kubectl, so this calls the Kubernetes API with
-  # Python's standard library. Amazon Linux 2023 ships Python and the AWS CLI;
-  # `aws eks get-token` signs the token locally, and Terraform supplies the
-  # endpoint and CA. SSM treats {{ }} as a parameter anywhere in the document,
-  # so the Python avoids doubled braces.
   deploy_script = <<-EOT
     set -euo pipefail
     export IMAGE_TAG='{{ ImageTag }}'
@@ -39,7 +22,6 @@ locals {
     NAMESPACE = "${local.k8s_namespace}"
     CA = base64.b64decode("${aws_eks_cluster.main.certificate_authority[0].data}").decode()
     TAG = os.environ["IMAGE_TAG"]
-    # Deployment name: (container name, ECR repository URL)
     DEPLOYMENTS = {
         "hospital-backend": ("backend", "${aws_ecr_repository.backend.repository_url}"),
         "hospital-frontend": ("frontend", "${aws_ecr_repository.frontend.repository_url}"),
@@ -73,7 +55,6 @@ locals {
         print(f"Both Deployments are scaled to 0. The next scale-up runs {TAG}.")
         sys.exit(0)
 
-    # The same completion test as kubectl rollout status.
     deadline = time.monotonic() + 360
     for name in DEPLOYMENTS:
         while True:
@@ -124,12 +105,10 @@ resource "aws_instance" "ops" {
     Name = local.ops_name
   }
 
-  # A newer AMI shouldn't replace the instance on every apply.
   lifecycle {
     ignore_changes = [ami]
   }
 
-  # SSM must be reachable when the agent starts.
   depends_on = [aws_vpc_endpoint.ssm]
 }
 

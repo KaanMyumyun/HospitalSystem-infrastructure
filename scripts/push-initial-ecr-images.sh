@@ -53,8 +53,6 @@ if [ ! -f "$FRONTEND_SOURCE_DIR/$FRONTEND_DOCKERFILE" ]; then
   exit 1
 fi
 
-# Short SHA of the source being built, with -dirty when the working tree has
-# uncommitted or untracked files. "unknown" when the source is not a checkout.
 source_revision() {
   local dir="$1" rev
   if ! rev="$(git -C "$dir" rev-parse --short=7 HEAD 2>/dev/null)"; then
@@ -70,16 +68,11 @@ source_revision() {
 build_date="$(date -u +%Y-%m-%d)"
 build_created="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-# Second tag on the bootstrap image, matching the date + short SHA convention
-# the deploy workflow uses, so the image the cluster starts on is traceable to
-# a commit instead of being an anonymous "latest".
 backend_revision="$(source_revision "$BACKEND_SOURCE_DIR")"
 frontend_revision="$(source_revision "$FRONTEND_SOURCE_DIR")"
 backend_revision_tag="${build_date}-${backend_revision}"
 frontend_revision_tag="${build_date}-${frontend_revision}"
 
-# Skip an image whose tag is already in ECR, so a later apply doesn't replace
-# what CI pushed with whatever is checked out locally.
 image_exists() {
   aws ecr describe-images \
     --region "$AWS_REGION" \
@@ -87,7 +80,6 @@ image_exists() {
     --image-ids "imageTag=$2" >/dev/null 2>&1
 }
 
-# build_and_push <name> <source dir> <dockerfile> <repo url> <revision> <revision tag> [build args...]
 build_and_push() {
   local name="$1" source_dir="$2" dockerfile="$3" repo_url="$4" revision="$5" revision_tag="$6"
   shift 6

@@ -5,8 +5,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 GROUP_VARS_DIR="$REPO_ROOT/ansible/group_vars/all"
 
-# Reads a plain top-level value from the Ansible group_vars, including the
-# Terraform-generated terraform.yml.
 group_var() {
   sed -nE "s/^\"?$1\"?:[[:space:]]*\"?([^\"]*)\"?[[:space:]]*\$/\1/p" \
     "$GROUP_VARS_DIR/main.yml" "$GROUP_VARS_DIR/terraform.yml" 2>/dev/null | tail -n 1 || true
@@ -77,7 +75,6 @@ if [[ "$RUN_ANSIBLE_PLAYBOOKS" == "true" ]]; then
 fi
 
 section "Kubeconfig"
-# The EKS endpoint is private; the playbook opens the SSM tunnel kubectl uses.
 require_command ansible-playbook
 (cd "$REPO_ROOT" && ansible-playbook ansible/playbooks/kubeconfig.yml >/dev/null)
 kubectl config current-context

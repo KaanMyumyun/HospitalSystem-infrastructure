@@ -1,7 +1,3 @@
-# The ops instance accepts no inbound connections and has no internet access.
-# It reaches Systems Manager through the interface endpoints, the EKS API
-# through its private endpoint, and the Amazon Linux package repositories
-# through the S3 gateway endpoint.
 resource "aws_security_group" "ops" {
   name        = local.ops_name
   description = "Ops instance for private EKS API access: HTTPS inside the VPC and to S3 only"
@@ -39,8 +35,6 @@ resource "aws_vpc_security_group_ingress_rule" "eks_api_from_ops" {
   to_port                      = 443
 }
 
-# With private DNS on, every SSM call from the VPC resolves to these endpoints,
-# including the SSM agent on the nodes, so they accept HTTPS from the whole VPC.
 resource "aws_security_group" "vpc_endpoints" {
   name        = "${local.vpc_name}-vpc-endpoints"
   description = "Interface VPC endpoints: HTTPS from inside the VPC"

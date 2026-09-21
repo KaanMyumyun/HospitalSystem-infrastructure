@@ -2,13 +2,11 @@
 .env.*
 !.env.example
 
-# Kubernetes secrets and generated manifests
 *secret*.yaml
 *secret*.yml
 !ansible/playbooks/backend-secret.yml
 kubeconfig
 
-# Terraform local state
 .terraform/
 terraform/imports/
 *.tfstate
@@ -17,7 +15,6 @@ terraform/imports/
 !.terraform.lock.hcl
 !*.tfvars.example
 
-# Local tooling output
 .DS_Store
 *.log
 tmp/
@@ -26,7 +23,6 @@ build/
 .generated/
 ansible/group_vars/all/terraform.yml
 
-# Local handoff and operator notes
 instructions.txt
 OWN_PROJECT.local.txt
 ownership.local/

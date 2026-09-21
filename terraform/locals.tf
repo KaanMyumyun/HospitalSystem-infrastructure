@@ -11,13 +11,11 @@ locals {
 
   eks_cluster_tag_key = "kubernetes.io/cluster/${local.cluster_name}"
 
-  k8s_namespace = "hospitalsystem"
-  # Bound to the deploy Role by kubernetes/rbac/github-actions-deploy.yaml.j2.
+  k8s_namespace    = "hospitalsystem"
   k8s_deploy_group = "${local.k8s_namespace}:deployers"
   ops_name         = "${var.project_name}-ops"
   ecr_registry     = "${local.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com"
 
-  # ARN prefixes that keep IAM policies to this account and region.
   ec2_arn_prefix  = "arn:aws:ec2:${var.aws_region}:${local.account_id}"
   elb_arn_prefix  = "arn:aws:elasticloadbalancing:${var.aws_region}:${local.account_id}"
   elb_arns        = ["${local.elb_arn_prefix}:loadbalancer/app/*/*", "${local.elb_arn_prefix}:loadbalancer/net/*/*"]
@@ -30,8 +28,6 @@ locals {
   backend_source_dir  = var.backend_source_dir != "" ? var.backend_source_dir : abspath("${path.module}/../../HospitalSystem")
   frontend_source_dir = var.frontend_source_dir != "" ? var.frontend_source_dir : "${local.backend_source_dir}/hospital-frontend"
 
-  # Values Terraform owns. They are written to ansible/group_vars/all/terraform.yml
-  # so the bootstrap, standalone playbooks, and scripts share one source.
   ansible_vars = {
     aws_region                        = var.aws_region
     eks_cluster_name                  = local.cluster_name
@@ -51,7 +47,6 @@ locals {
     ops_instance_id                   = aws_instance.ops.id
   }
 
-  # The generated vars file is excluded; its content is tracked through ansible_vars.
   ansible_bootstrap_file_hashes = concat(
     [
       for file in sort(fileset("${path.module}/../ansible", "**/*.yml")) :

@@ -1,32 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Deletes the AWS resources that block `terraform destroy`, because Terraform
-# never created them and so never tracked them:
-#
-#   - The ALB, made by the AWS Load Balancer Controller from the Ingress. Its
-#     ENIs sit in the public subnets and block subnet deletion, and it holds
-#     the ACM certificate that Terraform tries to delete early in the destroy.
-#   - Its target groups.
-#   - The k8s-* security groups the controller creates, which block VPC
-#     deletion, plus the rules other groups hold referencing them.
-#   - Detached (available) ENIs left in the VPC.
-#
-# This is the same teardown as ansible/playbooks/cleanup-kubernetes.yml, in
-# plain AWS CLI, for when the cluster is unreachable or the destroy already
-# failed partway. Run it BEFORE ./scripts/tf.sh destroy.
-#
-# scripts/cleanup-orphans.sh is the post-destroy counterpart.
-#
-# Dry run by default. Pass --apply to actually delete.
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 GROUP_VARS_DIR="$REPO_ROOT/ansible/group_vars/all"
 
-# Reads a plain top-level value from the Ansible group_vars. terraform.yml is
-# itself a Terraform resource, so after a partial destroy it may be gone and
-# lookups fall through to main.yml or the default.
 group_var() {
   sed -nE "s/^\"?$1\"?:[[:space:]]*\"?([^\"]*)\"?[[:space:]]*\$/\1/p" \
     "$GROUP_VARS_DIR/main.yml" "$GROUP_VARS_DIR/terraform.yml" 2>/dev/null | tail -n 1 || true
@@ -105,10 +83,6 @@ alb_arn() {
     --query 'LoadBalancers[0].LoadBalancerArn' --output text 2>/dev/null || true
 }
 
-# --- Ingress -----------------------------------------------------------------
-# The clean path. The controller deletes the ALB, its security groups, and the
-# rule it added to the EKS cluster security group. Deleting the ALB directly
-# skips all of that, so try this first and only fall back if it does not work.
 section "Kubernetes Ingress"
 
 ingress_deleted=false
@@ -138,7 +112,6 @@ else
   fi
 fi
 
-# --- Load balancer -----------------------------------------------------------
 section "Load balancer"
 
 arn="$(alb_arn)"
@@ -164,9 +137,6 @@ else
   fi
 fi
 
-# --- Target groups -----------------------------------------------------------
-# A k8s-* target group with no load balancer attached belongs to an Ingress
-# whose ALB is already gone.
 section "Orphaned ALB target groups"
 
 target_groups="$(
@@ -189,9 +159,6 @@ else
   done
 fi
 
-# --- Security groups ---------------------------------------------------------
-# Only k8s-* groups: the cluster's own eks-cluster-sg-* goes with the cluster,
-# and kubes-vpc-endpoints / hospitalsystem-ops / default belong to Terraform.
 section "Kubernetes-managed security groups"
 
 k8s_sgs="$(
@@ -210,8 +177,6 @@ else
   done
 
   if [ "$APPLY" = true ]; then
-    # A group can't be deleted while another group's rule references it, and
-    # the controller adds one to the EKS cluster security group.
     for sg in $k8s_sgs; do
       for referencing in $(aws ec2 describe-security-groups --region "$AWS_REGION" \
         --filters "Name=vpc-id,Values=$VPC_ID" "Name=ip-permission.group-id,Values=$sg" \
@@ -229,7 +194,6 @@ else
       done
     done
 
-    # The ALB's network interfaces can take a minute to release after it is gone.
     for sg in $k8s_sgs; do
       for attempt in $(seq 1 12); do
         if aws ec2 delete-security-group --region "$AWS_REGION" --group-id "$sg" 2>/dev/null; then
@@ -247,9 +211,6 @@ else
   fi
 fi
 
-# --- Detached network interfaces ---------------------------------------------
-# Only 'available' ones. An in-use ENI belongs to something still alive, and
-# Terraform removes those with the resource that owns them.
 section "Detached network interfaces"
 
 enis="$(
@@ -276,9 +237,6 @@ else
   done
 fi
 
-# --- ACM certificate (reported only) -----------------------------------------
-# Terraform deletes the certificate itself. It only fails if the ALB still
-# holds it, so this is the check for whether the destroy will get past it.
 section "ACM certificate (informational)"
 
 if [ -z "$CERT_ARN" ]; then
@@ -296,7 +254,6 @@ else
   fi
 fi
 
-# --- Summary -----------------------------------------------------------------
 section "Summary"
 if [ "$APPLY" = true ]; then
   printf 'Deleted %d of %d blocking resources.\n' "$deleted" "$found"

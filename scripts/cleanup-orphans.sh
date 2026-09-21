@@ -1,27 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Deletes the AWS resources that `terraform destroy` leaves behind, because
-# Terraform never created them and so never tracked them:
-#
-#   - ALB target groups, made by the AWS Load Balancer Controller from the
-#     Ingress. The controller deletes the ALB when the Ingress goes, but leaves
-#     its target groups behind once the cluster is gone.
-#   - CloudWatch alarms, written by scripts/monitoring.sh with the AWS CLI.
-#
-# KMS keys are only reported, never touched: `terraform destroy` already
-# scheduled them, and AWS enforces a 7-30 day wait before a key can actually be
-# deleted. A key in PendingDeletion is a successful destroy, not an orphan.
-#
-# Dry run by default. Pass --apply to actually delete.
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 GROUP_VARS_DIR="$REPO_ROOT/ansible/group_vars/all"
 
-# Reads a plain top-level value from the Ansible group_vars. terraform.yml is
-# itself a Terraform resource, so after a destroy it is gone and every lookup
-# here falls through to the default.
 group_var() {
   sed -nE "s/^\"?$1\"?:[[:space:]]*\"?([^\"]*)\"?[[:space:]]*\$/\1/p" \
     "$GROUP_VARS_DIR/main.yml" "$GROUP_VARS_DIR/terraform.yml" 2>/dev/null | tail -n 1 || true
@@ -80,9 +63,6 @@ if [ "$APPLY" = false ]; then
   printf 'Dry run - nothing will be deleted. Re-run with --apply.\n'
 fi
 
-# --- ALB target groups -------------------------------------------------------
-# A target group named k8s-* with no load balancer attached belongs to an
-# Ingress whose ALB is already gone.
 section "Orphaned ALB target groups"
 
 target_groups="$(
@@ -105,7 +85,6 @@ else
   done
 fi
 
-# --- CloudWatch alarms -------------------------------------------------------
 section "CloudWatch alarms (prefix ${ALARM_PREFIX})"
 
 alarms="$(
@@ -130,7 +109,6 @@ else
   fi
 fi
 
-# --- KMS keys (reported only) ------------------------------------------------
 section "KMS keys pending deletion (informational)"
 
 pending=0
@@ -153,7 +131,6 @@ else
   printf 'deletion_window_in_days = 30; 7 is the minimum if you rebuild often.\n'
 fi
 
-# --- Summary -----------------------------------------------------------------
 section "Summary"
 if [ "$APPLY" = true ]; then
   printf 'Deleted %d of %d orphaned resources.\n' "$deleted" "$found"

@@ -25,9 +25,6 @@
       changed_when: "'deleted' in delete_ingress.stdout"
       failed_when: false
 
-    # Let the controller remove the ALB first: it also deletes its security
-    # groups and the rule it added to the cluster security group. Deleting the
-    # ALB directly skips that and leaves them blocking VPC deletion.
     - name: Wait for the controller to delete the ALB
       ansible.builtin.command:
         argv:
@@ -119,8 +116,6 @@
       changed_when: false
       failed_when: false
 
-    # A group can't be deleted while another group's rule references it, and
-    # the controller adds one to the EKS cluster security group.
     - name: Revoke rules that reference Kubernetes-managed security groups
       ansible.builtin.shell: |
         set -euo pipefail
@@ -150,7 +145,6 @@
       failed_when: false
       when: k8s_security_groups.stdout | length > 0
 
-    # The ALB's network interfaces can take a minute to release after it is gone.
     - name: Delete Kubernetes-managed security groups
       ansible.builtin.command:
         argv:
