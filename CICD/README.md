@@ -9,13 +9,24 @@ The files are kept here for documentation and review only. They are stored under
 `CICD/.github/`, not the repository root `.github/`, so they do not run from
 this infrastructure repository.
 
+## Source of Truth
+
+The real CI/CD pipeline lives in
+[KaanMyumyun/HospitalSystem](https://github.com/KaanMyumyun/HospitalSystem)
+under [`.github/workflows/`](https://github.com/KaanMyumyun/HospitalSystem/tree/main/.github/workflows).
+That is where the workflows run and where changes should be made.
+
+The files in this directory are only an example of that pipeline. They can fall
+behind the application repository, so check there for the current version.
+
 ## Workflow Order
 
 1. `CI`
    - runs on pull requests, pushes to `main`, and weekly (Mondays 03:00 UTC)
      so published images pick up base image security fixes
    - restores, builds and tests the backend
-   - lints, tests and builds the frontend
+   - audits npm dependencies (fails on `high` or worse), then lints, tests and
+     builds the frontend
    - builds both Docker images and fails on fixable `HIGH` or `CRITICAL`
      vulnerabilities found by Trivy
 
@@ -29,6 +40,8 @@ this infrastructure repository.
 3. `Deploy to EKS`
    - runs after image build and push succeeds
    - waits for approval in the `production` GitHub environment
+   - skips the deploy if the commit is no longer the tip of `main`, so an
+     older build approved late cannot overwrite a newer one
    - assumes the AWS EKS deploy role through OIDC
    - finds the ops instance named in the `DEPLOY_INSTANCE_NAME` repository
      variable and sends it the `DEPLOY_SSM_DOCUMENT` SSM document, because the

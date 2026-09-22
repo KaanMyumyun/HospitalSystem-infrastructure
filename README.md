@@ -208,6 +208,16 @@ fields to the new date + short SHA tag. It skips waiting for a rollout because
 no pods are running. The next manual scale-up starts pods from that exact image
 tag.
 
+Both Deployments roll out with `RollingUpdate` (`maxSurge: 1`,
+`maxUnavailable: 0`): a new pod starts next to the old one, and the old pod is
+removed only once the new one is available. The namespace has the
+`elbv2.k8s.aws/pod-readiness-gate-inject: enabled` label, so the AWS Load
+Balancer Controller holds a new pod's readiness until its ALB target passes
+health checks. A terminating pod waits 15 seconds in a `preStop` hook while the
+ALB deregisters it, and the target groups drain for 30 seconds. If the new pod
+never becomes healthy, the old pod keeps serving, the Deployment is marked
+failed after `progressDeadlineSeconds: 300`, and the deploy step fails.
+
 The ops instance's IAM role gets Kubernetes access through an EKS access entry
 in the `hospitalsystem:deployers` group, which is bound by
 `kubernetes/rbac/github-actions-deploy.yaml.j2` to update Deployments only in the
@@ -480,6 +490,27 @@ Monitoring is intentionally lightweight to avoid running a paid in-cluster
 observability stack. The project does not deploy Prometheus, Grafana, CloudWatch
 Observability, or EKS runtime monitoring.
 
+`scripts/monitoring.sh` runs every check below in one pass and ends with a
+summary of warnings and failures. It exits 1 when any check fails:
+
+```bash
+./scripts/monitoring.sh                    # everything; changes nothing in AWS
+./scripts/monitoring.sh --refresh-alarms   # also recreate the ALB alarms (monitoring.yml) first
+./scripts/monitoring.sh workloads logs     # only the named sections
+```
+
+It covers the public endpoint (DNS target, redirect, HTTPS, TLS and ACM expiry),
+the CloudWatch alarm states and recent changes, ALB metrics and target health,
+the EKS control plane, upgrade insights, node group and ops instance, nodes and
+kube-system add-ons, workloads, rollouts, HPAs, usage against limits, the
+backend's `/health/ready` database check and its Prometheus metrics on port
+9091 (read through the Kubernetes API proxy), warning events, app logs, control
+plane log errors, ECR scan findings, the SSM deploy history, GitHub Actions
+runs, whether the repository variables still match the Terraform outputs, and
+month-to-date spend without credits (one Cost Explorer call, $0.01 per run). Run
+`./scripts/monitoring.sh --help` for the section list and the environment
+overrides (`LOOKBACK_HOURS`, `LOG_TAIL_LINES`, and others).
+
 CloudWatch alarms are built from existing AWS metrics. The Ansible monitoring
 playbook creates the ALB alarms, because the ALB only exists once the Load
 Balancer Controller has made it:
@@ -688,6 +719,13 @@ kubectl rollout history deployment/hospital-backend -n hospitalsystem --revision
 kubectl rollout history deployment/hospital-frontend -n hospitalsystem --revision=2
 ```
 
+Roll back to the previous revision (each Deployment keeps five):
+
+```bash
+kubectl rollout undo deployment/hospital-backend -n hospitalsystem
+kubectl rollout undo deployment/hospital-frontend -n hospitalsystem
+```
+
 If the image tag is `2026-08-22-8f88481`, the last part is the Git short SHA.
 Find the matching application commit from the app repository:
 
@@ -710,5 +748,5 @@ kubectl logs -n hospitalsystem <pod-name>
 
 Planned infrastructure improvements:
 
-- Replace the current `Recreate` deployment strategy with `RollingUpdate` once there is enough node capacity to run old and new pods at the same time.
-- Add readiness-aware rollout settings such as `maxUnavailable`, `maxSurge`, and deployment history limits for safer releases and rollbacks.
+- Run at least two replicas of each app, spread across nodes, with a PodDisruptionBudget. Rolling updates already keep deploys up, but with one replica a node drain or node group upgrade still stops the app briefly.
+- Roll back automatically in the deploy SSM document when a rollout fails, instead of leaving the Deployment half-rolled for a manual `kubectl rollout undo`.

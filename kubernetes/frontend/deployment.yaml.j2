@@ -8,8 +8,14 @@ metadata:
     app.kubernetes.io/part-of: hospitalsystem
 spec:
   replicas: 1
+  revisionHistoryLimit: 5
+  minReadySeconds: 10
+  progressDeadlineSeconds: 300
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app.kubernetes.io/name: hospital-frontend
@@ -19,10 +25,15 @@ spec:
         app.kubernetes.io/name: hospital-frontend
         app.kubernetes.io/part-of: hospitalsystem
     spec:
+      terminationGracePeriodSeconds: 45
       containers:
         - name: frontend
           image: "{{ frontend_image }}"
           imagePullPolicy: Always
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 15
           ports:
             - name: http
               containerPort: 8080
