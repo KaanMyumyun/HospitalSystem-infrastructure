@@ -40,6 +40,12 @@ variable "github_deploy_environment" {
   default     = "production"
 }
 
+variable "github_oidc_provider_arn" {
+  description = "ARN of an existing token.actions.githubusercontent.com OIDC provider in this account. An account can hold only one, so set this when another project already created it. Empty creates it here."
+  type        = string
+  default     = ""
+}
+
 variable "app_domain_name" {
   description = "Public application domain name."
   type        = string

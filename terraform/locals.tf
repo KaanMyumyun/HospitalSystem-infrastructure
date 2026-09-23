@@ -16,6 +16,8 @@ locals {
   ops_name         = "${var.project_name}-ops"
   ecr_registry     = "${local.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com"
 
+  github_oidc_provider_arn = var.github_oidc_provider_arn != "" ? var.github_oidc_provider_arn : aws_iam_openid_connect_provider.github_actions[0].arn
+
   ec2_arn_prefix  = "arn:aws:ec2:${var.aws_region}:${local.account_id}"
   elb_arn_prefix  = "arn:aws:elasticloadbalancing:${var.aws_region}:${local.account_id}"
   elb_arns        = ["${local.elb_arn_prefix}:loadbalancer/app/*/*", "${local.elb_arn_prefix}:loadbalancer/net/*/*"]

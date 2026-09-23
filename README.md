@@ -241,6 +241,11 @@ OIDC subject:
   branch. In Settings, Environments, `production`, set Deployment branches to
   `main` only and add required reviewers, so every deploy waits for approval.
 
+An AWS account can hold only one `token.actions.githubusercontent.com` OIDC
+provider. Terraform creates it unless `github_oidc_provider_arn` is set; set it
+to the existing provider's ARN when another project in the account already has
+one.
+
 The workflows pin every action to a commit SHA, and Dependabot keeps the pins
 current. The deploy workflow reads the SSM document and ops instance name from
 the `DEPLOY_SSM_DOCUMENT` and `DEPLOY_INSTANCE_NAME` repository variables (the
