@@ -26,24 +26,11 @@
       register: delete_ingress
       changed_when: "'deleted' in delete_ingress.stdout"
       failed_when: false
+      notify: Wait for the controller to delete the ALB
 
-    - name: Wait for the controller to delete the ALB
-      ansible.builtin.command:
-        argv:
-          - aws
-          - elbv2
-          - describe-load-balancers
-          - --region
-          - "{{ aws_region }}"
-          - --names
-          - "{{ alb_name }}"
-      register: alb_controller_wait
-      changed_when: false
-      failed_when: false
-      until: alb_controller_wait.rc != 0
-      retries: 18
-      delay: 10
-      when: delete_ingress.changed
+    # The ALB lookup below must not run until the controller has finished.
+    - name: Run the ALB wait now
+      ansible.builtin.meta: flush_handlers
 
     - name: Look up Kubernetes ALB
       ansible.builtin.command:
@@ -165,3 +152,21 @@
       retries: 12
       delay: 10
       when: k8s_security_groups.stdout | length > 0
+
+  handlers:
+    - name: Wait for the controller to delete the ALB
+      ansible.builtin.command:
+        argv:
+          - aws
+          - elbv2
+          - describe-load-balancers
+          - --region
+          - "{{ aws_region }}"
+          - --names
+          - "{{ alb_name }}"
+      register: alb_controller_wait
+      changed_when: false
+      failed_when: false
+      until: alb_controller_wait.rc != 0
+      retries: 18
+      delay: 10
