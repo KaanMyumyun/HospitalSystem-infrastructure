@@ -400,7 +400,7 @@ section_capacity() {
 # Samples both Deployments and probes the app until the rollout finishes.
 watch_rollout() {
   local deadline="$1" started_at samples=0 requests=0 failures=0 zero_ready=0 surge=0
-  local row deployment generation observed spec pods updated ready available
+  local row deployment generation observed spec pods updated ready
   local rolling sample_surge sample_zero
   local frontend_probe backend_probe frontend_code backend_code backend_type
   local first_failure="" first_zero="" state summary_line
@@ -413,7 +413,7 @@ watch_rollout() {
     state=""
     sample_surge=false
     sample_zero=false
-    while IFS='|' read -r deployment generation observed spec pods updated ready available; do
+    while IFS='|' read -r deployment generation observed spec pods updated ready _; do
       pods="${pods:-0}"
       ready="${ready:-0}"
       updated="${updated:-0}"

@@ -171,3 +171,37 @@ jobs:
       # against the upstream master schemas. Every kind used here is GA.
       - name: Validate manifests
         run: kubeconform -strict -summary "$RUNNER_TEMP/manifests"
+
+  shell:
+    name: Shell scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SHELLCHECK_VERSION: v0.11.0
+      SHELLCHECK_SHA256: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The runner image has its own, older shellcheck; pin the one used locally.
+      - name: Install ShellCheck
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/shellcheck.tar.xz" \
+            "https://github.com/koalaman/shellcheck/releases/download/$SHELLCHECK_VERSION/shellcheck-$SHELLCHECK_VERSION.linux.x86_64.tar.xz"
+          echo "$SHELLCHECK_SHA256  $RUNNER_TEMP/shellcheck.tar.xz" | sha256sum -c -
+          tar -xJf "$RUNNER_TEMP/shellcheck.tar.xz" -C "$RUNNER_TEMP" --strip-components=1 \
+            "shellcheck-$SHELLCHECK_VERSION/shellcheck"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      # Every finding becomes an annotation on the PR, but only warnings and
+      # errors fail the job. Most notes are SC2016 on JMESPath and go-template
+      # literals, which are single-quoted so they reach the CLI unexpanded.
+      - name: ShellCheck
+        run: |
+          mapfile -t scripts < <(git ls-files '*.sh')
+          shellcheck --format=gcc "${scripts[@]}" | sed -E \
+            -e 's/^([^:]+):([0-9]+):([0-9]+): (note|style): /::notice file=\1,line=\2,col=\3::/' \
+            -e 's/^([^:]+):([0-9]+):([0-9]+): (warning|error): /::\4 file=\1,line=\2,col=\3::/' || true
+          shellcheck --severity=warning "${scripts[@]}"

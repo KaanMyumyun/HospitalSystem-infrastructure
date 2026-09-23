@@ -42,11 +42,6 @@ resource "aws_eks_cluster" "main" {
   tags = {
     Name = "${local.cluster_name}-Terraform"
     ENV  = var.environment
-    pr1  = "kubenetes"
-  }
-
-  lifecycle {
-    ignore_changes = [vpc_config[0].subnet_ids]
   }
 
   depends_on = [
@@ -87,10 +82,7 @@ resource "aws_eks_node_group" "hospitalsystempr1" {
   }
 
   lifecycle {
-    ignore_changes = [
-      scaling_config[0].desired_size,
-      subnet_ids
-    ]
+    ignore_changes = [scaling_config[0].desired_size]
   }
 
   depends_on = [
