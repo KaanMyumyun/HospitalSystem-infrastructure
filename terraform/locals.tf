@@ -23,8 +23,6 @@ locals {
   rule_arns       = ["${local.elb_arn_prefix}:listener-rule/app/*/*/*/*", "${local.elb_arn_prefix}:listener-rule/net/*/*/*/*"]
   target_grp_arns = ["${local.elb_arn_prefix}:targetgroup/*/*"]
 
-  frontend_api_url = var.frontend_api_url != "" ? var.frontend_api_url : "https://${var.app_domain_name}/api"
-
   backend_source_dir  = var.backend_source_dir != "" ? var.backend_source_dir : abspath("${path.module}/../../HospitalSystem")
   frontend_source_dir = var.frontend_source_dir != "" ? var.frontend_source_dir : "${local.backend_source_dir}/hospital-frontend"
 

@@ -4,8 +4,8 @@ output "app_url" {
 }
 
 output "api_url" {
-  description = "Backend API base URL behind the ALB."
-  value       = local.frontend_api_url
+  description = "Backend API base URL behind the ALB. The frontend calls it as /api on its own host."
+  value       = "https://${var.app_domain_name}/api"
 }
 
 output "github_actions_variables" {
@@ -17,7 +17,6 @@ output "github_actions_variables" {
     ECR_REGISTRY              = local.ecr_registry
     ECR_BACKEND_REPOSITORY    = aws_ecr_repository.backend.name
     ECR_FRONTEND_REPOSITORY   = aws_ecr_repository.frontend.name
-    VITE_API_URL              = local.frontend_api_url
     DEPLOY_SSM_DOCUMENT       = aws_ssm_document.deploy.name
     DEPLOY_INSTANCE_NAME      = local.ops_name
   }

@@ -100,9 +100,3 @@ variable "cloudflare_api_token" {
   sensitive   = true
   default     = ""
 }
-
-variable "frontend_api_url" {
-  description = "API base URL baked into the frontend image at build time. Empty derives https://<app_domain_name>/api."
-  type        = string
-  default     = ""
-}

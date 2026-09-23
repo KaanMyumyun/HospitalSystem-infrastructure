@@ -173,7 +173,9 @@ success:
    - runs after the `CI` workflow succeeds on a push to `main` or on the weekly
      scheduled run
    - checks out the exact commit that passed CI
-   - builds backend and frontend Docker images
+   - builds backend and frontend Docker images. The frontend is built with
+     `VITE_API_URL=/api`, so it calls the backend on whatever host serves it
+     and the same image works under any domain.
    - logs in to Docker Hub and Amazon ECR
    - uses GitHub Actions OIDC to assume the AWS ECR push role
    - pushes each image to both Docker Hub and Amazon ECR
