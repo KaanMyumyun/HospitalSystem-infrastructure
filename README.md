@@ -677,6 +677,55 @@ kubectl get ingress hospital-ingress -n hospitalsystem -o wide
 dig +short app.hospitalsyst.cc CNAME
 ```
 
+### Database
+
+The database is in Neon, outside AWS, so a destroy and recreate leaves it
+untouched. The application's always-on demo on Render uses the same database,
+so a restore changes its data too.
+
+Neon keeps every change for the project's history window and can restore the
+branch to any moment inside it. The window is set in the Neon console under
+Settings, Postgres, History window:
+
+| Neon plan | History window |
+| --------- | -------------- |
+| Free | 6 hours, capped at 1 GB of changes |
+| Launch | 1 day by default, up to 7 days |
+| Scale | 1 day by default, up to 30 days |
+
+Anything older than the window can only come back from a snapshot. Snapshots
+are on the Backup & Restore page. The Free plan allows one manual snapshot;
+paid plans allow 100 and can also take scheduled snapshots, kept for up to 35
+days. Nothing here takes one automatically.
+
+To restore to a point in time:
+
+1. On the Backup & Restore page, pick the moment just before the damage. Time
+   Travel Assist there runs read-only queries against a past point, so you can
+   check the data before restoring.
+2. Restore the branch from its own history, either on that page (From history)
+   or with the Neon CLI:
+
+   ```bash
+   neon branches restore <branch> ^self@2026-09-23T10:00:00Z \
+     --preserve-under-name <branch>_before_restore
+   ```
+
+   This overwrites every database on the branch. The previous state is kept as
+   a backup branch (`<branch>_old_<timestamp>` unless you name it), so a wrong
+   restore can be reversed the same way.
+3. The compute moves to the restored branch, so the connection string and the
+   `hospital-backend-secrets` Secret stay the same. Connections drop briefly
+   during the restore. Check that the backend reconnected:
+
+   ```bash
+   ./scripts/monitoring.sh app
+   ```
+
+The EKS backend doesn't run migrations (`Database__RunMigrationsOnStartup` is
+`false`). If the restore point is older than a migration, apply the migrations
+again as described in the application README.
+
 ## Database Access
 
 The backend reaches Neon through the two NAT gateways, so all of its database
