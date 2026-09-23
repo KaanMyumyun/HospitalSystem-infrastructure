@@ -130,6 +130,8 @@ Terraform manages the AWS infrastructure layer:
 - security groups
 - IAM roles and policies
 - EKS cluster and node group
+- the vpc-cni, coredns and kube-proxy EKS add-ons, at EKS's default version for
+  `eks_version` (a later apply also follows AWS when it changes that default)
 - imported/load-balancer-related AWS resources where appropriate
 
 Kubernetes manages the workload layer:
@@ -385,9 +387,22 @@ The EKS API endpoint is private. Every playbook that talks to the cluster, and
 `scripts/monitoring.sh`, goes through `ansible/tasks/kubeconfig.yml`. It opens
 an SSM port-forwarding session through the ops instance to the endpoint and
 points the kubeconfig cluster at `https://127.0.0.1:8443`
-(`eks_tunnel_local_port`). The session stays open for plain `kubectl` commands
-and closes after 12 hours. Close it sooner, and always after rebuilding the
-cluster, since an open session still points at the old endpoint:
+(`eks_tunnel_local_port`).
+
+The playbooks write that kubeconfig to the ignored `.generated/kubeconfig`
+(`kubeconfig_path`) and run `kubectl` and `helm` with `KUBECONFIG` pointing at
+it, so `~/.kube/config` and your current context are never changed.
+`scripts/monitoring.sh`, `scripts/rollout-check.sh` and
+`scripts/pre-destroy-cleanup.sh` use the same file. For plain `kubectl` commands,
+such as the ones later in this README, point your shell at it first:
+
+```bash
+export KUBECONFIG="$PWD/.generated/kubeconfig"
+```
+
+The session stays open for plain `kubectl` commands and closes after 12 hours.
+Close it sooner, and always after rebuilding the cluster, since an open session
+still points at the old endpoint:
 
 ```bash
 pkill -f AWS-StartPortForwardingSessionToRemoteHost
@@ -407,8 +422,15 @@ Apply the Kubernetes manifests:
 ansible-playbook ansible/playbooks/apply-kubernetes.yml
 ```
 
-This applies the namespace, ConfigMap, Deployments, Services, Ingress, and
-GitHub Actions deploy RBAC. Runtime secrets such as
+This applies the namespace, ConfigMap, Services, HPAs, GitHub Actions deploy
+RBAC, admission policy and Ingress first (`kubernetes_manifests`). It then waits
+for the Load Balancer Controller to create a TargetGroupBinding for each Service
+behind the Ingress and for the ALB to become active, and only then applies the
+Deployments (`kubernetes_workload_manifests`). The controller adds the ALB
+readiness gate only to pods created after their Service's TargetGroupBinding
+exists, so this order gives every pod the gate on a fresh cluster. After the
+rollouts finish, the playbook restarts any Deployment that still has a pod
+without the gate and fails if the new pods don't get it either. Runtime secrets such as
 `hospital-backend-secrets` are not stored in this repository and must be managed
 through environment variables or another secret-management system.
 
@@ -459,6 +481,10 @@ Show current Deployment images and Pods:
 ansible-playbook ansible/playbooks/status.yml
 ```
 
+This is the only status playbook, and the bootstrap ends with it. For anything
+more (rollout history, HPAs, pod usage, the Ingress, alarms, logs), run the
+matching sections of `scripts/monitoring.sh` (see [Monitoring](#monitoring)).
+
 Deploy a specific image tag manually:
 
 ```bash
@@ -477,12 +503,6 @@ Backend and frontend also have HorizontalPodAutoscalers. After the Kubernetes
 manifests are applied, each workload scales between 1 and 3 pods when average
 CPU utilization goes above the configured target. Manual scaling is temporary
 while HPA is enabled because Kubernetes reconciles the replica count.
-
-Collect basic debug information:
-
-```bash
-ansible-playbook ansible/playbooks/debug.yml
-```
 
 ## Monitoring
 
@@ -511,6 +531,29 @@ month-to-date spend without credits (one Cost Explorer call, $0.01 per run). Run
 `./scripts/monitoring.sh --help` for the section list and the environment
 overrides (`LOOKBACK_HOURS`, `LOG_TAIL_LINES`, and others).
 
+`scripts/rollout-check.sh` answers a narrower question: whether a deploy really
+replaces the pods without dropping a request. It also exits 1 when any check
+fails:
+
+```bash
+./scripts/rollout-check.sh             # settings only; changes nothing
+./scripts/rollout-check.sh --watch     # probes the app while a CI deploy rolls out
+./scripts/rollout-check.sh --restart   # starts a rollout itself and probes it
+```
+
+With no options it reads the `RollingUpdate` settings on both Deployments, the
+ALB readiness gate on the namespace and the running pods, the Load Balancer
+Controller's pod webhook, the target group drain time in the Ingress and in the
+ALB itself, and whether the nodes have room for the extra pod a rollout starts.
+
+With `--watch` it waits for a rollout to begin, then samples both Deployments
+and requests the frontend and the backend about once a second until the rollout
+finishes. Start it before triggering the deploy workflow. `--restart` starts the
+rollout itself with `kubectl rollout restart`, which replaces the running pods
+with the same image. Either way it fails if a request is refused or answers 5xx,
+or if a Deployment ever drops to zero ready pods, and reports whether it saw the
+extra pod start before the old one stopped.
+
 CloudWatch alarms are built from existing AWS metrics. The Ansible monitoring
 playbook creates the ALB alarms, because the ALB only exists once the Load
 Balancer Controller has made it:
@@ -528,25 +571,25 @@ Configure or refresh the ALB alarms:
 ansible-playbook ansible/playbooks/monitoring.yml
 ```
 
-Show current alarm states and Kubernetes runtime health:
+Show current alarm states, Kubernetes runtime health (HPA targets and pod
+CPU/memory usage from metrics-server included) and recent app logs:
 
 ```bash
-ansible-playbook ansible/playbooks/monitoring-status.yml
+./scripts/monitoring.sh alarms workloads
+./scripts/monitoring.sh logs
 ```
 
-The status playbook also shows the HPA targets and pod CPU/memory usage from
-metrics-server. You can query the same Kubernetes metrics directly:
+You can query the same Kubernetes metrics directly:
 
 ```bash
 kubectl get hpa -n hospitalsystem
 kubectl top pods -n hospitalsystem
 ```
 
-Show recent app container logs:
-
-```bash
-ansible-playbook ansible/playbooks/logs.yml
-```
+When a check can't read its data (an AWS, Kubernetes, Helm or GitHub call
+fails), `scripts/monitoring.sh` reports it as a failure, or as a warning for
+checks that only ever warn, with the error. It never counts an unreadable check
+as healthy.
 
 By default, alarms are created without notification actions. Setting
 `monitoring_alert_sns_topic_arn` in `ansible/group_vars/all/main.yml` attaches
@@ -593,7 +636,8 @@ During apply, Terraform recreates AWS resources and then runs
 - builds and pushes backend/frontend `latest` images from local source, unless
   ECR already has them
 - creates the GitHub Actions OIDC provider and IAM roles
-- creates the EKS cluster and node group
+- creates the EKS cluster and node group, and takes over the vpc-cni, coredns
+  and kube-proxy add-ons as EKS managed add-ons
 - requests the ACM certificate for `app.hospitalsyst.cc`
 - creates the Cloudflare ACM validation CNAME
 - waits for ACM to issue the certificate
@@ -615,7 +659,8 @@ the backend loses its database connection.
 Post-recreate checks:
 
 ```bash
-ansible-playbook ../ansible/playbooks/status.yml
+ansible-playbook ansible/playbooks/status.yml
+export KUBECONFIG="$PWD/.generated/kubeconfig"
 kubectl get ingress hospital-ingress -n hospitalsystem -o wide
 dig +short app.hospitalsyst.cc CNAME
 ```
@@ -669,12 +714,12 @@ To stop paying for it, destroy the environment and recreate it when needed
 The Kubernetes version is the `eks_version` Terraform variable. EKS upgrades one
 minor version at a time, in this order:
 
-1. Raise `eks_version` by one minor version and apply; this upgrades the
-   control plane.
-2. Update the vpc-cni, coredns and kube-proxy add-ons to versions that support
-   it.
-3. Update the node group AMI (`aws eks update-nodegroup-version`).
-4. Update the Helm charts pinned in `load-balancer-controller.yml` and
+1. Raise `eks_version` by one minor version and apply. This upgrades the
+   control plane, then moves the vpc-cni, coredns and kube-proxy add-ons
+   (`aws_eks_addon.core` in `terraform/eks.tf`) to EKS's default version for the
+   new Kubernetes version.
+2. Update the node group AMI (`aws eks update-nodegroup-version`).
+3. Update the Helm charts pinned in `load-balancer-controller.yml` and
    `metrics-server.yml` if their releases require it, and keep the Load
    Balancer Controller IAM policy in `terraform/iam.tf` in step with its
    chart version.
@@ -685,7 +730,9 @@ the CI/CD deployment updates the live Deployments to date + short SHA tags.
 ## Debug Deployed Images
 
 Use these commands when a deployment breaks and you need to see exactly which
-backend or frontend image is running.
+backend or frontend image is running. They use the tunnel kubeconfig from
+[Cluster access](#cluster-access): run
+`export KUBECONFIG="$PWD/.generated/kubeconfig"` first.
 
 Show the image configured on each Deployment:
 

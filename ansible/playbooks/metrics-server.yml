@@ -2,6 +2,8 @@
 - name: Install Kubernetes Metrics Server
   hosts: local
   gather_facts: false
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
 
   tasks:
     - name: Configure kubeconfig

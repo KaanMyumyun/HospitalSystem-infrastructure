@@ -61,10 +61,11 @@ locals {
             deployment = call("GET", name)
             want = deployment["spec"].get("replicas", 0)
             status = deployment.get("status", {})
-            if any(c.get("reason") == "ProgressDeadlineExceeded" for c in status.get("conditions", [])):
+            observed = status.get("observedGeneration", 0) >= deployment["metadata"]["generation"]
+            if observed and any(c.get("reason") == "ProgressDeadlineExceeded" for c in status.get("conditions", [])):
                 sys.exit(f"{name}: rollout exceeded its progress deadline")
             if (
-                status.get("observedGeneration", 0) >= deployment["metadata"]["generation"]
+                observed
                 and status.get("updatedReplicas", 0) == want
                 and status.get("replicas", 0) == want
                 and status.get("availableReplicas", 0) == want

@@ -100,3 +100,23 @@ resource "aws_eks_node_group" "hospitalsystempr1" {
     aws_iam_role_policy_attachment.eks_node_worker
   ]
 }
+
+data "aws_eks_addon_version" "core" {
+  for_each = toset(["vpc-cni", "coredns", "kube-proxy"])
+
+  addon_name         = each.key
+  kubernetes_version = aws_eks_cluster.main.version
+}
+
+resource "aws_eks_addon" "core" {
+  for_each = data.aws_eks_addon_version.core
+
+  cluster_name                = aws_eks_cluster.main.name
+  addon_name                  = each.key
+  addon_version               = each.value.version
+  resolve_conflicts_on_create = "OVERWRITE"
+  resolve_conflicts_on_update = "OVERWRITE"
+  preserve                    = true
+
+  depends_on = [aws_eks_node_group.hospitalsystempr1]
+}

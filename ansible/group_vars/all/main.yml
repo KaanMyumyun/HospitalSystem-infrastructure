@@ -1,4 +1,5 @@
 eks_tunnel_local_port: 8443
+kubeconfig_path: "{{ playbook_dir | dirname | dirname }}/.generated/kubeconfig"
 
 backend_image: "{{ backend_repository_url }}:{{ initial_image_tag }}"
 frontend_image: "{{ frontend_repository_url }}:{{ initial_image_tag }}"
@@ -36,6 +37,8 @@ kubernetes_manifests:
   - frontend/hpa.yaml.j2
   - rbac/github-actions-deploy.yaml.j2
   - policy/trusted-workloads.yaml.j2
+  - ingress/ingress.yaml.j2
+
+kubernetes_workload_manifests:
   - backend/deployment.yaml.j2
   - frontend/deployment.yaml.j2
-  - ingress/ingress.yaml.j2

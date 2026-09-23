@@ -2,6 +2,8 @@
 - name: Scale HospitalSystem deployments
   hosts: local
   gather_facts: false
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
 
   tasks:
     - name: Require replicas variable

@@ -2,6 +2,8 @@
 - name: Clean up Kubernetes-managed AWS resources before Terraform destroy
   hosts: local
   gather_facts: false
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
 
   tasks:
     - name: Configure kubeconfig

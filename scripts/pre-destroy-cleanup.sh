@@ -20,6 +20,8 @@ INGRESS_NAME="${INGRESS_NAME:-hospital-ingress}"
 K8S_NAMESPACE="${K8S_NAMESPACE:-$(group_var k8s_namespace)}"
 K8S_NAMESPACE="${K8S_NAMESPACE:-hospitalsystem}"
 CERT_ARN="${CERT_ARN:-$(group_var acm_certificate_arn)}"
+# The playbooks write the tunnel kubeconfig here and leave ~/.kube/config alone.
+export KUBECONFIG="$REPO_ROOT/.generated/kubeconfig"
 
 APPLY=false
 
@@ -90,6 +92,8 @@ if ! command -v kubectl >/dev/null 2>&1; then
   printf 'kubectl not installed - skipping, will delete the ALB directly\n'
 elif ! kubectl get --raw /readyz --request-timeout=15s >/dev/null 2>&1; then
   printf 'Cluster unreachable - skipping, will delete the ALB directly\n'
+  printf 'To let the controller delete it instead, open the tunnel first with\n'
+  printf 'ansible-playbook ansible/playbooks/kubeconfig.yml\n'
   printf 'If a tunnel from before a cluster rebuild is still open, close it with\n'
   printf 'pkill -f AWS-StartPortForwardingSessionToRemoteHost\n'
 elif ! kubectl get ingress "$INGRESS_NAME" -n "$K8S_NAMESPACE" \

@@ -2,10 +2,19 @@
 - name: Apply HospitalSystem Kubernetes manifests
   hosts: local
   gather_facts: false
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
 
   vars:
     manifest_source_dir: "{{ playbook_dir }}/../../kubernetes"
     manifest_output_dir: "{{ playbook_dir }}/../../.generated/kubernetes"
+    all_manifests: "{{ kubernetes_manifests + kubernetes_workload_manifests }}"
+    app_deployments:
+      - "{{ backend_deployment }}"
+      - "{{ frontend_deployment }}"
+    # One line per live pod: deletion time, then its readiness gates. A pod
+    # still serving without a gate prints just "|".
+    pod_gates_jsonpath: jsonpath={range .items[*]}{.metadata.deletionTimestamp}|{.spec.readinessGates[*].conditionType}{"\n"}{end}
 
   tasks:
     - name: Configure kubeconfig
@@ -16,14 +25,14 @@
         path: "{{ manifest_output_dir }}/{{ item }}"
         state: directory
         mode: "0755"
-      loop: "{{ kubernetes_manifests | map('dirname') | unique }}"
+      loop: "{{ all_manifests | map('dirname') | unique }}"
 
     - name: Render Kubernetes manifests
       ansible.builtin.template:
         src: "{{ manifest_source_dir }}/{{ item }}"
         dest: "{{ manifest_output_dir }}/{{ item | splitext | first }}"
         mode: "0644"
-      loop: "{{ kubernetes_manifests }}"
+      loop: "{{ all_manifests }}"
 
     - name: Apply Kubernetes manifests
       ansible.builtin.command:
@@ -36,6 +45,148 @@
       register: apply_results
       changed_when: "'created' in apply_results.stdout or 'configured' in apply_results.stdout"
 
+    # The Load Balancer Controller adds the ALB readiness gate only to pods
+    # created after the TargetGroupBinding for their Service exists, so the
+    # Deployments wait for both bindings.
+    - name: Read the Services behind the Ingress
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - get
+          - ingress
+          - "{{ ingress_name }}"
+          - -n
+          - "{{ k8s_namespace }}"
+          - -o
+          - jsonpath={.spec.rules[*].http.paths[*].backend.service.name}
+      register: ingress_services
+      changed_when: false
+
+    - name: Wait for the Load Balancer Controller to create a TargetGroupBinding for each Service
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - get
+          - targetgroupbindings
+          - -n
+          - "{{ k8s_namespace }}"
+          - -o
+          - jsonpath={.items[*].spec.serviceRef.name}
+      register: target_group_bindings
+      changed_when: false
+      until: >-
+        target_group_bindings.rc == 0
+        and ingress_services.stdout.split() | difference(target_group_bindings.stdout.split()) | length == 0
+      retries: 30
+      delay: 10
+
+    - name: Wait for the ALB to become active
+      ansible.builtin.command:
+        argv:
+          - aws
+          - elbv2
+          - describe-load-balancers
+          - --region
+          - "{{ aws_region }}"
+          - --names
+          - "{{ alb_name }}"
+          - --query
+          - LoadBalancers[0].State.Code
+          - --output
+          - text
+      register: alb_state
+      changed_when: false
+      until: alb_state.stdout == "active"
+      retries: 30
+      delay: 10
+
+    - name: Apply Deployments
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - apply
+          - -f
+          - "{{ manifest_output_dir }}/{{ item | splitext | first }}"
+      loop: "{{ kubernetes_workload_manifests }}"
+      register: workload_apply_results
+      changed_when: "'created' in workload_apply_results.stdout or 'configured' in workload_apply_results.stdout"
+
+    - name: Wait for Deployment rollouts
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - rollout
+          - status
+          - "deployment/{{ item }}"
+          - -n
+          - "{{ k8s_namespace }}"
+          - --timeout=600s
+      loop: "{{ app_deployments }}"
+      changed_when: false
+
+    - name: Look for app pods created without the ALB readiness gate
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - get
+          - pods
+          - -n
+          - "{{ k8s_namespace }}"
+          - -l
+          - "app.kubernetes.io/name={{ item }}"
+          - --field-selector=status.phase!=Failed,status.phase!=Succeeded
+          - -o
+          - "{{ pod_gates_jsonpath }}"
+      loop: "{{ app_deployments }}"
+      register: pod_gates
+      changed_when: false
+
+    - name: Recreate pods that lack the ALB readiness gate
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - rollout
+          - restart
+          - "deployment/{{ item }}"
+          - -n
+          - "{{ k8s_namespace }}"
+      loop: "{{ pod_gates.results | selectattr('stdout_lines', 'contains', '|') | map(attribute='item') | list }}"
+      register: gate_restarts
+      changed_when: true
+
+    - name: Wait for the recreated pods
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - rollout
+          - status
+          - "deployment/{{ item }}"
+          - -n
+          - "{{ k8s_namespace }}"
+          - --timeout=600s
+      loop: "{{ gate_restarts.results | map(attribute='item') | list }}"
+      changed_when: false
+
+    - name: Check the recreated pods have the ALB readiness gate
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - get
+          - pods
+          - -n
+          - "{{ k8s_namespace }}"
+          - -l
+          - "app.kubernetes.io/name={{ item }}"
+          - --field-selector=status.phase!=Failed,status.phase!=Succeeded
+          - -o
+          - "{{ pod_gates_jsonpath }}"
+      loop: "{{ gate_restarts.results | map(attribute='item') | list }}"
+      register: pod_gates_after_restart
+      changed_when: false
+      failed_when: >-
+        pod_gates_after_restart.rc != 0
+        or '|' in pod_gates_after_restart.stdout_lines
+
     - name: Show apply results
       ansible.builtin.debug:
-        msg: "{{ apply_results.results | map(attribute='stdout') | list }}"
+        msg: "{{ (apply_results.results + workload_apply_results.results) | map(attribute='stdout') | list }}"

@@ -2,6 +2,8 @@
 - name: Deploy a specific image tag to EKS
   hosts: local
   gather_facts: false
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
 
   tasks:
     - name: Require image_tag variable

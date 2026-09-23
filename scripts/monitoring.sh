@@ -130,6 +130,8 @@ else
 fi
 
 export AWS_PAGER=""
+# The playbooks write the tunnel kubeconfig here and leave ~/.kube/config alone.
+export KUBECONFIG="$REPO_ROOT/.generated/kubeconfig"
 NOW="$(date -u +%s)"
 WINDOW_START=$((NOW - LOOKBACK_HOURS * 3600))
 TMP_DIR="$(mktemp -d)"
@@ -142,6 +144,8 @@ ALB_LOOKED_UP=false
 ALB_ARN=""
 ALB_DNS=""
 ALB_STATE=""
+ALB_PROBLEM=""
+TG_PROBLEM=""
 TG_ARNS=()
 declare -A TG_LABEL=()
 
@@ -215,7 +219,7 @@ iso() {
 }
 
 epoch() {
-  date -u -d "$1" +%s 2>/dev/null
+  [ -n "$1" ] && date -u -d "$1" +%s 2>/dev/null
 }
 
 number() {
@@ -254,22 +258,31 @@ ensure_kube() {
 load_alb() {
   if [ "$ALB_LOOKED_UP" = false ]; then
     ALB_LOOKED_UP=true
-    local row arn resource
-    row="$(
+    local row arn resource tgs
+    if row="$(
       awsr elbv2 describe-load-balancers \
         --names "$ALB_NAME" \
         --query 'LoadBalancers[0].[LoadBalancerArn, DNSName, State.Code]' \
-        --output text 2>/dev/null
-    )" || row=""
-    read -r ALB_ARN ALB_DNS ALB_STATE <<<"$row"
+        --output text 2>&1
+    )"; then
+      read -r ALB_ARN ALB_DNS ALB_STATE <<<"$row"
+    elif [[ "$row" == *LoadBalancerNotFound* ]]; then
+      ALB_PROBLEM="Load balancer $ALB_NAME not found; the Load Balancer Controller creates it from the Ingress"
+    else
+      ALB_PROBLEM="Could not look up load balancer $ALB_NAME: $(last_line "$row")"
+    fi
 
     if [ -n "$ALB_ARN" ]; then
-      read -ra TG_ARNS <<<"$(
+      if tgs="$(
         awsr elbv2 describe-target-groups \
           --load-balancer-arn "$ALB_ARN" \
           --query 'TargetGroups[].TargetGroupArn' \
-          --output text 2>/dev/null || true
-      )"
+          --output text 2>&1
+      )"; then
+        read -ra TG_ARNS <<<"$tgs"
+      else
+        TG_PROBLEM="Could not list the ALB target groups: $(last_line "$tgs")"
+      fi
       for arn in "${TG_ARNS[@]}"; do
         resource="${arn##*:targetgroup/}"
         TG_LABEL[$arn]="${resource%%/*}"
@@ -373,7 +386,7 @@ section_endpoints() {
   if ! has_command dig; then
     note "dig is not installed; skipping the CNAME check"
   elif ! load_alb; then
-    warn "Load balancer $ALB_NAME not found, so the DNS target can't be checked"
+    warn "DNS target not checked: $ALB_PROBLEM"
   elif [ -z "$target" ]; then
     fail "$APP_DOMAIN has no CNAME record; run ansible-playbook ansible/playbooks/cloudflare-dns.yml"
   elif [ "${target,,}" = "${ALB_DNS,,}" ]; then
@@ -548,13 +561,14 @@ alb_metric() {
 section_metrics() {
   section "ALB metrics (last ${LOOKBACK_HOURS}h)"
   if ! load_alb; then
-    fail "Load balancer $ALB_NAME not found"
+    fail "$ALB_PROBLEM"
     return
   fi
 
   local period=$((LOOKBACK_HOURS * 3600)) end=$((NOW / 60 * 60)) lb="${ALB_ARN#*:loadbalancer/}"
   local queries=() index=0 arn tg label rows id total peak value before="${#RESULTS[@]}"
   local lb_dim="LoadBalancer=$lb"
+  [ -n "$TG_PROBLEM" ] && fail "$TG_PROBLEM; per-target-group metrics are missing"
 
   queries+=(
     "$(alb_metric requests "Requests" RequestCount Sum "$period" "$lb_dim")"
@@ -625,7 +639,7 @@ section_alb() {
   local arn label health id port state reason total unhealthy reasons listeners
 
   if ! load_alb; then
-    fail "Load balancer $ALB_NAME not found; the Load Balancer Controller creates it from the Ingress"
+    fail "$ALB_PROBLEM"
     return
   fi
 
@@ -652,7 +666,7 @@ section_alb() {
   fi
 
   if [ ${#TG_ARNS[@]} -eq 0 ]; then
-    fail "No target groups are attached to the ALB"
+    fail "${TG_PROBLEM:-No target groups are attached to the ALB}"
     return
   fi
 
@@ -692,7 +706,7 @@ section_alb() {
 
 section_eks() {
   section "EKS (AWS side)"
-  local info status version platform issues insights name addons addon ng row min desired max release asg
+  local info status version platform issues insights name addons addon nodegroups ng row min desired max release asg
   local instances in_service metrics ops ping agent last_ping state system_status instance_status
 
   sub "Control plane"
@@ -738,15 +752,19 @@ section_eks() {
   fi
 
   sub "Managed add-ons"
-  addons="$(awsr eks list-addons --cluster-name "$EKS_CLUSTER_NAME" --query 'addons' --output text 2>/dev/null || true)"
-  if [ -z "$addons" ]; then
-    note "None; VPC CNI, kube-proxy and CoreDNS run self-managed (see the system section)."
+  if ! addons="$(awsr eks list-addons --cluster-name "$EKS_CLUSTER_NAME" --query 'addons' --output text 2>&1)"; then
+    fail "Could not list the EKS add-ons: $(last_line "$addons")"
+  elif [ -z "$addons" ]; then
+    warn "No managed add-ons; terraform/eks.tf manages vpc-cni, coredns and kube-proxy, so run ./scripts/tf.sh apply"
   else
     for addon in $addons; do
-      row="$(
+      if ! row="$(
         awsr eks describe-addon --cluster-name "$EKS_CLUSTER_NAME" --addon-name "$addon" \
           --query 'addon.[status, addonVersion, length(health.issues || `[]`)]' --output text 2>&1
-      )"
+      )"; then
+        fail "Could not describe add-on $addon: $(last_line "$row")"
+        continue
+      fi
       read -r status version issues <<<"$row"
       printf '%-24s %-10s %s\n' "$addon" "$status" "$version"
       if [ "$status" = ACTIVE ] && [ "$issues" = 0 ]; then
@@ -757,7 +775,13 @@ section_eks() {
     done
   fi
 
-  for ng in $(awsr eks list-nodegroups --cluster-name "$EKS_CLUSTER_NAME" --query 'nodegroups' --output text 2>/dev/null || true); do
+  if ! nodegroups="$(awsr eks list-nodegroups --cluster-name "$EKS_CLUSTER_NAME" --query 'nodegroups' --output text 2>&1)"; then
+    fail "Could not list the node groups: $(last_line "$nodegroups")"
+    nodegroups=""
+  elif [ -z "$nodegroups" ]; then
+    fail "Cluster $EKS_CLUSTER_NAME has no node groups"
+  fi
+  for ng in $nodegroups; do
     sub "Node group $ng"
     row="$(
       awsr eks describe-nodegroup --cluster-name "$EKS_CLUSTER_NAME" --nodegroup-name "$ng" \
@@ -784,22 +808,26 @@ section_eks() {
     fi
 
     if [ -n "$asg" ] && [ "$asg" != None ]; then
-      instances="$(
+      if ! instances="$(
         awsr autoscaling describe-auto-scaling-groups --auto-scaling-group-names "$asg" \
           --query 'AutoScalingGroups[0].Instances[].[InstanceId, InstanceType, AvailabilityZone, LifecycleState, HealthStatus]' \
           --output text 2>&1
-      )"
-      [ -n "$instances" ] && awk -F'\t' '{ printf "  %-20s %-10s %-12s %-10s %s\n", $1, $2, $3, $4, $5 }' <<<"$instances"
-      in_service="$(awk -F'\t' '$4 == "InService" && $5 == "Healthy"' <<<"$instances" | grep -c . || true)"
-      if [ "$in_service" -lt "$desired" ]; then
-        fail "Only $in_service of $desired node instances are InService and Healthy"
+      )"; then
+        fail "Could not read the instances in $asg: $(last_line "$instances")"
+      else
+        [ -n "$instances" ] && awk -F'\t' '{ printf "  %-20s %-10s %-12s %-10s %s\n", $1, $2, $3, $4, $5 }' <<<"$instances"
+        in_service="$(awk -F'\t' '$4 == "InService" && $5 == "Healthy"' <<<"$instances" | grep -c . || true)"
+        if [ "$in_service" -lt "$desired" ]; then
+          fail "Only $in_service of $desired node instances are InService and Healthy"
+        fi
       fi
 
-      metrics="$(
+      if ! metrics="$(
         awsr autoscaling describe-auto-scaling-groups --auto-scaling-group-names "$asg" \
-          --query 'AutoScalingGroups[0].EnabledMetrics[].Metric' --output text 2>/dev/null || true
-      )"
-      if [[ " $metrics " != *" GroupInServiceInstances "* ]]; then
+          --query 'AutoScalingGroups[0].EnabledMetrics[].Metric' --output text 2>&1
+      )"; then
+        warn "Could not read the group metrics on $asg: $(last_line "$metrics")"
+      elif [[ " ${metrics//$'\t'/ } " != *" GroupInServiceInstances "* ]]; then
         warn "Group metrics are off on $asg, so $ALARM_PREFIX-nodegroup-no-running-nodes never gets data and stays OK (fix: aws autoscaling enable-metrics-collection --auto-scaling-group-name $asg --granularity 1Minute --metrics GroupInServiceInstances)"
       fi
     fi
@@ -828,11 +856,14 @@ section_eks() {
     fail "Ops instance is $state"
   fi
 
-  ping="$(
+  if ! ping="$(
     awsr ssm describe-instance-information --filters "Key=InstanceIds,Values=$OPS_INSTANCE_ID" \
       --query 'InstanceInformationList[0].[PingStatus, AgentVersion, LastPingDateTime]' \
-      --output text 2>/dev/null || true
-  )"
+      --output text 2>&1
+  )"; then
+    fail "Could not read the SSM agent status of the ops instance: $(last_line "$ping")"
+    return
+  fi
   read -r ping agent last_ping <<<"$ping"
   if [ -z "$ping" ] || [ "$ping" = None ]; then
     fail "Ops instance is not registered with SSM; kubectl and deploys can't reach the cluster"
@@ -846,7 +877,7 @@ section_eks() {
 section_nodes() {
   section "Kubernetes nodes"
   ensure_kube || return
-  local readyz rows name ready memory disk pid pods cordoned count total=0
+  local readyz rows name ready memory disk pid pods cordoned count placements total=0
   declare -A node_pods=() node_capacity=()
 
   readyz="$(kube get --raw /readyz 2>&1)"
@@ -858,9 +889,12 @@ section_nodes() {
 
   sub "Nodes"
   kube get nodes -o wide
-  rows="$(
+  if ! rows="$(
     kube get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"|"}{.status.conditions[?(@.type=="Ready")].status}{"|"}{.status.conditions[?(@.type=="MemoryPressure")].status}{"|"}{.status.conditions[?(@.type=="DiskPressure")].status}{"|"}{.status.conditions[?(@.type=="PIDPressure")].status}{"|"}{.status.allocatable.pods}{"|"}{.spec.unschedulable}{"\n"}{end}' 2>&1
-  )"
+  )"; then
+    fail "Could not read the node conditions: $(last_line "$rows")"
+    return
+  fi
   while IFS='|' read -r name ready memory disk pid pods cordoned; do
     [ -z "$name" ] && continue
     total=$((total + 1))
@@ -878,20 +912,24 @@ section_nodes() {
   kube top nodes || warn "kubectl top nodes failed; metrics-server may not be ready"
 
   sub "Pod capacity"
-  while read -r count name; do
-    node_pods[$name]="$count"
-  done < <(
+  if ! placements="$(
     kube get pods -A --field-selector=status.phase!=Succeeded,status.phase!=Failed \
-      -o jsonpath='{range .items[*]}{.spec.nodeName}{"\n"}{end}' | awk 'NF' | sort | uniq -c
-  )
-  for name in "${!node_capacity[@]}"; do
-    count="${node_pods[$name]:-0}"
-    pods="${node_capacity[$name]}"
-    printf '%-48s %s/%s pods\n' "$name" "$count" "$pods"
-    if [[ "$pods" =~ ^[1-9][0-9]*$ ]] && [ $((count * 100 / pods)) -ge 90 ]; then
-      warn "Node $name runs $count of its $pods pod slots; new pods may not schedule"
-    fi
-  done
+      -o jsonpath='{range .items[*]}{.spec.nodeName}{"\n"}{end}' 2>&1
+  )"; then
+    warn "Could not count the pods on each node: $(last_line "$placements")"
+  else
+    while read -r count name; do
+      node_pods[$name]="$count"
+    done < <(awk 'NF' <<<"$placements" | sort | uniq -c)
+    for name in "${!node_capacity[@]}"; do
+      count="${node_pods[$name]:-0}"
+      pods="${node_capacity[$name]}"
+      printf '%-48s %s/%s pods\n' "$name" "$count" "$pods"
+      if [[ "$pods" =~ ^[1-9][0-9]*$ ]] && [ $((count * 100 / pods)) -ge 90 ]; then
+        warn "Node $name runs $count of its $pods pod slots; new pods may not schedule"
+      fi
+    done
+  fi
 
   sub "Requested resources"
   kube describe nodes | awk '/^Name:/ { print; next } /^Allocated resources:/ { show = 1 } /^Events:/ { show = 0 } show'
@@ -900,7 +938,7 @@ section_nodes() {
 section_system() {
   section "Cluster add-ons (kube-system)"
   ensure_kube || return
-  local name jsonpath row ready want available failed errors
+  local name jsonpath row ready want available releases failed logs errors
 
   sub "Pods"
   kube get pods -n kube-system -o wide
@@ -914,7 +952,7 @@ section_system() {
       jsonpath='{.status.numberReady}|{.status.desiredNumberScheduled}'
     fi
     row="$(kube get "$name" -n kube-system -o jsonpath="$jsonpath" 2>&1)" || {
-      fail "$name is missing from kube-system"
+      fail "Could not read $name in kube-system: $(last_line "$row")"
       continue
     }
     IFS='|' read -r ready want <<<"$row"
@@ -926,50 +964,60 @@ section_system() {
     fi
   done
 
-  available="$(
+  if ! available="$(
     kube get apiservice v1beta1.metrics.k8s.io \
-      -o jsonpath='{.status.conditions[?(@.type=="Available")].status}' 2>/dev/null || true
-  )"
-  if [ "$available" = True ]; then
+      -o jsonpath='{.status.conditions[?(@.type=="Available")].status}' 2>&1
+  )"; then
+    fail "Could not read the metrics APIService: $(last_line "$available")"
+  elif [ "$available" = True ]; then
     ok "Metrics API is available"
   else
-    fail "Metrics API is not available; HPAs and kubectl top won't work"
+    fail "Metrics API is not available (Available=${available:-unknown}); HPAs and kubectl top won't work"
   fi
 
   sub "Helm releases"
-  if has_command helm; then
-    helm list -A
-    failed="$(helm list -A --failed --pending -q 2>/dev/null || true)"
-    if [ -n "$failed" ]; then
+  if ! has_command helm; then
+    skip "helm is not installed"
+  elif ! releases="$(helm list -A 2>&1)"; then
+    fail "Could not list the Helm releases: $(last_line "$releases")"
+  else
+    printf '%s\n' "$releases"
+    if ! failed="$(helm list -A --failed --pending -q 2>&1)"; then
+      fail "Could not list failed or pending Helm releases: $(last_line "$failed")"
+    elif [ -n "$failed" ]; then
       fail "Helm releases not deployed: $(tr '\n' ' ' <<<"$failed")"
     else
       ok "All Helm releases are deployed"
     fi
-  else
-    skip "helm is not installed"
   fi
 
   sub "Load Balancer Controller errors (last 300 log lines per pod)"
-  errors="$(
+  if ! logs="$(
     kube logs -n kube-system -l app.kubernetes.io/name=aws-load-balancer-controller \
-      --tail=300 --prefix 2>/dev/null | grep '"level":"error"' || true
-  )"
-  if [ -z "$errors" ]; then
-    ok "No errors in the Load Balancer Controller logs"
+      --tail=300 --prefix 2>&1
+  )"; then
+    warn "Could not read the Load Balancer Controller logs: $(last_line "$logs")"
+  elif [ -z "$logs" ] || [[ "$logs" == "No resources found"* ]]; then
+    warn "No Load Balancer Controller log lines to check; see the controller check above"
   else
-    tail -n 5 <<<"$errors" | cut -c1-400
-    warn "Load Balancer Controller logged $(grep -c . <<<"$errors") error line(s)"
+    errors="$(grep '"level":"error"' <<<"$logs" || true)"
+    if [ -z "$errors" ]; then
+      ok "No errors in the Load Balancer Controller logs"
+    else
+      tail -n 5 <<<"$errors" | cut -c1-400
+      warn "Load Balancer Controller logged $(grep -c . <<<"$errors") error line(s)"
+    fi
   fi
 }
 
 section_workloads() {
   section "Application workloads ($NAMESPACE)"
   ensure_kube || return
-  local deployment row desired ready updated image status history name current max active
-  local svc endpoints hostname refs ref keys policy
+  local deployment row desired ready updated image status history name current max active hpas
+  local services svc endpoints hostname refs ref answer keys policy can_patch
 
-  if ! kube get namespace "$NAMESPACE" >/dev/null 2>&1; then
-    fail "Namespace $NAMESPACE does not exist"
+  if ! answer="$(kube get namespace "$NAMESPACE" -o name 2>&1)"; then
+    fail "Could not read namespace $NAMESPACE: $(last_line "$answer")"
     return
   fi
 
@@ -980,7 +1028,7 @@ section_workloads() {
       kube get deployment "$deployment" -n "$NAMESPACE" \
         -o jsonpath='{.spec.replicas}|{.status.readyReplicas}|{.status.updatedReplicas}|{.spec.template.spec.containers[0].image}' 2>&1
     )" || {
-      fail "Deployment $deployment not found"
+      fail "Could not read Deployment $deployment: $(last_line "$row")"
       continue
     }
     IFS='|' read -r desired ready updated image <<<"$row"
@@ -1018,25 +1066,41 @@ section_workloads() {
 
   sub "Autoscaling"
   kube get hpa -n "$NAMESPACE"
-  while IFS='|' read -r name current max active; do
-    [ -z "$name" ] && continue
-    [ "$active" = True ] || warn "HPA $name can't compute its CPU metric (ScalingActive=${active:-unknown})"
-    [ -n "$current" ] && [ "$current" = "$max" ] && warn "HPA $name is at its maximum of $max replicas"
-  done < <(
+  if ! hpas="$(
     kube get hpa -n "$NAMESPACE" \
-      -o jsonpath='{range .items[*]}{.metadata.name}{"|"}{.status.currentReplicas}{"|"}{.spec.maxReplicas}{"|"}{.status.conditions[?(@.type=="ScalingActive")].status}{"\n"}{end}' 2>/dev/null
-  )
+      -o jsonpath='{range .items[*]}{.metadata.name}{"|"}{.status.currentReplicas}{"|"}{.spec.maxReplicas}{"|"}{.status.conditions[?(@.type=="ScalingActive")].status}{"\n"}{end}' 2>&1
+  )"; then
+    warn "Could not read the HPA status: $(last_line "$hpas")"
+  elif [ -z "$hpas" ]; then
+    warn "No HorizontalPodAutoscalers in $NAMESPACE"
+  else
+    while IFS='|' read -r name current max active; do
+      [ -z "$name" ] && continue
+      [ "$active" = True ] || warn "HPA $name can't compute its CPU metric (ScalingActive=${active:-unknown})"
+      [ -n "$current" ] && [ "$current" = "$max" ] && warn "HPA $name is at its maximum of $max replicas"
+    done <<<"$hpas"
+  fi
 
   sub "Usage vs limits"
   usage_vs_limits "$NAMESPACE"
 
   sub "Services and endpoints"
   kube get services -n "$NAMESPACE" -o wide
-  for svc in $(kube get services -n "$NAMESPACE" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
-    endpoints="$(
+  if ! services="$(kube get services -n "$NAMESPACE" -o jsonpath='{.items[*].metadata.name}' 2>&1)"; then
+    fail "Could not list the services in $NAMESPACE: $(last_line "$services")"
+    services=""
+  elif [ -z "$services" ]; then
+    fail "No services in $NAMESPACE"
+  fi
+  for svc in $services; do
+    if ! endpoints="$(
       kube get endpointslices -n "$NAMESPACE" -l "kubernetes.io/service-name=$svc" \
-        -o jsonpath='{range .items[*].endpoints[*]}{.conditions.ready}{"\n"}{end}' 2>/dev/null | grep -c '^true$' || true
-    )"
+        -o jsonpath='{range .items[*].endpoints[*]}{.conditions.ready}{"\n"}{end}' 2>&1
+    )"; then
+      fail "Could not read the endpoints of service $svc: $(last_line "$endpoints")"
+      continue
+    fi
+    endpoints="$(grep -c '^true$' <<<"$endpoints" || true)"
     if [ "$endpoints" -gt 0 ]; then
       ok "Service $svc has $endpoints ready endpoint(s)"
     else
@@ -1046,52 +1110,64 @@ section_workloads() {
 
   sub "Ingress"
   kube get ingress "$INGRESS_NAME" -n "$NAMESPACE" -o wide
-  hostname="$(
+  if ! hostname="$(
     kube get ingress "$INGRESS_NAME" -n "$NAMESPACE" \
-      -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true
-  )"
-  if [ -n "$hostname" ]; then
+      -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>&1
+  )"; then
+    fail "Could not read Ingress $INGRESS_NAME: $(last_line "$hostname")"
+  elif [ -n "$hostname" ]; then
     ok "Ingress $INGRESS_NAME has ALB $hostname"
   else
     fail "Ingress $INGRESS_NAME has no ALB hostname; check the Load Balancer Controller"
   fi
-  kube get targetgroupbindings -n "$NAMESPACE" -o wide 2>/dev/null || true
+  kube get targetgroupbindings -n "$NAMESPACE" -o wide || warn "Could not list the TargetGroupBindings in $NAMESPACE"
 
   sub "Configuration"
-  refs="$(
-    for deployment in "$BACKEND_DEPLOYMENT" "$FRONTEND_DEPLOYMENT"; do
+  refs=""
+  for deployment in "$BACKEND_DEPLOYMENT" "$FRONTEND_DEPLOYMENT"; do
+    if ! row="$(
       kube get deployment "$deployment" -n "$NAMESPACE" \
-        -o jsonpath='{range .spec.template.spec.containers[*].envFrom[*]}configmap/{.configMapRef.name}{"\n"}secret/{.secretRef.name}{"\n"}{end}' 2>/dev/null
-    done | grep -v '/$' | sort -u || true
-  )"
+        -o jsonpath='{range .spec.template.spec.containers[*].envFrom[*]}configmap/{.configMapRef.name}{"\n"}secret/{.secretRef.name}{"\n"}{end}' 2>&1
+    )"; then
+      fail "Could not read the ConfigMap and Secret references of $deployment: $(last_line "$row")"
+      continue
+    fi
+    refs+="$row"$'\n'
+  done
+  refs="$(grep -v '/$' <<<"$refs" | sort -u || true)"
   for ref in $refs; do
-    if ! kube get "$ref" -n "$NAMESPACE" >/dev/null 2>&1; then
-      fail "$ref is referenced by a Deployment but does not exist"
+    if ! answer="$(kube get "$ref" -n "$NAMESPACE" -o name 2>&1)"; then
+      fail "$ref is referenced by a Deployment but could not be read: $(last_line "$answer")"
     elif [[ "$ref" == secret/* ]]; then
-      keys="$(
+      if keys="$(
         kube get "$ref" -n "$NAMESPACE" \
-          -o go-template='{{range $k, $v := .data}}{{$k}} {{end}}' 2>/dev/null
-      )"
-      ok "$ref exists with keys: ${keys:-none}"
+          -o go-template='{{range $k, $v := .data}}{{$k}} {{end}}' 2>&1
+      )"; then
+        ok "$ref exists with keys: ${keys:-none}"
+      else
+        warn "$ref exists but its keys could not be read: $(last_line "$keys")"
+      fi
     else
       ok "$ref exists"
     fi
   done
 
   policy="$NAMESPACE-trusted-workloads"
-  if kube get validatingadmissionpolicy "$policy" >/dev/null 2>&1 \
-    && kube get validatingadmissionpolicybinding "$policy" >/dev/null 2>&1; then
-    ok "Admission policy $policy and its binding are in place"
+  if ! answer="$(kube get validatingadmissionpolicy "$policy" -o name 2>&1)"; then
+    fail "Could not read admission policy $policy: $(last_line "$answer")"
+  elif ! answer="$(kube get validatingadmissionpolicybinding "$policy" -o name 2>&1)"; then
+    fail "Could not read admission policy binding $policy: $(last_line "$answer")"
   else
-    fail "Admission policy $policy or its binding is missing"
+    ok "Admission policy $policy and its binding are in place"
   fi
 
   if [ -n "$DEPLOY_GROUP" ]; then
-    if [ "$(kube auth can-i patch deployments.apps -n "$NAMESPACE" --as=monitoring-check --as-group="$DEPLOY_GROUP" 2>/dev/null)" = yes ]; then
-      ok "Deploy group $DEPLOY_GROUP can patch Deployments"
-    else
-      fail "Deploy group $DEPLOY_GROUP can't patch Deployments; CI/CD deploys will fail"
-    fi
+    can_patch="$(kube auth can-i patch deployments.apps -n "$NAMESPACE" --as=monitoring-check --as-group="$DEPLOY_GROUP" 2>&1 || true)"
+    case "$(last_line "$can_patch")" in
+      yes) ok "Deploy group $DEPLOY_GROUP can patch Deployments" ;;
+      no | "no "*) fail "Deploy group $DEPLOY_GROUP can't patch Deployments; CI/CD deploys will fail" ;;
+      *) fail "Could not check whether $DEPLOY_GROUP can patch Deployments: $(last_line "$can_patch")" ;;
+    esac
   fi
 }
 
@@ -1101,10 +1177,13 @@ usage_vs_limits() {
     warn "kubectl top pods failed: $(last_line "$usage")"
     return
   fi
-  limits="$(
+  if ! limits="$(
     kube get pods -n "$namespace" --no-headers \
-      -o custom-columns='NAME:.metadata.name,CPU:.spec.containers[0].resources.limits.cpu,MEMORY:.spec.containers[0].resources.limits.memory' 2>/dev/null
-  )"
+      -o custom-columns='NAME:.metadata.name,CPU:.spec.containers[0].resources.limits.cpu,MEMORY:.spec.containers[0].resources.limits.memory' 2>&1
+  )"; then
+    warn "Could not read the pod limits: $(last_line "$limits")"
+    return
+  fi
   relay < <(
     awk '
       function cpu(v) { if (v ~ /m$/) return v + 0; if (v ~ /^[0-9.]+$/) return v * 1000; return -1 }
@@ -1193,10 +1272,13 @@ section_app() {
   fi
 
   sub "Backend metrics per pod (port $BACKEND_METRICS_PORT; counters since the pod started, probes included)"
-  pods="$(
+  if ! pods="$(
     kube get pods -n "$NAMESPACE" -l "app.kubernetes.io/name=$BACKEND_DEPLOYMENT" \
-      --field-selector=status.phase=Running -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true
-  )"
+      --field-selector=status.phase=Running -o jsonpath='{.items[*].metadata.name}' 2>&1
+  )"; then
+    warn "Could not list the backend pods to read metrics from: $(last_line "$pods")"
+    return
+  fi
   if [ -z "$pods" ]; then
     warn "No running backend pods to read metrics from"
     return
@@ -1218,10 +1300,13 @@ section_events() {
 
   for namespace in "$NAMESPACE" kube-system; do
     sub "$namespace"
-    events="$(
+    if ! events="$(
       kube get events -n "$namespace" --field-selector type=Warning --sort-by=.lastTimestamp \
         -o custom-columns='LAST:.lastTimestamp,COUNT:.count,REASON:.reason,OBJECT:.involvedObject.name,MESSAGE:.message' 2>&1
-    )"
+    )"; then
+      warn "Could not read the events in $namespace: $(last_line "$events")"
+      continue
+    fi
     if [ -z "$events" ] || [[ "$events" == "No resources found"* ]]; then
       ok "No warning events in $namespace"
       continue
@@ -1236,7 +1321,7 @@ section_events() {
 section_logs() {
   section "Application logs (last $LOG_TAIL_LINES lines per pod)"
   ensure_kube || return
-  local deployment logs errors name restarted=0
+  local deployment logs errors name restarts restarted=0
 
   for deployment in "$BACKEND_DEPLOYMENT" "$FRONTEND_DEPLOYMENT"; do
     sub "$deployment"
@@ -1245,6 +1330,10 @@ section_logs() {
         --all-containers --prefix --tail="$LOG_TAIL_LINES" --max-log-requests=10 2>&1
     )"; then
       warn "Could not read $deployment logs: $(last_line "$logs")"
+      continue
+    fi
+    if [[ "$logs" == "No resources found"* ]]; then
+      warn "No $deployment pods to read logs from"
       continue
     fi
     if [ -z "$logs" ]; then
@@ -1261,11 +1350,14 @@ section_logs() {
   done
 
   sub "Logs from before the last restart"
-  for name in $(
+  if ! restarts="$(
     kube get pods -n "$NAMESPACE" \
-      -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.containerStatuses[*].restartCount}{"\n"}{end}' 2>/dev/null \
-      | awk '{ total = 0; for (i = 2; i <= NF; i++) total += $i; if (total > 0) print $1 }'
-  ); do
+      -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.containerStatuses[*].restartCount}{"\n"}{end}' 2>&1
+  )"; then
+    warn "Could not read the container restart counts: $(last_line "$restarts")"
+    return
+  fi
+  for name in $(awk '{ total = 0; for (i = 2; i <= NF; i++) total += $i; if (total > 0) print $1 }' <<<"$restarts"); do
     restarted=$((restarted + 1))
     printf '%s\n' "$name"
     kube logs -n "$NAMESPACE" "$name" --all-containers --previous --prefix --tail=50 2>&1 | sed 's/^/  /'
@@ -1294,8 +1386,8 @@ section_control_plane() {
   read -r retention bytes <<<"$info"
   types="$(
     awsr eks describe-cluster --name "$EKS_CLUSTER_NAME" \
-      --query 'cluster.logging.clusterLogging[?enabled].types[]' --output text 2>/dev/null || true
-  )"
+      --query 'cluster.logging.clusterLogging[?enabled].types[]' --output text 2>/dev/null
+  )" || types="unknown (describe-cluster failed)"
   printf '%-10s %s\n' "Group" "$group" "Retention" "$retention days" "Stored" "$(awk -v bytes="$bytes" 'BEGIN { printf "%.1f MiB", bytes / 1048576 }')" "Types" "$(tr '\t' ' ' <<<"${types:-none}")"
 
   for spec in "authenticator|\"access denied\"" "kube-controller-manager|?error ?Error ?failed ?Failed" "kube-scheduler|?error ?Error ?failed ?Failed"; do
@@ -1328,7 +1420,7 @@ section_control_plane() {
 
 section_ecr() {
   section "Container images (ECR)"
-  local pair url deployment repo images newest running tag scan critical high compare=true
+  local pair url deployment repo images newest running tag row scan critical high compare=true
   ensure_kube || compare=false
 
   for pair in "$BACKEND_REPOSITORY_URL|$BACKEND_DEPLOYMENT" "$FRONTEND_REPOSITORY_URL|$FRONTEND_DEPLOYMENT"; do
@@ -1360,23 +1452,31 @@ section_ecr() {
       note "Not connected to the cluster, so the running image isn't compared."
       continue
     fi
-    running="$(
+    if ! running="$(
       kube get deployment "$deployment" -n "$NAMESPACE" \
-        -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true
-    )"
+        -o jsonpath='{.spec.template.spec.containers[0].image}' 2>&1
+    )"; then
+      warn "Could not read the image $deployment runs: $(last_line "$running")"
+      continue
+    fi
     tag="${running##*:}"
     if [ -z "$running" ]; then
+      warn "Deployment $deployment has no container image"
       continue
     elif [[ ",$newest," == *",$tag,"* ]]; then
       ok "$deployment runs the newest image ($tag)"
     else
       warn "$deployment runs $tag but the newest $repo image is tagged ${newest:-untagged}"
     fi
-    read -r scan critical high <<<"$(
+    if ! row="$(
       awsr ecr describe-images --repository-name "$repo" --image-ids "imageTag=$tag" \
         --query 'imageDetails[0].[imageScanStatus.status || `NONE`, imageScanFindingsSummary.findingSeverityCounts.CRITICAL || `0`, imageScanFindingsSummary.findingSeverityCounts.HIGH || `0`]' \
-        --output text 2>/dev/null || true
-    )"
+        --output text 2>&1
+    )"; then
+      warn "Could not read the scan results for $deployment image $tag: $(last_line "$row")"
+      continue
+    fi
+    read -r scan critical high <<<"$row"
     if [ "${critical:-0}" -gt 0 ] || [ "${high:-0}" -gt 0 ]; then
       warn "Running $deployment image $tag has $critical critical and $high high scan findings"
     elif [ -n "$scan" ]; then
@@ -1388,23 +1488,26 @@ section_ecr() {
 section_cicd() {
   section "Deploy pipeline"
   local doc commands latest requested status tag id output workflow run run_status conclusion created sha title
-  local expected actual key value want have mismatches=0 missing=0
+  local expected actual environment_variables repository_variables key value want have mismatches=0 missing=0
 
   sub "SSM deploy commands ($DEPLOY_SSM_DOCUMENT)"
-  doc="$(awsr ssm describe-document --name "$DEPLOY_SSM_DOCUMENT" --query 'Document.Status' --output text 2>&1)" || doc=""
-  if [ "$doc" = Active ]; then
+  if ! doc="$(awsr ssm describe-document --name "$DEPLOY_SSM_DOCUMENT" --query 'Document.Status' --output text 2>&1)"; then
+    fail "Could not read deploy document $DEPLOY_SSM_DOCUMENT: $(last_line "$doc")"
+  elif [ "$doc" = Active ]; then
     ok "Deploy document $DEPLOY_SSM_DOCUMENT is Active"
   else
     fail "Deploy document $DEPLOY_SSM_DOCUMENT is ${doc:-missing}"
   fi
-  commands="$(
+  if ! commands="$(
     awsr ssm list-commands --filters "key=DocumentName,value=$DEPLOY_SSM_DOCUMENT" \
       --query 'Commands[].[RequestedDateTime, Status, Parameters.ImageTag[0], CommandId]' \
-      --output text 2>/dev/null | sort -r | head -n 5 || true
-  )"
-  if [ -z "$commands" ]; then
+      --output text 2>&1
+  )"; then
+    fail "Could not list the deploy commands: $(last_line "$commands")"
+  elif [ -z "$commands" ]; then
     note "No deploy commands in the last 30 days."
   else
+    commands="$(sort -r <<<"$commands" | head -n 5)"
     awk -F'\t' '{ printf "%-20s %-10s %s\n", substr($1, 1, 19), $2, $3 }' <<<"$commands"
     IFS=$'\t' read -r requested status tag id <<<"$(head -n 1 <<<"$commands")"
     case "$status" in
@@ -1433,11 +1536,14 @@ section_cicd() {
   gh run list -R "$GITHUB_REPOSITORY" -L 10 || warn "Could not list workflow runs"
   while IFS= read -r workflow; do
     [ -z "$workflow" ] && continue
-    run="$(
+    if ! run="$(
       gh run list -R "$GITHUB_REPOSITORY" -w "$workflow" -L 1 \
         --json status,conclusion,createdAt,headSha,displayTitle \
-        -q '.[] | [.status, .conclusion, .createdAt, .headSha[0:7], .displayTitle] | @tsv' 2>/dev/null || true
-    )"
+        -q '.[] | [.status, .conclusion, .createdAt, .headSha[0:7], .displayTitle] | @tsv' 2>&1
+    )"; then
+      warn "Could not read the latest $workflow run: $(last_line "$run")"
+      continue
+    fi
     if [ -z "$run" ]; then
       note "$workflow: no runs"
       continue
@@ -1464,14 +1570,21 @@ section_cicd() {
     skip "Terraform state has no github_actions_variables output"
     return
   fi
-  actual="$(
-    {
-      gh variable list -R "$GITHUB_REPOSITORY" --env "$GITHUB_DEPLOY_ENVIRONMENT" \
-        --json name,value -q '.[] | [.name, .value] | @tsv' 2>/dev/null || true
-      gh variable list -R "$GITHUB_REPOSITORY" \
-        --json name,value -q '.[] | [.name, .value] | @tsv' 2>/dev/null || true
-    }
-  )"
+  if ! environment_variables="$(
+    gh variable list -R "$GITHUB_REPOSITORY" --env "$GITHUB_DEPLOY_ENVIRONMENT" \
+      --json name,value -q '.[] | [.name, .value] | @tsv' 2>&1
+  )"; then
+    warn "Could not list the $GITHUB_DEPLOY_ENVIRONMENT environment variables: $(last_line "$environment_variables")"
+    return
+  fi
+  if ! repository_variables="$(
+    gh variable list -R "$GITHUB_REPOSITORY" \
+      --json name,value -q '.[] | [.name, .value] | @tsv' 2>&1
+  )"; then
+    warn "Could not list the repository variables: $(last_line "$repository_variables")"
+    return
+  fi
+  actual="$environment_variables"$'\n'"$repository_variables"
   while IFS=$'\t' read -r key want; do
     [ -z "$key" ] && continue
     have="$(awk -F'\t' -v key="$key" '$1 == key { print $2; exit }' <<<"$actual")"

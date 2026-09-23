@@ -1,0 +1,173 @@
+name: Infrastructure CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  forbidden-files:
+    name: No state or env files
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the check reads every commit in the push or PR
+          persist-credentials: false
+
+      - name: Check tracked files and new commits
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          # Terraform state and tfvars, local env files, kubeconfigs, and the
+          # files Terraform and Ansible generate. .env.example is allowed.
+          forbidden='(^|/)(\.env(\..*)?|[^/]*\.tfstate(\..*)?|[^/]*\.tfvars(\.json)?|kubeconfig|\.terraform/.*|\.generated/.*)$|^ansible/group_vars/all/terraform\.yml$'
+          allowed='(^|/)\.env\.example$'
+
+          files=$(git ls-files)
+
+          # A file added in one commit and deleted in a later one is gone from
+          # the tree but still in history, so also check each new commit.
+          range=""
+          if [ -n "$PR_BASE" ]; then
+            range="$PR_BASE..$PR_HEAD"
+          elif [ -n "$PUSH_BEFORE" ] && git cat-file -e "$PUSH_BEFORE^{commit}" 2>/dev/null; then
+            range="$PUSH_BEFORE..$GITHUB_SHA"
+          fi
+          if [ -n "$range" ]; then
+            files+=$'\n'$(git log --format= --name-only --diff-filter=d "$range")
+          fi
+
+          found=$(printf '%s\n' "$files" | grep -E "$forbidden" | grep -Ev "$allowed" | sort -u || true)
+          if [ -n "$found" ]; then
+            while read -r f; do
+              echo "::error file=$f::$f must not be committed"
+            done <<< "$found"
+            exit 1
+          fi
+          echo "No state, env, tfvars or kubeconfig files found."
+
+  terraform:
+    name: Terraform
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: terraform
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.16.2 # same as local runs
+          terraform_wrapper: false
+
+      - uses: terraform-linters/setup-tflint@1cf010d3c7aef302051ccdb68c14c5dc2efa34ef # v6.3.1
+        with:
+          tflint_version: v0.63.1
+
+      - name: Format
+        run: terraform fmt -check -recursive -diff
+
+      # No backend or credentials: init only downloads the providers pinned in
+      # .terraform.lock.hcl, and fails if the lock file is out of date.
+      - name: Init
+        run: terraform init -backend=false -input=false -lockfile=readonly
+
+      - name: Validate
+        run: terraform validate
+
+      - name: TFLint
+        run: tflint --format compact
+
+  ansible:
+    name: Ansible
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+
+      - name: Install Ansible
+        run: pip install ansible-core==2.20.7 ansible-lint==26.9.0
+
+      - name: Syntax check
+        run: ansible-playbook --syntax-check ansible/playbooks/*.yml
+
+      - name: Lint
+        run: ansible-lint ansible/
+
+  kubernetes:
+    name: Kubernetes manifests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      KUBECONFORM_VERSION: v0.8.0
+      KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+
+      - name: Install Ansible and kubeconform
+        run: |
+          pip install ansible-core==2.20.7
+          curl -sSfL -o "$RUNNER_TEMP/kubeconform.tar.gz" \
+            "https://github.com/yannh/kubeconform/releases/download/$KUBECONFORM_VERSION/kubeconform-linux-amd64.tar.gz"
+          echo "$KUBECONFORM_SHA256  $RUNNER_TEMP/kubeconform.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/kubeconform.tar.gz" -C "$RUNNER_TEMP" kubeconform
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      # Renders with Ansible's template module, like apply-kubernetes.yml, so
+      # group_vars/all/main.yml still applies. The values below stand in for
+      # the group_vars/all/terraform.yml that Terraform writes.
+      - name: Render manifests
+        run: |
+          cat > "$RUNNER_TEMP/terraform-vars.yml" <<'EOF'
+          k8s_namespace: hospitalsystem
+          github_actions_deploy_group: hospitalsystem:deployers
+          backend_repository_url: 123456789012.dkr.ecr.eu-north-1.amazonaws.com/hospital-backend
+          frontend_repository_url: 123456789012.dkr.ecr.eu-north-1.amazonaws.com/hospital-frontend
+          initial_image_tag: latest
+          acm_certificate_arn: arn:aws:acm:eu-north-1:123456789012:certificate/00000000-0000-0000-0000-000000000000
+          app_domain_name: app.hospitalsyst.cc
+          EOF
+
+          for src in $(find kubernetes -name '*.j2' | sort); do
+            out="$RUNNER_TEMP/manifests/${src%.j2}"
+            mkdir -p "$(dirname "$out")"
+            ansible localhost -o -m ansible.builtin.template \
+              -a "src=$src dest=$out" -e "@$RUNNER_TEMP/terraform-vars.yml"
+          done
+
+      # kubeconform's schema set has no Kubernetes 1.36 yet, so this checks
+      # against the upstream master schemas. Every kind used here is GA.
+      - name: Validate manifests
+        run: kubeconform -strict -summary "$RUNNER_TEMP/manifests"

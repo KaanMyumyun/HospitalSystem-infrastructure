@@ -33,6 +33,7 @@ resource "terraform_data" "ansible_bootstrap" {
   depends_on = [
     aws_eks_cluster.main,
     aws_eks_node_group.hospitalsystempr1,
+    aws_eks_addon.core,
     aws_iam_role.eks_deploy_hospitalsystem,
     aws_acm_certificate_validation.app,
     terraform_data.initial_ecr_image_push,
@@ -68,6 +69,7 @@ resource "terraform_data" "kubernetes_cleanup" {
   depends_on = [
     aws_eks_cluster.main,
     aws_eks_node_group.hospitalsystempr1,
+    aws_eks_addon.core,
     aws_iam_role_policy.load_balancer_controller,
     aws_instance.ops,
     aws_iam_role_policy_attachment.ops_ssm,

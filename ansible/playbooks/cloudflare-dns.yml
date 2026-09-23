@@ -2,6 +2,8 @@
 - name: Point Cloudflare DNS to the Kubernetes Ingress ALB
   hosts: local
   gather_facts: false
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
 
   vars:
     cloudflare_api_token: "{{ lookup('ansible.builtin.env', 'CLOUDFLARE_API_TOKEN') }}"
