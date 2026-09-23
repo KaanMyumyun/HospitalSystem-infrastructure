@@ -465,6 +465,11 @@ export CLOUDFLARE_API_TOKEN='your-cloudflare-api-token'
 ansible-playbook ansible/playbooks/cloudflare-dns.yml
 ```
 
+The playbook looks up every record with that name. It updates an existing CNAME,
+and replaces a single A or AAAA record with the CNAME, since a CNAME can't share
+its name with other records. If there are several records, or one of any other
+type, it stops and names them instead of deleting anything.
+
 Run the Kubernetes cleanup that Terraform uses before destroy:
 
 ```bash

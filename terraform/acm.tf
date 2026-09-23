@@ -19,6 +19,13 @@ locals {
 
 data "cloudflare_zones" "app" {
   name = var.cloudflare_zone_name
+
+  lifecycle {
+    postcondition {
+      condition     = length(self.result) == 1
+      error_message = "Cloudflare has no zone named ${var.cloudflare_zone_name} that the API token can read. Check cloudflare_zone_name and give the token Zone:Read on that zone."
+    }
+  }
 }
 
 resource "cloudflare_dns_record" "acm_validation" {
