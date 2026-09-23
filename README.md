@@ -600,8 +600,8 @@ as healthy.
 
 By default, alarms are created without notification actions. Setting
 `monitoring_alert_sns_topic_arn` in `ansible/group_vars/all/main.yml` attaches
-an SNS topic to the 5xx alarm only; the unhealthy-target and node group alarms
-still have no actions.
+an SNS topic to the ALB 5xx and unhealthy-target alarms; the node group alarm in
+Terraform still has no action.
 
 ## Disaster Recovery
 

@@ -526,7 +526,7 @@ section_alarms() {
       ok "All $total alarms are OK"
     fi
     if [ "$silent" -gt 0 ]; then
-      note "$silent of $total alarms have no notification action (monitoring_alert_sns_topic_arn adds one to the 5xx alarm)."
+      note "$silent of $total alarms have no notification action (monitoring_alert_sns_topic_arn adds one to the ALB alarms)."
     fi
   fi
 
