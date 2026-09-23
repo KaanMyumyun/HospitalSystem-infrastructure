@@ -65,13 +65,7 @@ resource "aws_internet_gateway" "main" {
   vpc_id = aws_vpc.kubes.id
 
   tags = {
-    Name = "hello-Terraform"
-  }
-}
-
-resource "aws_internet_gateway" "detached" {
-  tags = {
-    Name = "ig-Terraform"
+    Name = "${local.vpc_name}-igw-Terraform"
   }
 }
 
@@ -83,7 +77,7 @@ resource "aws_subnet" "public_a" {
 
   tags = {
     Name                        = "p1-Terraform"
-    Purpose                     = "AZ1"
+    az                          = "1"
     (local.eks_cluster_tag_key) = "shared"
     "kubernetes.io/role/elb"    = "1"
   }
@@ -207,14 +201,6 @@ resource "aws_route_table" "private_b" {
 
   tags = {
     Name = "rt-private2-Terraform"
-  }
-}
-
-resource "aws_route_table" "default" {
-  vpc_id = aws_vpc.kubes.id
-
-  tags = {
-    Name = "default-Terraform"
   }
 }
 
