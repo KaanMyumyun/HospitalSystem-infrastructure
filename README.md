@@ -173,7 +173,9 @@ success:
    - runs after the `CI` workflow succeeds on a push to `main` or on the weekly
      scheduled run
    - checks out the exact commit that passed CI
-   - builds backend and frontend Docker images
+   - builds backend and frontend Docker images. The frontend is built with
+     `VITE_API_URL=/api`, so it calls the backend on whatever host serves it
+     and the same image works under any domain.
    - logs in to Docker Hub and Amazon ECR
    - uses GitHub Actions OIDC to assume the AWS ECR push role
    - pushes each image to both Docker Hub and Amazon ECR
@@ -238,6 +240,11 @@ OIDC subject:
   subject is the environment, not the branch, so GitHub has to enforce the
   branch. In Settings, Environments, `production`, set Deployment branches to
   `main` only and add required reviewers, so every deploy waits for approval.
+
+An AWS account can hold only one `token.actions.githubusercontent.com` OIDC
+provider. Terraform creates it unless `github_oidc_provider_arn` is set; set it
+to the existing provider's ARN when another project in the account already has
+one.
 
 The workflows pin every action to a commit SHA, and Dependabot keeps the pins
 current. The deploy workflow reads the SSM document and ops instance name from
@@ -463,6 +470,11 @@ export CLOUDFLARE_API_TOKEN='your-cloudflare-api-token'
 ansible-playbook ansible/playbooks/cloudflare-dns.yml
 ```
 
+The playbook looks up every record with that name. It updates an existing CNAME,
+and replaces a single A or AAAA record with the CNAME, since a CNAME can't share
+its name with other records. If there are several records, or one of any other
+type, it stops and names them instead of deleting anything.
+
 Run the Kubernetes cleanup that Terraform uses before destroy:
 
 ```bash
@@ -593,8 +605,8 @@ as healthy.
 
 By default, alarms are created without notification actions. Setting
 `monitoring_alert_sns_topic_arn` in `ansible/group_vars/all/main.yml` attaches
-an SNS topic to the 5xx alarm only; the unhealthy-target and node group alarms
-still have no actions.
+an SNS topic to the ALB 5xx and unhealthy-target alarms; the node group alarm in
+Terraform still has no action.
 
 ## Disaster Recovery
 

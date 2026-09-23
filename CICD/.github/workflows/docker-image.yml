@@ -75,11 +75,9 @@ jobs:
           docker push "${ECR_REGISTRY}/${BACKEND_IMAGE}:${SHA_TAG}"
 
       - name: Build frontend image
-        env:
-          VITE_API_URL: ${{ vars.VITE_API_URL || secrets.VITE_API_URL || vars.AWS_API_URL || secrets.AWS_API_URL }}
         run: |
           docker build --pull --no-cache \
-            --build-arg VITE_API_URL="$VITE_API_URL" \
+            --build-arg VITE_API_URL=/api \
             -f hospital-frontend/Dockerfile \
             -t kstkaan/hospital-frontend:latest \
             -t "kstkaan/hospital-frontend:${DATE_TAG}" \

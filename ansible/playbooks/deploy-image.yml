@@ -25,6 +25,7 @@
           - -n
           - "{{ k8s_namespace }}"
       register: backend_update
+      changed_when: "'image updated' in backend_update.stdout"
 
     - name: Update frontend image
       ansible.builtin.command:
@@ -37,6 +38,7 @@
           - -n
           - "{{ k8s_namespace }}"
       register: frontend_update
+      changed_when: "'image updated' in frontend_update.stdout"
 
     - name: Wait for backend rollout
       ansible.builtin.command:

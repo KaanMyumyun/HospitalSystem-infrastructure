@@ -40,6 +40,12 @@ variable "github_deploy_environment" {
   default     = "production"
 }
 
+variable "github_oidc_provider_arn" {
+  description = "ARN of an existing token.actions.githubusercontent.com OIDC provider in this account. An account can hold only one, so set this when another project already created it. Empty creates it here."
+  type        = string
+  default     = ""
+}
+
 variable "app_domain_name" {
   description = "Public application domain name."
   type        = string
@@ -98,11 +104,5 @@ variable "cloudflare_api_token" {
   description = "Cloudflare API token. Leave empty to let the provider read CLOUDFLARE_API_TOKEN from the environment."
   type        = string
   sensitive   = true
-  default     = ""
-}
-
-variable "frontend_api_url" {
-  description = "API base URL baked into the frontend image at build time. Empty derives https://<app_domain_name>/api."
-  type        = string
   default     = ""
 }

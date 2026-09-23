@@ -54,4 +54,3 @@
           - kube-system
           - --timeout=180s
       changed_when: false
-

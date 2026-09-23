@@ -16,14 +16,14 @@ locals {
   ops_name         = "${var.project_name}-ops"
   ecr_registry     = "${local.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com"
 
+  github_oidc_provider_arn = var.github_oidc_provider_arn != "" ? var.github_oidc_provider_arn : aws_iam_openid_connect_provider.github_actions[0].arn
+
   ec2_arn_prefix  = "arn:aws:ec2:${var.aws_region}:${local.account_id}"
   elb_arn_prefix  = "arn:aws:elasticloadbalancing:${var.aws_region}:${local.account_id}"
   elb_arns        = ["${local.elb_arn_prefix}:loadbalancer/app/*/*", "${local.elb_arn_prefix}:loadbalancer/net/*/*"]
   listener_arns   = ["${local.elb_arn_prefix}:listener/app/*/*/*", "${local.elb_arn_prefix}:listener/net/*/*/*"]
   rule_arns       = ["${local.elb_arn_prefix}:listener-rule/app/*/*/*/*", "${local.elb_arn_prefix}:listener-rule/net/*/*/*/*"]
   target_grp_arns = ["${local.elb_arn_prefix}:targetgroup/*/*"]
-
-  frontend_api_url = var.frontend_api_url != "" ? var.frontend_api_url : "https://${var.app_domain_name}/api"
 
   backend_source_dir  = var.backend_source_dir != "" ? var.backend_source_dir : abspath("${path.module}/../../HospitalSystem")
   frontend_source_dir = var.frontend_source_dir != "" ? var.frontend_source_dir : "${local.backend_source_dir}/hospital-frontend"

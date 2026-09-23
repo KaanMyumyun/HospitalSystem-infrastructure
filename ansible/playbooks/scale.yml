@@ -27,9 +27,9 @@
         - "{{ backend_deployment }}"
         - "{{ frontend_deployment }}"
       register: scale_results
+      changed_when: true # kubectl scale prints "scaled" even when the count is unchanged
 
     - name: Show scale results
       ansible.builtin.debug:
         msg: "{{ item.stdout }}"
       loop: "{{ scale_results.results }}"
-

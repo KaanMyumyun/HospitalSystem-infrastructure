@@ -79,7 +79,6 @@ resource "terraform_data" "initial_ecr_image_push" {
     backend_repository_url  = aws_ecr_repository.backend.repository_url
     frontend_repository_url = aws_ecr_repository.frontend.repository_url
     image_tag               = var.initial_image_tag
-    frontend_api_url        = local.frontend_api_url
   }
 
   provisioner "local-exec" {
@@ -98,7 +97,6 @@ resource "terraform_data" "initial_ecr_image_push" {
       BACKEND_REPOSITORY_URL  = aws_ecr_repository.backend.repository_url
       FRONTEND_REPOSITORY_URL = aws_ecr_repository.frontend.repository_url
       IMAGE_TAG               = var.initial_image_tag
-      FRONTEND_API_URL        = local.frontend_api_url
     }
   }
 

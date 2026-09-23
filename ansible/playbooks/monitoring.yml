@@ -3,6 +3,11 @@
   hosts: local
   gather_facts: false
 
+  vars:
+    # put-metric-alarm replaces the whole alarm, so leaving this out also
+    # removes an action set by an earlier run.
+    alarm_action_args: "{{ ['--alarm-actions', monitoring_alert_sns_topic_arn] if monitoring_alert_sns_topic_arn | length > 0 else [] }}"
+
   tasks:
     - name: Look up ALB ARN suffix
       ansible.builtin.command:
@@ -86,12 +91,15 @@
           - "{{ aws_region }}"
           - --alarm-names
           - "{{ item }}"
+      changed_when: true
       loop: "{{ existing_target_group_alarms.stdout.split() | difference(current_target_group_alarm_names) }}"
       when: existing_target_group_alarms.stdout | length > 0
 
     - name: Configure ALB 5xx alarm
       ansible.builtin.command:
-        argv:
+        argv: "{{ alarm_args + alarm_action_args }}"
+      vars:
+        alarm_args:
           - aws
           - cloudwatch
           - put-metric-alarm
@@ -119,45 +127,13 @@
           - "Name=LoadBalancer,Value={{ alb_dimension }}"
           - --treat-missing-data
           - notBreaching
-          - --alarm-actions
-          - "{{ monitoring_alert_sns_topic_arn }}"
-      when: monitoring_alert_sns_topic_arn | length > 0
-
-    - name: Configure ALB 5xx alarm without notification action
-      ansible.builtin.command:
-        argv:
-          - aws
-          - cloudwatch
-          - put-metric-alarm
-          - --region
-          - "{{ aws_region }}"
-          - --alarm-name
-          - "{{ monitoring_alarm_prefix }}-alb-5xx"
-          - --alarm-description
-          - "HospitalSystem ALB is returning HTTP 5xx responses"
-          - --namespace
-          - AWS/ApplicationELB
-          - --metric-name
-          - HTTPCode_ELB_5XX_Count
-          - --statistic
-          - Sum
-          - --period
-          - "300"
-          - --evaluation-periods
-          - "1"
-          - --threshold
-          - "5"
-          - --comparison-operator
-          - GreaterThanOrEqualToThreshold
-          - --dimensions
-          - "Name=LoadBalancer,Value={{ alb_dimension }}"
-          - --treat-missing-data
-          - notBreaching
-      when: monitoring_alert_sns_topic_arn | length == 0
+      changed_when: true
 
     - name: Configure unhealthy targets alarm for each target group
       ansible.builtin.command:
-        argv:
+        argv: "{{ alarm_args + alarm_action_args }}"
+      vars:
+        alarm_args:
           - aws
           - cloudwatch
           - put-metric-alarm
@@ -186,6 +162,7 @@
           - "Name=TargetGroup,Value={{ item }}"
           - --treat-missing-data
           - notBreaching
+      changed_when: true
       loop: "{{ target_group_dimensions }}"
 
     - name: Show configured alarms

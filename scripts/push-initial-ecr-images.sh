@@ -26,7 +26,6 @@ require_command git
 : "${BACKEND_REPOSITORY_URL:?Set BACKEND_REPOSITORY_URL}"
 : "${FRONTEND_REPOSITORY_URL:?Set FRONTEND_REPOSITORY_URL}"
 : "${IMAGE_TAG:?Set IMAGE_TAG}"
-: "${FRONTEND_API_URL:?Set FRONTEND_API_URL}"
 
 if ! docker info >/dev/null 2>&1; then
   echo "Docker daemon is not available." >&2
@@ -127,4 +126,4 @@ build_and_push \
   "$FRONTEND_REPOSITORY_URL" \
   "$frontend_revision" \
   "$frontend_revision_tag" \
-  --build-arg "VITE_API_URL=$FRONTEND_API_URL"
+  --build-arg VITE_API_URL=/api

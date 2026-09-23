@@ -45,6 +45,8 @@
         MAPROLES
       args:
         executable: /bin/bash
+      register: aws_auth_create
+      changed_when: "'created' in aws_auth_create.stdout or 'configured' in aws_auth_create.stdout"
       when: aws_auth_current.rc != 0
 
     - name: Map GitHub Actions deploy role in aws-auth
@@ -60,6 +62,8 @@
           - merge
           - -p
           - "{{ {'data': {'mapRoles': aws_auth_map_roles}} | to_json }}"
+      register: aws_auth_patch
+      changed_when: "'(no change)' not in aws_auth_patch.stdout"
       when:
         - aws_auth_current.rc == 0
         - github_actions_deploy_role_arn not in aws_auth_current.stdout

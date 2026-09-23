@@ -10,7 +10,7 @@ data "aws_iam_policy_document" "github_actions_assume_role" {
 
     principals {
       type        = "Federated"
-      identifiers = [aws_iam_openid_connect_provider.github_actions.arn]
+      identifiers = [local.github_oidc_provider_arn]
     }
 
     condition {
@@ -100,6 +100,8 @@ resource "aws_iam_openid_connect_provider" "eks" {
 }
 
 resource "aws_iam_openid_connect_provider" "github_actions" {
+  count = var.github_oidc_provider_arn == "" ? 1 : 0
+
   url = "https://token.actions.githubusercontent.com"
 
   client_id_list = ["sts.amazonaws.com"]
@@ -329,7 +331,7 @@ resource "aws_iam_role_policy" "load_balancer_controller" {
 }
 
 resource "aws_iam_role" "load_balancer_controller" {
-  name               = "AmazonEKSLoadBalancerControllerRole"
+  name               = "${local.cluster_name}-load-balancer-controller"
   path               = "/"
   assume_role_policy = data.aws_iam_policy_document.load_balancer_controller_assume_role.json
 }
