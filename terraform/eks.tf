@@ -29,6 +29,8 @@ resource "aws_eks_cluster" "main" {
   }
 
   access_config {
+    # Preserve existing managed-node and other aws-auth mappings during migration.
+    # Deploy roles use access entries, which take precedence for those principals.
     authentication_mode                         = "API_AND_CONFIG_MAP"
     bootstrap_cluster_creator_admin_permissions = true
   }
@@ -48,6 +50,14 @@ resource "aws_eks_cluster" "main" {
     aws_cloudwatch_log_group.eks_cluster,
     aws_iam_role_policy_attachment.eks_cluster_policy
   ]
+}
+
+resource "aws_eks_access_entry" "github_actions_deploy" {
+  cluster_name      = aws_eks_cluster.main.name
+  principal_arn     = aws_iam_role.eks_deploy_hospitalsystem.arn
+  kubernetes_groups = [local.k8s_deploy_group]
+  user_name         = "github-actions-eks-deploy"
+  type              = "STANDARD"
 }
 
 resource "aws_eks_node_group" "hospitalsystempr1" {

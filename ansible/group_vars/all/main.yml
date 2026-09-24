@@ -9,8 +9,6 @@ backend_container: backend
 frontend_deployment: hospital-frontend
 frontend_container: frontend
 
-github_actions_deploy_username: github-actions-eks-deploy
-
 ingress_name: hospital-ingress
 alb_name: hospital-system-alb
 

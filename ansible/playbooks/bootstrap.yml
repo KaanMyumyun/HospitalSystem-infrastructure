@@ -14,9 +14,6 @@
 - name: Apply Kubernetes manifests
   ansible.builtin.import_playbook: apply-kubernetes.yml
 
-- name: Configure GitHub Actions Kubernetes authentication
-  ansible.builtin.import_playbook: aws-auth.yml
-
 - name: Configure Cloudflare DNS
   ansible.builtin.import_playbook: cloudflare-dns.yml
 
