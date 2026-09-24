@@ -96,6 +96,9 @@ jobs:
       - name: TFLint
         run: tflint --format compact
 
+      - name: Bootstrap trigger regression tests
+        run: python3 -B -m unittest discover -s ../tests -p test_bootstrap_hashes.py -v
+
   ansible:
     name: Ansible
     runs-on: ubuntu-latest
@@ -126,6 +129,9 @@ jobs:
     env:
       KUBECONFORM_VERSION: v0.8.0
       KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+      # Used only against the isolated regression-test API, not a live cluster.
+      KUBECTL_VERSION: v1.34.11
+      KUBECTL_SHA256: 8efbb9435132a190920eb65a47a8c1ecf755ad85ab57a600c9bedbab460bb7a8
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -136,14 +142,21 @@ jobs:
         with:
           python-version: "3.14"
 
-      - name: Install Ansible and kubeconform
+      - name: Install Ansible, kubeconform, and test kubectl
         run: |
           pip install ansible-core==2.20.7
           curl -sSfL -o "$RUNNER_TEMP/kubeconform.tar.gz" \
             "https://github.com/yannh/kubeconform/releases/download/$KUBECONFORM_VERSION/kubeconform-linux-amd64.tar.gz"
           echo "$KUBECONFORM_SHA256  $RUNNER_TEMP/kubeconform.tar.gz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/kubeconform.tar.gz" -C "$RUNNER_TEMP" kubeconform
+          curl -sSfL -o "$RUNNER_TEMP/kubectl" \
+            "https://dl.k8s.io/release/$KUBECTL_VERSION/bin/linux/amd64/kubectl"
+          echo "$KUBECTL_SHA256  $RUNNER_TEMP/kubectl" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/kubectl"
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: Bootstrap workload regression tests
+        run: python -B -m unittest discover -s tests -p test_bootstrap_workloads.py -v
 
       # Renders with Ansible's template module, like apply-kubernetes.yml, so
       # group_vars/all/main.yml still applies. The values below stand in for

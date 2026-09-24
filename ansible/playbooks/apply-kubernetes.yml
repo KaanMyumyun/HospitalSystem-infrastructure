@@ -100,16 +100,35 @@
       retries: 30
       delay: 10
 
-    - name: Apply Deployments
+    - name: Apply Deployments while preserving release images and scaling
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_playbook_python }}"
+          - "{{ playbook_dir }}/../../scripts/apply-workload.py"
+        stdin: "{{ lookup('ansible.builtin.file', manifest_output_dir ~ '/' ~ (item | splitext | first)) | from_yaml | to_json }}"
+      loop: "{{ kubernetes_workload_manifests }}"
+      register: workload_apply_results
+      changed_when: >-
+        'created' in workload_apply_results.stdout
+        or 'configured' in workload_apply_results.stdout
+        or 'patched' in workload_apply_results.stdout
+
+    - name: Read desired replicas before waiting for rollouts
       ansible.builtin.command:
         argv:
           - kubectl
-          - apply
-          - -f
-          - "{{ manifest_output_dir }}/{{ item | splitext | first }}"
-      loop: "{{ kubernetes_workload_manifests }}"
-      register: workload_apply_results
-      changed_when: "'created' in workload_apply_results.stdout or 'configured' in workload_apply_results.stdout"
+          - get
+          - deployment
+          - "{{ item }}"
+          - -n
+          - "{{ k8s_namespace }}"
+          - -o
+          - jsonpath={.spec.replicas}
+          - --request-timeout=20s
+      loop: "{{ app_deployments }}"
+      register: rollout_replicas
+      changed_when: false
+      failed_when: rollout_replicas.rc != 0 or rollout_replicas.stdout is not match('^[0-9]+$')
 
     - name: Wait for Deployment rollouts
       ansible.builtin.command:
@@ -121,7 +140,7 @@
           - -n
           - "{{ k8s_namespace }}"
           - --timeout=600s
-      loop: "{{ app_deployments }}"
+      loop: "{{ rollout_replicas.results | rejectattr('stdout', 'equalto', '0') | map(attribute='item') | list }}"
       changed_when: false
 
     - name: Look for app pods created without the ALB readiness gate

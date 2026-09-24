@@ -9,6 +9,8 @@ metadata:
     alb.ingress.kubernetes.io/load-balancer-name: "{{ alb_name }}"
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
     alb.ingress.kubernetes.io/certificate-arn: "{{ acm_certificate_arn }}"
+    alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS13-1-2-2021-06
+    alb.ingress.kubernetes.io/load-balancer-attributes: routing.http.drop_invalid_header_fields.enabled=true
     alb.ingress.kubernetes.io/healthcheck-path: /health
     alb.ingress.kubernetes.io/target-group-attributes: deregistration_delay.timeout_seconds=30
     alb.ingress.kubernetes.io/ssl-redirect: "443"
