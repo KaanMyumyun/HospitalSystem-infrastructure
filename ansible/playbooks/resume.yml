@@ -49,14 +49,16 @@
           - --nodegroup-name
           - "{{ eks_node_group_name }}"
           - --scaling-config
-          - "minSize={{ (node_scaling.stdout | from_json).minSize }},maxSize={{ (node_scaling.stdout | from_json).maxSize }},desiredSize={{ eks_node_desired_size }}"
+          - "minSize={{ scaling.minSize }},maxSize={{ scaling.maxSize }},desiredSize={{ eks_node_desired_size }}"
           - --query
           - update.id
           - --output
           - text
+      vars:
+        scaling: "{{ node_scaling.stdout | from_json }}"
       register: node_update
       changed_when: true
-      when: (node_scaling.stdout | from_json).desiredSize != eks_node_desired_size | int
+      when: scaling.desiredSize != eks_node_desired_size | int
 
     - name: Wait for the node group update
       ansible.builtin.command:
