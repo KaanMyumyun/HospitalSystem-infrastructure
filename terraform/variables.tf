@@ -106,3 +106,14 @@ variable "cloudflare_api_token" {
   sensitive   = true
   default     = ""
 }
+
+variable "alert_email" {
+  description = "Email address subscribed to the CloudWatch alarm topic. scripts/tf.sh sets it from ALERT_EMAIL; empty creates the topic without a subscription."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = can(regex("^$|^[^@[:space:]]+@[^@[:space:]]+\\.[^@[:space:]]+$", var.alert_email))
+    error_message = "alert_email must be an email address or empty."
+  }
+}

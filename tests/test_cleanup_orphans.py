@@ -58,6 +58,9 @@ ACCOUNT = {
     "MetricAlarms": [
         {"AlarmName": "hospitalsystem-alb-5xx"},
         {"AlarmName": "hospitalsystem-unhealthy-targets-k8s-hospital"},
+        # Terraform's, and live while the environment is up.
+        {"AlarmName": "hospitalsystem-nodegroup-missing-nodes"},
+        {"AlarmName": "hospitalsystem-alb-5xx-by-hand"},
         {"AlarmName": "hospitalsystem2-alb-5xx"},
         {"AlarmName": "shop-alb-5xx"},
     ],
@@ -187,6 +190,8 @@ class CleanupOrphansTests(TestCase):
         self.assertIn(f"kept {LIVE}: its VPC vpc-live still exists", result.stdout)
         self.assertIn("Left alone: 27 detached k8s-* target group(s)", result.stdout)
         self.assertNotIn("hospitalsystem2-alb-5xx", result.stdout)
+        self.assertNotIn("hospitalsystem-nodegroup-missing-nodes", result.stdout)
+        self.assertNotIn("hospitalsystem-alb-5xx-by-hand", result.stdout)
         self.assertIn("key-pending deletes on", result.stdout)
         self.assertEqual(self.deleted(), [])
 

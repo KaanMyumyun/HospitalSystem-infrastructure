@@ -636,7 +636,38 @@ Balancer Controller has made it:
 
 Terraform creates the node group alarm (`terraform/monitoring.tf`):
 
-- EKS node group with no in-service instances
+- EKS node group with fewer in-service nodes than desired for 15 minutes.
+  Scaling the node group to 0 on purpose keeps it OK. It reads the Auto
+  Scaling group's group metrics, which EKS leaves off; Terraform turns on the
+  two it needs (free at one-minute granularity). Without them the alarm shows
+  `INSUFFICIENT_DATA` instead of a false OK.
+
+Every alarm emails the SNS topic `hospitalsystem-alerts` when it goes into
+ALARM and when it returns to OK, which also happens once as each new alarm
+first gets data. The topic is encrypted with the project KMS key, whose policy
+lets CloudWatch use it for that topic only. Set the recipient in `.env.local`:
+
+```bash
+ALERT_EMAIL=you@example.com
+```
+
+`./scripts/tf.sh apply` requires it and subscribes it to the topic. AWS then
+emails an "AWS Notification - Subscription Confirmation" link, and nothing is
+delivered until you click it. The topic is part of the environment, so every
+rebuild needs a new confirmation; `./scripts/monitoring.sh alarms` warns while
+it's pending. To send a test email through the whole path:
+
+```bash
+aws cloudwatch set-alarm-state --alarm-name hospitalsystem-nodegroup-missing-nodes \
+  --state-value ALARM --state-reason "Testing the alert email"
+```
+
+The alarm goes back to OK at its next evaluation, which sends the OK email.
+
+The ALB alarms aren't in Terraform, so the cleanup deletes them with the ALB:
+`scripts/pre-destroy-cleanup.sh --apply` and the `cleanup-kubernetes.yml`
+playbook Terraform runs during destroy both delete `hospitalsystem-alb-5xx` and
+`hospitalsystem-unhealthy-targets-*`, and never Terraform's own alarm.
 
 Configure or refresh the ALB alarms:
 
@@ -664,11 +695,6 @@ fails), `scripts/monitoring.sh` reports it as a failure, or as a warning for
 checks that only ever warn, with the error. It never counts an unreadable check
 as healthy.
 
-By default, alarms are created without notification actions. Setting
-`monitoring_alert_sns_topic_arn` in `ansible/group_vars/all/main.yml` attaches
-an SNS topic to the ALB 5xx and unhealthy-target alarms; the node group alarm in
-Terraform still has no action.
-
 ## Disaster Recovery
 
 The full recreate path has been tested with `terraform destroy` followed by
@@ -683,6 +709,7 @@ export HOSPITALSYSTEM_CONNECTION_STRING='Host=...;Database=...;Username=...;Pass
 export HOSPITALSYSTEM_JWT_SECRET='your-long-jwt-secret'
 export CLOUDFLARE_API_TOKEN='your-cloudflare-api-token'
 export CLOUDFLARE_ZONE_ID='your-zone-id' # optional
+export ALERT_EMAIL='you@example.com'        # receives the alarm emails
 ```
 
 These can also live in ignored `.env.local`. The Ansible bootstrap sources that
@@ -701,13 +728,15 @@ During destroy, Terraform runs `ansible/playbooks/cleanup-kubernetes.yml` to
 remove the Ingress first. This gives the AWS Load Balancer Controller time to
 delete the ALB before Terraform deletes the VPC.
 
-Destroy still leaves what Terraform never tracked: the controller's target
-groups, the CloudWatch alarms from the monitoring playbook, and KMS keys waiting
-out their deletion window. `./scripts/cleanup-orphans.sh` lists them and
-`--apply` deletes them. It only picks target groups that carry the controller's
-tags for this cluster and Ingress and whose VPC no longer exists, and alarms
-named `hospitalsystem-*`, so another project's resources in the same account
-are left alone. Any failed AWS lookup stops it before it deletes anything else.
+Destroy can still leave what Terraform never tracked: the controller's target
+groups, the monitoring playbook's ALB alarms if neither cleanup reached them,
+and KMS keys waiting out their deletion window. `./scripts/cleanup-orphans.sh`
+lists them and `--apply` deletes them. It only picks target groups that carry
+the controller's tags for this cluster and Ingress and whose VPC no longer
+exists, and only the alarms named `hospitalsystem-alb-5xx` and
+`hospitalsystem-unhealthy-targets-*`, so another project's resources and
+Terraform's own alarm are left alone. Any failed AWS lookup stops it before it
+deletes anything else.
 
 During apply, Terraform recreates AWS resources and then runs
 `ansible/playbooks/bootstrap.yml`. The complete apply path:

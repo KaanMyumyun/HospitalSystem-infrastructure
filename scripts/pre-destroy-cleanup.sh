@@ -20,6 +20,8 @@ INGRESS_NAME="${INGRESS_NAME:-hospital-ingress}"
 K8S_NAMESPACE="${K8S_NAMESPACE:-$(group_var k8s_namespace)}"
 K8S_NAMESPACE="${K8S_NAMESPACE:-hospitalsystem}"
 CERT_ARN="${CERT_ARN:-$(group_var acm_certificate_arn)}"
+ALARM_PREFIX="${ALARM_PREFIX:-$(group_var monitoring_alarm_prefix)}"
+ALARM_PREFIX="${ALARM_PREFIX:-hospitalsystem}"
 # The playbooks write the tunnel kubeconfig here and leave ~/.kube/config alone.
 export KUBECONFIG="$REPO_ROOT/.generated/kubeconfig"
 
@@ -33,7 +35,7 @@ Usage: scripts/pre-destroy-cleanup.sh [--apply]
   -h        Show this help.
 
 Environment overrides: AWS_REGION, VPC_ID, ALB_NAME, INGRESS_NAME,
-K8S_NAMESPACE, CERT_ARN.
+K8S_NAMESPACE, CERT_ARN, ALARM_PREFIX.
 USAGE
 }
 
@@ -239,6 +241,28 @@ else
       fi
     fi
   done
+fi
+
+section "ALB alarms (not blocking)"
+
+# ansible/playbooks/monitoring.yml creates these; Terraform doesn't know them.
+# The node group alarm is Terraform's and goes with the destroy.
+if ! alb_alarms="$(
+  aws cloudwatch describe-alarms --region "$AWS_REGION" \
+    --alarm-name-prefix "$ALARM_PREFIX-" \
+    --query "MetricAlarms[?AlarmName == '$ALARM_PREFIX-alb-5xx' || starts_with(AlarmName, '$ALARM_PREFIX-unhealthy-targets-')].AlarmName" \
+    --output text 2>&1
+)"; then
+  printf 'could not list alarms: %s\n' "$alb_alarms" >&2
+elif [ -z "$alb_alarms" ]; then
+  printf 'none\n'
+else
+  for name in $alb_alarms; do printf '%s\n' "$name"; done
+  if [ "$APPLY" = true ]; then
+    # shellcheck disable=SC2086
+    aws cloudwatch delete-alarms --region "$AWS_REGION" --alarm-names $alb_alarms
+    printf 'deleted\n'
+  fi
 fi
 
 section "ACM certificate (informational)"

@@ -153,6 +153,33 @@
       delay: 10
       when: k8s_security_groups.stdout | length > 0
 
+    # monitoring.yml creates these for the ALB, so Terraform can't delete them.
+    # Its own node group alarm goes with the destroy and is not selected here.
+    - name: Look up the ALB alarms
+      ansible.builtin.command:
+        argv:
+          - aws
+          - cloudwatch
+          - describe-alarms
+          - --region
+          - "{{ aws_region }}"
+          - --alarm-name-prefix
+          - "{{ monitoring_alarm_prefix }}-"
+          - --query
+          - >-
+            MetricAlarms[?AlarmName == '{{ monitoring_alarm_prefix }}-alb-5xx'
+            || starts_with(AlarmName, '{{ monitoring_alarm_prefix }}-unhealthy-targets-')].AlarmName
+          - --output
+          - text
+      register: alb_alarms
+      changed_when: false
+
+    - name: Delete the ALB alarms
+      ansible.builtin.command:
+        argv: "{{ ['aws', 'cloudwatch', 'delete-alarms', '--region', aws_region, '--alarm-names'] + alb_alarms.stdout.split() }}"
+      changed_when: true
+      when: alb_alarms.stdout | length > 0
+
   handlers:
     - name: Wait for the controller to delete the ALB
       ansible.builtin.command:
