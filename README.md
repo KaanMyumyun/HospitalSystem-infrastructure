@@ -95,15 +95,19 @@ kubernetes/             # Jinja templates rendered by apply-kubernetes.yml
 │   └── github-actions-deploy.yaml.j2
 ├── policy/
 │   ├── trusted-workloads.yaml.j2
-│   └── deploy-image-only.yaml.j2
+│   ├── deploy-image-only.yaml.j2
+│   └── network.yaml.j2
 ├── backend/
 │   ├── configmap.yaml.j2
 │   ├── deployment.yaml.j2
+│   ├── external-secret.yaml.j2  # applied by backend-secret.yml
 │   ├── hpa.yaml.j2
+│   ├── pdb.yaml.j2
 │   └── service.yaml.j2
 ├── frontend/
 │   ├── deployment.yaml.j2
 │   ├── hpa.yaml.j2
+│   ├── pdb.yaml.j2
 │   └── service.yaml.j2
 └── ingress/
     └── ingress.yaml.j2
@@ -111,9 +115,18 @@ kubernetes/             # Jinja templates rendered by apply-kubernetes.yml
 
 The Kubernetes manifests define:
 
-- `hospitalsystem` namespace, which enforces the baseline Pod Security Standard
-- backend Deployment and Service
-- frontend Deployment and Service
+- `hospitalsystem` namespace, which enforces the restricted Pod Security
+  Standard. Both apps run as non-root with a read-only root filesystem
+  (emptyDirs for `/tmp` and the backend's `.aspnet` keys), no capabilities,
+  the runtime's default seccomp profile and no service account token.
+- backend and frontend Deployments and Services, two replicas each, one per
+  node, with a PodDisruptionBudget that keeps one available during a drain
+- NetworkPolicies that deny all ingress to the namespace except port 8080
+  from the ALB's public subnets and from the EKS control plane's network
+  interfaces (the deploy's smoke test goes through the API server). The
+  vpc-cni add-on enforces them; the node's own traffic, such as kubelet
+  probes, is always allowed.
+- an ExternalSecret that copies the backend secret from AWS Secrets Manager
 - namespace-scoped RBAC for the deploy group, used by the ops instance's
   deploy document
 - an admission policy that only lets the app Deployments run this account's
@@ -441,8 +454,8 @@ the old last-applied annotation before omitting those fields on updates,
 following the [Kubernetes field ownership migration procedure](https://kubernetes.io/docs/tasks/manage-kubernetes-objects/declarative-config/#changing-the-owner-from-a-configuration-file-to-a-direct-imperative-writer).
 This avoids resetting replicas during the first upgrade and avoids overwriting
 a CI image change during bootstrap. Failed or malformed Kubernetes reads stop
-the apply. Use `deploy-image.yml` or CI to change images, and `scale.yml` to
-pause or resume workloads.
+the apply. Use `deploy-image.yml` or CI to change images, `scale.yml` to scale
+workloads, and `pause.yml`/`resume.yml` to stop and start the app and its nodes.
 
 The Ingress explicitly selects `ELBSecurityPolicy-TLS13-1-2-2021-06` and enables
 `routing.http.drop_invalid_header_fields.enabled=true`. The ALB accepts TLS
@@ -504,11 +517,18 @@ Deployments (`kubernetes_workload_manifests`). The controller adds the ALB
 readiness gate only to pods created after their Service's TargetGroupBinding
 exists, so this order gives every pod the gate on a fresh cluster. After the
 rollouts finish, the playbook restarts any Deployment that still has a pod
-without the gate and fails if the new pods don't get it either. Runtime secrets such as
-`hospital-backend-secrets` are not stored in this repository and must be managed
-through environment variables or another secret-management system.
+without the gate and fails if the new pods don't get it either.
 
-Create or update the backend Secret manually from local environment variables:
+The backend's connection string and JWT key live in the AWS Secrets Manager
+secret `hospitalsystem/backend` (`terraform/secrets.tf`), encrypted with the
+project's KMS key. Terraform creates the secret but never its value, so the
+value stays out of Terraform state. External Secrets (installed by
+`external-secrets.yml`, watching only the app namespace) copies it into the
+`hospital-backend-secrets` Secret every hour. It authenticates as the
+`backend-secrets-reader` service account, whose IAM role can read only this
+secret; no pod runs as it.
+
+Store new values, or re-sync after changing the secret in Secrets Manager:
 
 ```bash
 export HOSPITALSYSTEM_CONNECTION_STRING='Host=...;Database=...;Username=...;Password=...'
@@ -516,6 +536,14 @@ export HOSPITALSYSTEM_JWT_SECRET='your-long-jwt-secret'
 
 ansible-playbook ansible/playbooks/backend-secret.yml
 ```
+
+With both variables set, the playbook stores them if they differ from the
+stored value. With neither set, it keeps what Secrets Manager has, so a value
+rotated there isn't overwritten. It then makes External Secrets sync at once
+and restarts the backend if the Secret changed since its pods started (the
+Deployment records the Secret's hash). A Deployment scaled to 0 stays at 0 and
+reads the new Secret when it scales up. `./scripts/monitoring.sh workloads`
+warns when the pods run an older Secret.
 
 The ops instance's Kubernetes access is an EKS access entry in Terraform
 (`aws_eks_access_entry.ops`). Bootstrap waits for it before applying the
@@ -579,13 +607,28 @@ ansible-playbook ansible/playbooks/scale.yml -e replicas=2
 ansible-playbook ansible/playbooks/scale.yml -e replicas=0
 ```
 
-Backend and frontend also have HorizontalPodAutoscalers. After the Kubernetes
-manifests are applied, each workload scales between 1 and 2 pods when average
-CPU utilization goes above the configured target. There is no cluster
-autoscaler, so the cap matches the two t3.small nodes: memory requests equal
-the limits (backend 512Mi, frontend 128Mi), and two pods of each app plus a
-rollout surge fit in the nodes' memory. Manual scaling is temporary
-while HPA is enabled because Kubernetes reconciles the replica count.
+Stop the app and scale the node group to 0, then bring both back:
+
+```bash
+ansible-playbook ansible/playbooks/pause.yml
+ansible-playbook ansible/playbooks/resume.yml
+```
+
+`pause.yml` turns off the alarm notifications first (with no targets the ALB
+answers 503), scales both Deployments to 0 and the node group to 0, and waits
+for the nodes to leave. `resume.yml` scales the node group back to two, waits
+for both nodes, starts each app at its HPA minimum and turns the notifications
+back on once both are ready.
+
+Backend and frontend also have HorizontalPodAutoscalers, both fixed at two
+pods: one per node, so a drain or node failure leaves one serving. There is no
+cluster autoscaler, so the cap matches the two t3.small nodes: memory requests
+equal the limits (backend 512Mi, frontend 128Mi), and two pods of each app plus
+a rollout surge fit in the nodes' memory. With one node drained, the second
+backend pod doesn't fit on the remaining node and waits until the node comes
+back, while the PodDisruptionBudget keeps one of each app serving. Manual
+scaling is temporary while HPA is enabled because Kubernetes reconciles the
+replica count.
 
 ## Monitoring
 
@@ -718,7 +761,8 @@ frontend pod waited nine seconds for memory reservations to free while an old
 backend drained, then scheduled successfully. Draining pods can consume capacity
 [beyond the replica count plus surge](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#updating-a-deployment),
 so account for per-node placement and system pods before raising replica caps
-or resource limits. Both HPA minimums were restored to one after the test.
+or resource limits. Both HPA minimums were restored to one after the test, and
+later raised to two for good with one replica per node.
 
 When a check can't read its data (an AWS, Kubernetes, Helm or GitHub call
 fails), `scripts/monitoring.sh` reports it as a failure, or as a warning for
@@ -754,9 +798,20 @@ Full recreate:
 ./scripts/tf.sh apply
 ```
 
-During destroy, Terraform runs `ansible/playbooks/cleanup-kubernetes.yml` to
-remove the Ingress first. This gives the AWS Load Balancer Controller time to
-delete the ALB before Terraform deletes the VPC.
+During destroy, Terraform runs `ansible/playbooks/cleanup-kubernetes.yml`
+before it deletes the cluster. The playbook removes the app's Cloudflare CNAME
+if it still points at this ALB, deletes the Ingress so the Load Balancer
+Controller deletes the ALB (or deletes the ALB directly when the cluster can't
+be reached), then removes the ALB's target groups and `k8s-*` security groups
+and the ALB alarms. The cluster, the ops instance, the controller's IAM role
+and OIDC provider, and the NAT gateways and routes stay until it has finished.
+A resource that is already gone counts as done; any other error stops the
+destroy, before it could stall on an ALB that is still up. Fix the cause and
+run the destroy again.
+
+`scripts/pre-destroy-cleanup.sh --apply` does the same AWS cleanup by hand. It
+also stops on lookup errors, retries target groups and security groups that
+AWS still reports in use, and exits non-zero if anything is left.
 
 Destroy can still leave what Terraform never tracked: the controller's target
 groups, the monitoring playbook's ALB alarms if neither cleanup reached them,
@@ -782,7 +837,8 @@ During apply, Terraform recreates AWS resources and then runs
 - requests the ACM certificate for `app.hospitalsyst.cc`
 - creates the Cloudflare ACM validation CNAME
 - waits for ACM to issue the certificate
-- creates the backend Kubernetes Secret from local environment variables
+- installs External Secrets, stores the backend secret in Secrets Manager
+  from local environment variables and waits for it to sync
 - installs the AWS Load Balancer Controller
 - applies rendered app Kubernetes manifests with current ECR URLs and ACM ARN
 - updates the Cloudflare app CNAME to the new ALB hostname
@@ -873,15 +929,9 @@ destroy and recreate, so update the list after a rebuild.
 Scaling down while not testing only saves the worker nodes (two t3.small,
 roughly $30 a month):
 
-- app Deployments can be scaled to `0` with `scale.yml`
-- the EKS managed node group can be scaled to `desiredSize=0` (Terraform
-  ignores the desired size, so a later apply won't scale it back up):
-
-  ```bash
-  aws eks update-nodegroup-config --cluster-name eks-pr1 \
-    --nodegroup-name hospitalsystempr1 \
-    --scaling-config minSize=0,maxSize=2,desiredSize=0
-  ```
+- `pause.yml` scales the app and the node group to 0, and `resume.yml`
+  brings them back (see [Ansible Operations](#ansible-operations)). Terraform ignores the
+  node group's desired size, so a later apply won't scale it back up.
 
 Everything else keeps billing while the environment exists, roughly $200 a
 month before data transfer:
@@ -980,8 +1030,3 @@ kubectl describe pod -n hospitalsystem <pod-name>
 kubectl logs -n hospitalsystem <pod-name>
 ```
 
-## Roadmap
-
-Planned infrastructure improvements:
-
-- Run at least two replicas of each app, spread across nodes, with a PodDisruptionBudget. Rolling updates already keep deploys up, but with one replica a node drain or node group upgrade still stops the app briefly.

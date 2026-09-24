@@ -1,0 +1,154 @@
+---
+# Stops the app and scales the node group to 0, keeping the cluster, ALB, DNS
+# and data. resume.yml brings everything back. The EKS control plane, NAT
+# gateways, ALB, VPC endpoints and ops instance keep billing while paused.
+- name: Pause HospitalSystem
+  hosts: local
+  gather_facts: false
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+
+  vars:
+    app_deployments:
+      - "{{ backend_deployment }}"
+      - "{{ frontend_deployment }}"
+
+  tasks:
+    - name: Configure kubeconfig
+      ansible.builtin.import_tasks: ../tasks/kubeconfig.yml
+
+    - name: List the monitoring alarms
+      ansible.builtin.command:
+        argv:
+          - aws
+          - cloudwatch
+          - describe-alarms
+          - --region
+          - "{{ aws_region }}"
+          - --alarm-name-prefix
+          - "{{ monitoring_alarm_prefix }}-"
+          - --query
+          - MetricAlarms[].AlarmName
+          - --output
+          - json
+      register: monitoring_alarms
+      changed_when: false
+
+    # With no targets the ALB answers 503, which the 5xx alarm would report.
+    # resume.yml turns the notifications back on once the app is ready.
+    - name: Turn off alarm notifications while paused
+      ansible.builtin.command:
+        argv: "{{ ['aws', 'cloudwatch', 'disable-alarm-actions', '--region', aws_region, '--alarm-names'] + (monitoring_alarms.stdout | from_json) }}"
+      changed_when: true
+      when: monitoring_alarms.stdout | from_json | length > 0
+
+    - name: Scale the app to 0
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - scale
+          - deployment/{{ item }}
+          - -n
+          - "{{ k8s_namespace }}"
+          - --replicas=0
+      loop: "{{ app_deployments }}"
+      changed_when: true
+
+    - name: Wait for the app pods to stop
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - wait
+          - --for=delete
+          - pod
+          - -l
+          - app.kubernetes.io/part-of=hospitalsystem
+          - -n
+          - "{{ k8s_namespace }}"
+          - --timeout=180s
+      changed_when: false
+
+    - name: Read the node group's scaling
+      ansible.builtin.command:
+        argv:
+          - aws
+          - eks
+          - describe-nodegroup
+          - --region
+          - "{{ aws_region }}"
+          - --cluster-name
+          - "{{ eks_cluster_name }}"
+          - --nodegroup-name
+          - "{{ eks_node_group_name }}"
+          - --query
+          - nodegroup.scalingConfig
+          - --output
+          - json
+      register: node_scaling
+      changed_when: false
+
+    - name: Scale the node group to 0
+      ansible.builtin.command:
+        argv:
+          - aws
+          - eks
+          - update-nodegroup-config
+          - --region
+          - "{{ aws_region }}"
+          - --cluster-name
+          - "{{ eks_cluster_name }}"
+          - --nodegroup-name
+          - "{{ eks_node_group_name }}"
+          - --scaling-config
+          - "minSize=0,maxSize={{ (node_scaling.stdout | from_json).maxSize }},desiredSize=0"
+          - --query
+          - update.id
+          - --output
+          - text
+      register: node_update
+      changed_when: true
+      when: (node_scaling.stdout | from_json).desiredSize != 0
+
+    - name: Wait for the node group update
+      ansible.builtin.command:
+        argv:
+          - aws
+          - eks
+          - describe-update
+          - --region
+          - "{{ aws_region }}"
+          - --name
+          - "{{ eks_cluster_name }}"
+          - --nodegroup-name
+          - "{{ eks_node_group_name }}"
+          - --update-id
+          - "{{ node_update.stdout }}"
+          - --query
+          - update.status
+          - --output
+          - text
+      register: node_update_status
+      changed_when: false
+      until: node_update_status.stdout in ['Successful', 'Failed', 'Cancelled']
+      failed_when: node_update_status.stdout in ['Failed', 'Cancelled']
+      retries: 60
+      delay: 10
+      when: node_update is not skipped
+
+    - name: Wait for the nodes to leave the cluster
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - get
+          - nodes
+          - -o
+          - name
+      register: remaining_nodes
+      changed_when: false
+      until: remaining_nodes.stdout | length == 0
+      retries: 60
+      delay: 10
+
+    - name: Show how to resume
+      ansible.builtin.debug:
+        msg: "Paused. Run ansible-playbook ansible/playbooks/resume.yml to start the nodes and the app again."

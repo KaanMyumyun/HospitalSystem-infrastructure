@@ -1175,6 +1175,30 @@ section_workloads() {
     fi
   done
 
+  # backend-secret.yml records on the Deployment which Secret its pods started
+  # with; External Secrets hashes the Secret's data into the other annotation.
+  if ! answer="$(
+    kube get externalsecret hospital-backend-secrets -n "$NAMESPACE" \
+      -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}|{.status.conditions[?(@.type=="Ready")].message}' 2>&1
+  )"; then
+    fail "Could not read ExternalSecret hospital-backend-secrets: $(last_line "$answer")"
+  elif [[ "$answer" == True\|* ]]; then
+    ok "ExternalSecret hospital-backend-secrets is synced from Secrets Manager"
+  else
+    fail "ExternalSecret hospital-backend-secrets isn't synced: ${answer#*|}"
+  fi
+  secret_hash="$(kube get secret hospital-backend-secrets -n "$NAMESPACE" \
+    -o jsonpath='{.metadata.annotations.reconcile\.external-secrets\.io/data-hash}' 2>/dev/null || true)"
+  started_with="$(kube get deployment "$BACKEND_DEPLOYMENT" -n "$NAMESPACE" \
+    -o jsonpath='{.metadata.annotations.hospitalsystem\.io/backend-secrets-hash}' 2>/dev/null || true)"
+  if [ -z "$secret_hash" ] || [ -z "$started_with" ]; then
+    warn "Can't tell which backend Secret the pods use; run ansible-playbook ansible/playbooks/backend-secret.yml"
+  elif [ "$secret_hash" = "$started_with" ]; then
+    ok "Backend pods started with the current Secret"
+  else
+    warn "The backend Secret changed after its pods started; run ansible-playbook ansible/playbooks/backend-secret.yml to restart them"
+  fi
+
   for policy in "$NAMESPACE-trusted-workloads" "$NAMESPACE-deploy-image-only"; do
     if ! answer="$(kube get validatingadmissionpolicy "$policy" -o name 2>&1)"; then
       fail "Could not read admission policy $policy: $(last_line "$answer")"
@@ -1184,6 +1208,31 @@ section_workloads() {
       ok "Admission policy $policy and its binding are in place"
     fi
   done
+
+  # EKS can replace its control plane ENIs; the NetworkPolicy names their IPs
+  # so the deploy's smoke test can reach the pods through the API server.
+  if ! allowed="$(
+    kube get networkpolicy allow-alb-and-api-server -n "$NAMESPACE" \
+      -o jsonpath='{range .spec.ingress[*].from[*]}{.ipBlock.cidr}{"\n"}{end}' 2>&1
+  )"; then
+    fail "Could not read NetworkPolicy allow-alb-and-api-server: $(last_line "$allowed")"
+  elif ! enis="$(
+    awsr ec2 describe-network-interfaces \
+      --filters "Name=description,Values=Amazon EKS $EKS_CLUSTER_NAME" \
+      --query 'NetworkInterfaces[].PrivateIpAddress' --output text 2>&1
+  )"; then
+    warn "Could not list the EKS control plane ENIs: $(last_line "$enis")"
+  else
+    missing=""
+    for ip in $enis; do
+      grep -qx "$ip/32" <<<"$allowed" || missing+=" $ip"
+    done
+    if [ -n "$missing" ]; then
+      fail "NetworkPolicy allow-alb-and-api-server doesn't allow the control plane at$missing; deploy smoke tests will fail. Run ansible-playbook ansible/playbooks/apply-kubernetes.yml"
+    else
+      ok "NetworkPolicy allows the ALB subnets and the current control plane ENIs"
+    fi
+  fi
 
   if [ -n "$DEPLOY_GROUP" ]; then
     for deployment in "$BACKEND_DEPLOYMENT" "$FRONTEND_DEPLOYMENT"; do

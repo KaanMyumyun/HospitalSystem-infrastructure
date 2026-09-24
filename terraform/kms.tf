@@ -1,5 +1,5 @@
 resource "aws_kms_key" "main" {
-  description             = "HospitalSystem encryption key for ECR, EKS Secrets, CloudWatch Logs and the alert topic"
+  description             = "HospitalSystem encryption key for ECR, EKS Secrets, Secrets Manager, CloudWatch Logs and the alert topic"
   enable_key_rotation     = true
   deletion_window_in_days = 30
 

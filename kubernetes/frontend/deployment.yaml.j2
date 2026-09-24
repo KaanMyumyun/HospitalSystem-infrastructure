@@ -25,10 +25,40 @@ spec:
         app.kubernetes.io/part-of: hospitalsystem
     spec:
       terminationGracePeriodSeconds: 45
+      # nginx never calls the Kubernetes API.
+      automountServiceAccountToken: false
+      # One replica per node. A cordoned or unreachable node doesn't count, so
+      # a drained pod can start again on the node that's left. The template
+      # hash spreads each rollout's pods on their own.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          nodeTaintsPolicy: Honor
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: hospital-frontend
+          matchLabelKeys:
+            - pod-template-hash
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: frontend
           image: "{{ frontend_image }}"
           imagePullPolicy: Always
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # The unprivileged nginx image keeps its pid file and temp paths in /tmp.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           lifecycle:
             preStop:
               sleep:
@@ -59,3 +89,7 @@ spec:
               cpu: 250m
               memory: 128Mi
               ephemeral-storage: 512Mi
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi

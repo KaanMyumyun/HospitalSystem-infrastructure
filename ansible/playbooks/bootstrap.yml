@@ -2,6 +2,9 @@
 - name: Bootstrap HospitalSystem Kubernetes configuration
   ansible.builtin.import_playbook: kubeconfig.yml
 
+- name: Install External Secrets Operator
+  ansible.builtin.import_playbook: external-secrets.yml
+
 - name: Configure backend runtime secret
   ansible.builtin.import_playbook: backend-secret.yml
 

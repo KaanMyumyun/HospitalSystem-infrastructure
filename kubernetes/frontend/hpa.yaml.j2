@@ -11,9 +11,11 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: hospital-frontend
-  minReplicas: 1
-  # Fixed two-node capacity, validated with light demo traffic and rolling updates.
-  # Draining pods can briefly delay replacements; recheck capacity before raising.
+  # Two replicas, one per node (see the Deployment's topologySpreadConstraints),
+  # so a drain or a node failure leaves one serving. The fixed two-node capacity
+  # was validated with light demo traffic and rolling updates; recheck it before
+  # raising maxReplicas.
+  minReplicas: 2
   maxReplicas: 2
   metrics:
     - type: Resource

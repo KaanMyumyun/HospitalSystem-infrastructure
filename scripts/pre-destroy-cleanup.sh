@@ -22,6 +22,8 @@ K8S_NAMESPACE="${K8S_NAMESPACE:-hospitalsystem}"
 CERT_ARN="${CERT_ARN:-$(group_var acm_certificate_arn)}"
 ALARM_PREFIX="${ALARM_PREFIX:-$(group_var monitoring_alarm_prefix)}"
 ALARM_PREFIX="${ALARM_PREFIX:-hospitalsystem}"
+# Seconds between retries of an ALB wait or a delete that AWS reports as in use.
+RETRY_DELAY="${RETRY_DELAY:-10}"
 # The playbooks write the tunnel kubeconfig here and leave ~/.kube/config alone.
 export KUBECONFIG="$REPO_ROOT/.generated/kubeconfig"
 
@@ -35,7 +37,10 @@ Usage: scripts/pre-destroy-cleanup.sh [--apply]
   -h        Show this help.
 
 Environment overrides: AWS_REGION, VPC_ID, ALB_NAME, INGRESS_NAME,
-K8S_NAMESPACE, CERT_ARN, ALARM_PREFIX.
+K8S_NAMESPACE, CERT_ARN, ALARM_PREFIX, RETRY_DELAY.
+
+Exits non-zero when a lookup fails or something can't be deleted, so a
+failed cleanup is never followed by a destroy that stalls.
 USAGE
 }
 
@@ -59,6 +64,48 @@ require_command() {
   fi
 }
 
+# Prints what an AWS lookup returns ("None" counts as nothing). The error
+# code given first means the resource doesn't exist, which prints nothing;
+# "-" accepts no error. Any other error is printed and returns 1, and callers
+# stop with `|| exit 1`: an API error must never read as "nothing there".
+lookup() {
+  local absent="$1" out err status=0
+  shift
+  err="$(mktemp)"
+  out="$(aws "$@" 2>"$err")" || status=$?
+  if [ "$status" -eq 0 ]; then
+    [ "$out" = None ] || printf '%s' "$out"
+  elif [ "$absent" != - ] && grep -qF "($absent)" "$err"; then
+    status=0
+  else
+    printf 'aws %s %s failed: %s\n' "$1" "$2" "$(cat "$err")" >&2
+  fi
+  rm -f "$err"
+  return "$status"
+}
+
+# Runs an AWS delete, retrying while AWS reports the resource in use (first
+# code). One that is already gone (second code) counts as deleted. Prints the
+# last error and returns 1 when it gives up.
+delete_with_retry() {
+  local in_use="$1" gone="$2" err attempt
+  shift 2
+  err="$(mktemp)"
+  for attempt in $(seq 1 12); do
+    if aws "$@" >/dev/null 2>"$err" || grep -qF "($gone)" "$err"; then
+      rm -f "$err"
+      return 0
+    fi
+    if ! grep -qF "($in_use)" "$err" || [ "$attempt" -eq 12 ]; then
+      break
+    fi
+    sleep "$RETRY_DELAY"
+  done
+  printf 'could not delete %s: %s\n' "${*: -1}" "$(cat "$err")" >&2
+  rm -f "$err"
+  return 1
+}
+
 require_command aws
 
 if ! aws sts get-caller-identity >/dev/null 2>&1; then
@@ -74,6 +121,7 @@ fi
 
 found=0
 deleted=0
+failures=0
 
 printf 'Region:    %s\nVPC:       %s\nALB:       %s\nIngress:   %s/%s\n' \
   "$AWS_REGION" "$VPC_ID" "$ALB_NAME" "$K8S_NAMESPACE" "$INGRESS_NAME"
@@ -82,9 +130,20 @@ if [ "$APPLY" = false ]; then
 fi
 
 alb_arn() {
-  aws elbv2 describe-load-balancers \
+  lookup LoadBalancerNotFound elbv2 describe-load-balancers \
     --region "$AWS_REGION" --names "$ALB_NAME" \
-    --query 'LoadBalancers[0].LoadBalancerArn' --output text 2>/dev/null || true
+    --query 'LoadBalancers[0].LoadBalancerArn' --output text
+}
+
+# wait_for_alb_gone <attempts>: returns 1 if the ALB is still there after them.
+wait_for_alb_gone() {
+  local arn
+  for _ in $(seq 1 "$1"); do
+    arn="$(alb_arn)" || exit 1
+    [ -z "$arn" ] && return 0
+    sleep "$RETRY_DELAY"
+  done
+  return 1
 }
 
 section "Kubernetes Ingress"
@@ -110,18 +169,15 @@ else
     deleted=$((deleted + 1))
     ingress_deleted=true
 
-    printf 'Waiting up to 180s for the controller to delete the ALB...\n'
-    for _ in $(seq 1 18); do
-      [ "$(alb_arn)" = "" ] && break
-      sleep 10
-    done
+    printf 'Waiting for the controller to delete the ALB...\n'
+    wait_for_alb_gone 18 || printf 'The controller did not delete it in time\n'
   fi
 fi
 
 section "Load balancer"
 
-arn="$(alb_arn)"
-if [ -z "$arn" ] || [ "$arn" = "None" ]; then
+arn="$(alb_arn)" || exit 1
+if [ -z "$arn" ]; then
   if [ "$ingress_deleted" = true ]; then
     printf 'gone (deleted by the controller)\n'
   else
@@ -133,34 +189,39 @@ else
   if [ "$APPLY" = true ]; then
     printf 'Controller did not remove it - deleting directly\n'
     aws elbv2 delete-load-balancer --region "$AWS_REGION" --load-balancer-arn "$arn"
-    deleted=$((deleted + 1))
-
-    printf 'Waiting up to 300s for the ALB to disappear...\n'
-    for _ in $(seq 1 30); do
-      [ "$(alb_arn)" = "" ] && break
-      sleep 10
-    done
+    printf 'Waiting for the ALB to disappear...\n'
+    if wait_for_alb_gone 30; then
+      deleted=$((deleted + 1))
+    else
+      printf 'the ALB is still there\n' >&2
+      failures=$((failures + 1))
+    fi
   fi
 fi
 
 section "Orphaned ALB target groups"
 
 target_groups="$(
-  aws elbv2 describe-target-groups \
+  lookup - elbv2 describe-target-groups \
     --region "$AWS_REGION" \
     --query "TargetGroups[?starts_with(TargetGroupName, \`k8s-\`) && VpcId=='$VPC_ID' && length(LoadBalancerArns) == \`0\`].TargetGroupArn" \
-    --output text 2>/dev/null || true
-)"
+    --output text
+)" || exit 1
 
-if [ -z "$target_groups" ] || [ "$target_groups" = "None" ]; then
+if [ -z "$target_groups" ]; then
   printf 'none\n'
 else
   for tg in $target_groups; do
     found=$((found + 1))
     printf '%s\n' "$tg"
+    # Right after the ALB goes, its target groups can still read as in use.
     if [ "$APPLY" = true ]; then
-      aws elbv2 delete-target-group --region "$AWS_REGION" --target-group-arn "$tg"
-      deleted=$((deleted + 1))
+      if delete_with_retry ResourceInUse TargetGroupNotFound \
+        elbv2 delete-target-group --region "$AWS_REGION" --target-group-arn "$tg"; then
+        deleted=$((deleted + 1))
+      else
+        failures=$((failures + 1))
+      fi
     fi
   done
 fi
@@ -168,13 +229,13 @@ fi
 section "Kubernetes-managed security groups"
 
 k8s_sgs="$(
-  aws ec2 describe-security-groups \
+  lookup - ec2 describe-security-groups \
     --region "$AWS_REGION" \
     --filters "Name=vpc-id,Values=$VPC_ID" "Name=group-name,Values=k8s-*" \
-    --query 'SecurityGroups[].GroupId' --output text 2>/dev/null || true
-)"
+    --query 'SecurityGroups[].GroupId' --output text
+)" || exit 1
 
-if [ -z "$k8s_sgs" ] || [ "$k8s_sgs" = "None" ]; then
+if [ -z "$k8s_sgs" ]; then
   printf 'none\n'
 else
   for sg in $k8s_sgs; do
@@ -184,14 +245,15 @@ else
 
   if [ "$APPLY" = true ]; then
     for sg in $k8s_sgs; do
-      for referencing in $(aws ec2 describe-security-groups --region "$AWS_REGION" \
+      referencing_groups="$(lookup - ec2 describe-security-groups --region "$AWS_REGION" \
         --filters "Name=vpc-id,Values=$VPC_ID" "Name=ip-permission.group-id,Values=$sg" \
-        --query 'SecurityGroups[].GroupId' --output text 2>/dev/null || true); do
-        rules="$(aws ec2 describe-security-group-rules --region "$AWS_REGION" \
+        --query 'SecurityGroups[].GroupId' --output text)" || exit 1
+      for referencing in $referencing_groups; do
+        rules="$(lookup - ec2 describe-security-group-rules --region "$AWS_REGION" \
           --filters "Name=group-id,Values=$referencing" \
           --query "SecurityGroupRules[?!IsEgress && ReferencedGroupInfo.GroupId=='$sg'].SecurityGroupRuleId" \
-          --output text 2>/dev/null || true)"
-        if [ -n "$rules" ] && [ "$rules" != "None" ]; then
+          --output text)" || exit 1
+        if [ -n "$rules" ]; then
           # shellcheck disable=SC2086
           aws ec2 revoke-security-group-ingress --region "$AWS_REGION" \
             --group-id "$referencing" --security-group-rule-ids $rules >/dev/null
@@ -200,19 +262,15 @@ else
       done
     done
 
+    # ALB network interfaces can hold a group for a while after the ALB goes.
     for sg in $k8s_sgs; do
-      for attempt in $(seq 1 12); do
-        if aws ec2 delete-security-group --region "$AWS_REGION" --group-id "$sg" 2>/dev/null; then
-          printf 'deleted %s\n' "$sg"
-          deleted=$((deleted + 1))
-          break
-        fi
-        if [ "$attempt" -eq 12 ]; then
-          printf 'could not delete %s - something still uses it\n' "$sg" >&2
-        else
-          sleep 10
-        fi
-      done
+      if delete_with_retry DependencyViolation InvalidGroup.NotFound \
+        ec2 delete-security-group --region "$AWS_REGION" --group-id "$sg"; then
+        printf 'deleted %s\n' "$sg"
+        deleted=$((deleted + 1))
+      else
+        failures=$((failures + 1))
+      fi
     done
   fi
 fi
@@ -220,24 +278,24 @@ fi
 section "Detached network interfaces"
 
 enis="$(
-  aws ec2 describe-network-interfaces \
+  lookup - ec2 describe-network-interfaces \
     --region "$AWS_REGION" \
     --filters "Name=vpc-id,Values=$VPC_ID" "Name=status,Values=available" \
-    --query 'NetworkInterfaces[].NetworkInterfaceId' --output text 2>/dev/null || true
-)"
+    --query 'NetworkInterfaces[].NetworkInterfaceId' --output text
+)" || exit 1
 
-if [ -z "$enis" ] || [ "$enis" = "None" ]; then
+if [ -z "$enis" ]; then
   printf 'none\n'
 else
   for eni in $enis; do
     found=$((found + 1))
     printf '%s\n' "$eni"
     if [ "$APPLY" = true ]; then
-      if aws ec2 delete-network-interface --region "$AWS_REGION" \
-        --network-interface-id "$eni" 2>/dev/null; then
+      if delete_with_retry InvalidNetworkInterface.InUse InvalidNetworkInterfaceID.NotFound \
+        ec2 delete-network-interface --region "$AWS_REGION" --network-interface-id "$eni"; then
         deleted=$((deleted + 1))
       else
-        printf 'could not delete %s\n' "$eni" >&2
+        failures=$((failures + 1))
       fi
     fi
   done
@@ -285,6 +343,11 @@ fi
 section "Summary"
 if [ "$APPLY" = true ]; then
   printf 'Deleted %d of %d blocking resources.\n' "$deleted" "$found"
+  if [ "$failures" -gt 0 ]; then
+    printf '%d could not be deleted (see above). Fix that and run this again before ./scripts/tf.sh destroy.\n' \
+      "$failures" >&2
+    exit 1
+  fi
   printf 'Now run: ./scripts/tf.sh destroy\n'
 else
   printf 'Found %d blocking resources. Re-run with --apply to delete them.\n' "$found"

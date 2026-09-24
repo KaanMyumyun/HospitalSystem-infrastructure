@@ -1,16 +1,85 @@
 ---
+# Runs from Terraform's destroy (terraform_data.kubernetes_cleanup) before the
+# cluster and its networking go. It removes what Kubernetes and the playbooks
+# created outside Terraform: the DNS record, the ALB, its target groups and
+# security groups, and the ALB alarms. Any failure stops the destroy, so it
+# can't go on to stall on an ALB that is still up. A resource that is already
+# gone counts as done; any other API error fails the run.
 - name: Clean up Kubernetes-managed AWS resources before Terraform destroy
   hosts: local
   gather_facts: false
   environment:
     KUBECONFIG: "{{ kubeconfig_path }}"
 
+  vars:
+    cloudflare_api_token: "{{ lookup('ansible.builtin.env', 'CLOUDFLARE_API_TOKEN') }}"
+    cloudflare_zone_id_env: "{{ lookup('ansible.builtin.env', 'CLOUDFLARE_ZONE_ID') }}"
+    # Only a record that still points at this ALB is removed; one a person
+    # pointed somewhere else stays.
+    alb_hostname_pattern: "^{{ alb_name }}-[0-9]+\\.{{ aws_region }}\\.elb\\.amazonaws\\.com$"
+
   tasks:
+    - name: Require Cloudflare API token
+      ansible.builtin.fail:
+        msg: >-
+          Set CLOUDFLARE_API_TOKEN so the {{ cloudflare_record_name }} record can
+          be removed. ./scripts/tf.sh destroy reads it from .env.local.
+      when: cloudflare_api_token | length == 0
+
+    - name: Look up Cloudflare zone ID
+      ansible.builtin.uri:
+        url: "https://api.cloudflare.com/client/v4/zones?name={{ cloudflare_zone_name }}"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ cloudflare_api_token }}"
+        return_content: true
+      register: cloudflare_zone_lookup
+      when: cloudflare_zone_id_env | length == 0
+      no_log: true
+
+    - name: Require the Cloudflare zone
+      ansible.builtin.assert:
+        that: cloudflare_zone_id_env | length > 0 or cloudflare_zone_lookup.json.result | length == 1
+        fail_msg: >-
+          Cloudflare has no zone named {{ cloudflare_zone_name }} that the API token
+          can read. Set CLOUDFLARE_ZONE_ID or give the token Zone:Read on that zone.
+        quiet: true
+
+    - name: Set Cloudflare zone ID
+      ansible.builtin.set_fact:
+        cloudflare_zone_id: >-
+          {{ cloudflare_zone_id_env
+             if cloudflare_zone_id_env | length > 0
+             else cloudflare_zone_lookup.json.result[0].id }}
+
+    - name: Look up the app's CNAME record
+      ansible.builtin.uri:
+        url: "https://api.cloudflare.com/client/v4/zones/{{ cloudflare_zone_id }}/dns_records?type=CNAME&name={{ cloudflare_record_name }}"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ cloudflare_api_token }}"
+        return_content: true
+      register: cloudflare_record_lookup
+      no_log: true
+
+    - name: Remove the CNAME that points at the ALB
+      ansible.builtin.uri:
+        url: "https://api.cloudflare.com/client/v4/zones/{{ cloudflare_zone_id }}/dns_records/{{ item.id }}"
+        method: DELETE
+        headers:
+          Authorization: "Bearer {{ cloudflare_api_token }}"
+        status_code: 200
+      loop: "{{ cloudflare_record_lookup.json.result | selectattr('content', 'match', alb_hostname_pattern) | list }}"
+      loop_control:
+        label: "{{ item.name }} -> {{ item.content }}"
+      no_log: true
+
     - name: Configure kubeconfig
       ansible.builtin.import_tasks: ../tasks/kubeconfig.yml
       vars:
         kubeconfig_optional: true
 
+    # With the cluster unreachable, the ALB is deleted directly further down.
     - name: Delete Ingress so the AWS Load Balancer Controller removes the ALB
       ansible.builtin.command:
         argv:
@@ -25,7 +94,7 @@
           - --request-timeout=20s
       register: delete_ingress
       changed_when: "'deleted' in delete_ingress.stdout"
-      failed_when: false
+      when: kubeconfig_configured | default(false)
       notify: Wait for the controller to delete the ALB
 
     # The ALB lookup below must not run until the controller has finished.
@@ -48,7 +117,7 @@
           - text
       register: alb_lookup
       changed_when: false
-      failed_when: false
+      failed_when: alb_lookup.rc != 0 and 'LoadBalancerNotFound' not in alb_lookup.stderr
 
     - name: Delete Kubernetes ALB directly when controller is unavailable
       ansible.builtin.command:
@@ -60,10 +129,8 @@
           - "{{ aws_region }}"
           - --load-balancer-arn
           - "{{ alb_lookup.stdout }}"
-      when: alb_lookup.rc == 0 and alb_lookup.stdout | length > 0 and alb_lookup.stdout != "None"
-      register: delete_alb
-      changed_when: delete_alb.rc == 0
-      failed_when: false
+      when: alb_lookup.rc == 0
+      changed_when: true
 
     - name: Wait for ALB deletion
       ansible.builtin.command:
@@ -81,9 +148,45 @@
           - text
       register: alb_wait
       changed_when: false
-      failed_when: false
+      failed_when: alb_wait.rc != 0 and 'LoadBalancerNotFound' not in alb_wait.stderr
       until: alb_wait.rc != 0
       retries: 30
+      delay: 10
+      when: alb_lookup.rc == 0
+
+    # The controller deletes the ALB but not its target groups. Right after
+    # the ALB goes they can still read as in use for a few seconds.
+    - name: Look up the ALB's target groups
+      ansible.builtin.command:
+        argv:
+          - aws
+          - elbv2
+          - describe-target-groups
+          - --region
+          - "{{ aws_region }}"
+          - --query
+          - "TargetGroups[?starts_with(TargetGroupName, 'k8s-') && VpcId=='{{ vpc_id }}' && length(LoadBalancerArns) == `0`].TargetGroupArn"
+          - --output
+          - text
+      register: target_groups
+      changed_when: false
+
+    - name: Delete the ALB's target groups
+      ansible.builtin.command:
+        argv:
+          - aws
+          - elbv2
+          - delete-target-group
+          - --region
+          - "{{ aws_region }}"
+          - --target-group-arn
+          - "{{ item }}"
+      loop: "{{ target_groups.stdout.split() }}"
+      register: delete_target_groups
+      changed_when: delete_target_groups.rc == 0
+      failed_when: delete_target_groups.rc != 0 and 'TargetGroupNotFound' not in delete_target_groups.stderr
+      until: delete_target_groups.rc == 0 or 'ResourceInUse' not in delete_target_groups.stderr
+      retries: 12
       delay: 10
 
     - name: Look up Kubernetes-managed security groups
@@ -103,7 +206,6 @@
           - text
       register: k8s_security_groups
       changed_when: false
-      failed_when: false
 
     - name: Revoke rules that reference Kubernetes-managed security groups
       ansible.builtin.shell: |
@@ -131,9 +233,8 @@
       loop: "{{ k8s_security_groups.stdout.split() }}"
       register: revoke_references
       changed_when: "'revoked' in revoke_references.stdout"
-      failed_when: false
-      when: k8s_security_groups.stdout | length > 0
 
+    # ALB network interfaces can hold a group for a while after the ALB goes.
     - name: Delete Kubernetes-managed security groups
       ansible.builtin.command:
         argv:
@@ -147,11 +248,10 @@
       loop: "{{ k8s_security_groups.stdout.split() }}"
       register: delete_security_groups
       changed_when: delete_security_groups.rc == 0
-      failed_when: false
-      until: delete_security_groups.rc == 0
+      failed_when: delete_security_groups.rc != 0 and 'InvalidGroup.NotFound' not in delete_security_groups.stderr
+      until: delete_security_groups.rc == 0 or 'InvalidGroup.NotFound' in delete_security_groups.stderr
       retries: 12
       delay: 10
-      when: k8s_security_groups.stdout | length > 0
 
     # monitoring.yml creates these for the ALB, so Terraform can't delete them.
     # Its own node group alarm goes with the destroy and is not selected here.
@@ -181,6 +281,8 @@
       when: alb_alarms.stdout | length > 0
 
   handlers:
+    # A timeout here is not an error: the ALB is then deleted directly. Running
+    # out of retries fails a task whatever failed_when says, hence ignore_errors.
     - name: Wait for the controller to delete the ALB
       ansible.builtin.command:
         argv:
@@ -193,7 +295,7 @@
           - "{{ alb_name }}"
       register: alb_controller_wait
       changed_when: false
-      failed_when: false
-      until: alb_controller_wait.rc != 0
+      ignore_errors: true
+      until: "'LoadBalancerNotFound' in alb_controller_wait.stderr"
       retries: 18
       delay: 10

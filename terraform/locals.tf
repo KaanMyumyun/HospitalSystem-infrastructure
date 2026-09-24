@@ -11,6 +11,10 @@ locals {
 
   eks_cluster_tag_key = "kubernetes.io/cluster/${local.cluster_name}"
 
+  # Node count when the app is running. ansible/playbooks/resume.yml scales
+  # back to it after pause.yml scaled the node group to 0.
+  node_desired_size = 2
+
   k8s_namespace    = "hospitalsystem"
   k8s_deploy_group = "${local.k8s_namespace}:deployers"
   ops_name         = "${var.project_name}-ops"
@@ -31,11 +35,16 @@ locals {
   ansible_vars = {
     aws_region                        = var.aws_region
     eks_cluster_name                  = local.cluster_name
+    eks_node_group_name               = aws_eks_node_group.hospitalsystempr1.node_group_name
+    eks_node_desired_size             = local.node_desired_size
     vpc_id                            = aws_vpc.kubes.id
+    public_subnet_cidrs               = [aws_subnet.public_a.cidr_block, aws_subnet.public_b.cidr_block]
     backend_repository_url            = aws_ecr_repository.backend.repository_url
     frontend_repository_url           = aws_ecr_repository.frontend.repository_url
     initial_image_tag                 = var.initial_image_tag
     load_balancer_controller_role_arn = aws_iam_role.load_balancer_controller.arn
+    backend_secret_name               = aws_secretsmanager_secret.backend.name
+    backend_secrets_reader_role_arn   = aws_iam_role.backend_secrets_reader.arn
     acm_certificate_arn               = aws_acm_certificate.app.arn
     app_domain_name                   = var.app_domain_name
     cloudflare_zone_name              = var.cloudflare_zone_name
@@ -56,6 +65,7 @@ locals {
       "ansible/inventory.ini",
       "ansible/playbooks/bootstrap.yml",
       "ansible/playbooks/kubeconfig.yml",
+      "ansible/playbooks/external-secrets.yml",
       "ansible/playbooks/backend-secret.yml",
       "ansible/playbooks/load-balancer-controller.yml",
       "ansible/playbooks/metrics-server.yml",

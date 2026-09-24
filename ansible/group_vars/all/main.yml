@@ -14,6 +14,7 @@ alb_name: hospital-system-alb
 
 load_balancer_controller_chart_version: "3.5.0"
 metrics_server_chart_version: "3.14.0"
+external_secrets_chart_version: "2.11.0"
 
 cloudflare_record_name: "{{ app_domain_name }}"
 cloudflare_record_type: CNAME
@@ -29,11 +30,14 @@ kubernetes_manifests:
   - backend/configmap.yaml.j2
   - backend/service.yaml.j2
   - backend/hpa.yaml.j2
+  - backend/pdb.yaml.j2
   - frontend/service.yaml.j2
   - frontend/hpa.yaml.j2
+  - frontend/pdb.yaml.j2
   - rbac/github-actions-deploy.yaml.j2
   - policy/trusted-workloads.yaml.j2
   - policy/deploy-image-only.yaml.j2
+  - policy/network.yaml.j2
   - ingress/ingress.yaml.j2
 
 kubernetes_workload_manifests:

@@ -3,6 +3,6 @@ kind: Namespace
 metadata:
   name: "{{ k8s_namespace }}"
   labels:
-    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/warn: restricted
     elbv2.k8s.aws/pod-readiness-gate-inject: enabled

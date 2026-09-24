@@ -77,7 +77,7 @@ from pathlib import Path
 import jmespath
 
 account = json.loads(os.environ["FAKE_ACCOUNT"])
-MULTI = {"--resource-arns", "--alarm-names"}
+MULTI = {"--resource-arns", "--alarm-names", "--filters"}
 
 args, words, options = sys.argv[1:], [], {}
 i = 0
@@ -105,9 +105,21 @@ def error(code, message):
 if operation in os.environ.get("FAKE_FAIL", "").split():
     error("AccessDenied", "fake failure")
 
+# FAKE_ERRORS: {"operation": ["ErrorCode", times]}, where times -1 is always.
+planned = json.loads(os.environ.get("FAKE_ERRORS") or "{}")
+if operation in planned:
+    code, times = planned[operation]
+    counter = Path(os.environ["FAKE_LOG"] + "." + operation)
+    seen = int(counter.read_text()) if counter.exists() else 0
+    if times < 0 or seen < times:
+        counter.write_text(str(seen + 1))
+        error(code, "fake planned error")
+
 if operation.startswith("delete-"):
     with open(os.environ["FAKE_LOG"], "a") as log:
-        values = options.get("--target-group-arn") or " ".join(options["--alarm-names"])
+        values = next((options[key] for key in (
+            "--target-group-arn", "--group-id", "--network-interface-id", "--load-balancer-arn",
+        ) if key in options), None) or " ".join(options["--alarm-names"])
         log.write(f"{operation} {values}\n")
     sys.exit(0)
 
@@ -126,6 +138,17 @@ elif operation == "describe-tags":
     ]}
 elif operation == "describe-vpcs":
     result = {"Vpcs": account["Vpcs"]}
+elif operation == "describe-load-balancers":
+    found = [lb for lb in account.get("LoadBalancers", []) if lb["LoadBalancerName"] == options.get("--names")]
+    if not found:
+        error("LoadBalancerNotFound", "One or more load balancers not found")
+    result = {"LoadBalancers": found}
+elif operation == "describe-security-groups":
+    # Lookups of groups that reference another group find none.
+    referencing = any(f.startswith("Name=ip-permission.group-id") for f in options.get("--filters", []))
+    result = {"SecurityGroups": [] if referencing else account.get("SecurityGroups", [])}
+elif operation == "describe-network-interfaces":
+    result = {"NetworkInterfaces": account.get("NetworkInterfaces", [])}
 elif operation == "describe-alarms":
     prefix = options.get("--alarm-name-prefix", "")
     result = {"MetricAlarms": [a for a in account["MetricAlarms"] if a["AlarmName"].startswith(prefix)]}
