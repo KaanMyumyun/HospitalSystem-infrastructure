@@ -5,6 +5,7 @@
 *secret*.yaml
 *secret*.yml
 !ansible/playbooks/backend-secret.yml
+!ansible/playbooks/external-secrets.yml
 kubeconfig
 
 .terraform/
