@@ -222,6 +222,20 @@ ALB deregisters it, and the target groups drain for 30 seconds. If the new pod
 never becomes healthy, the old pod keeps serving, the Deployment is marked
 failed after `progressDeadlineSeconds: 300`, and the deploy step fails.
 
+The backend first checks `/health/ready` with a startup probe, giving the app
+and the Neon database about two minutes to become reachable. Kubernetes holds
+container readiness until this succeeds, so each new pod must pass a database
+check before its rollout can complete. The Load Balancer Controller waits
+for container readiness before registering the pod as an ALB target.
+
+After that first successful check, the startup probe stops. Recurring readiness,
+liveness, and ALB checks use `/health`, which does not query the database.
+This allows the [Neon Free database to suspend after five idle minutes](https://neon.com/docs/introduction/scale-to-zero);
+continuous `/health/ready` checks would keep waking it. A later database outage
+does not automatically make an already-started pod unready. The first real
+request after suspension can incur a cold start; `./scripts/monitoring.sh app`
+can check the database on demand and will also wake it.
+
 The ops instance's IAM role gets Kubernetes access through an EKS access entry
 in the `hospitalsystem:deployers` group, which is bound by
 `kubernetes/rbac/github-actions-deploy.yaml.j2` to update Deployments only in the

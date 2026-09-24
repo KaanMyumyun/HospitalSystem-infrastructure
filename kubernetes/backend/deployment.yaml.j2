@@ -41,6 +41,15 @@ spec:
                 name: hospital-backend-config
             - secretRef:
                 name: hospital-backend-secrets
+          # Check Neon before initial readiness, then stop probing the database
+          # so the free compute can suspend when the application is idle.
+          startupProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 12
           readinessProbe:
             httpGet:
               path: /health
