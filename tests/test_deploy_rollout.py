@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest import TestCase, main
 from unittest.mock import Mock, patch
 import ast
+import json
 import re
 import subprocess
 
@@ -259,6 +260,35 @@ class WiringTests(TestCase):
         rbac = (ROOT / "kubernetes/rbac/github-actions-deploy.yaml.j2").read_text()
         allowed = set(re.findall(r'^      - "([^"]+:http)"$', rbac, re.MULTILINE))
         self.assertEqual(proxied, allowed)
+
+    def test_rbac_allows_exactly_what_a_release_does_to_deployments(self):
+        cluster = FakeCluster()
+        calls = []
+
+        def request(method, path, body=None, timeout=30):
+            calls.append((method, path))
+            if "/proxy/" in path:
+                return b""
+            return json.dumps(cluster.deployment(path.rsplit("/", 1)[1], body)).encode()
+
+        kube = object.__new__(deploy.Kubernetes)
+        kube.namespace = "hospitalsystem"
+        kube.request = request
+        with patch("builtins.print"):
+            deploy.release(kube, "new", REPOSITORIES, lambda repository, tag: "sha256:0", clock())
+        prefix = "/apis/apps/v1/namespaces/hospitalsystem/deployments/"
+        used = {(method.lower(), path[len(prefix):]) for method, path in calls if "/proxy/" not in path}
+        self.assertTrue(all(path.startswith(prefix) for method, path in calls if "/proxy/" not in path))
+
+        rbac = (ROOT / "kubernetes/rbac/github-actions-deploy.yaml.j2").read_text()
+        group_vars = (ROOT / "ansible/group_vars/all/main.yml").read_text()
+        names = dict(re.findall(r"^(\w+_deployment): (\S+)$", group_vars, re.MULTILINE))
+        self.assertEqual(rbac.count("- deployments"), 1)
+        rule = re.search(r"^      - deployments\n    resourceNames:\n((?:      - .+\n)+)    verbs:\n((?:      - .+\n)+)",
+                         rbac, re.MULTILINE)
+        allowed_names = {names[var] for var in re.findall(r'"\{\{ (\w+) \}\}"', rule.group(1))}
+        allowed_verbs = set(re.findall(r"- (\w+)", rule.group(2)))
+        self.assertEqual({(verb, name) for verb in allowed_verbs for name in allowed_names}, used)
 
 
 if __name__ == "__main__":

@@ -94,7 +94,8 @@ kubernetes/             # Jinja templates rendered by apply-kubernetes.yml
 ├── rbac/
 │   └── github-actions-deploy.yaml.j2
 ├── policy/
-│   └── trusted-workloads.yaml.j2
+│   ├── trusted-workloads.yaml.j2
+│   └── deploy-image-only.yaml.j2
 ├── backend/
 │   ├── configmap.yaml.j2
 │   ├── deployment.yaml.j2
@@ -113,10 +114,14 @@ The Kubernetes manifests define:
 - `hospitalsystem` namespace, which enforces the baseline Pod Security Standard
 - backend Deployment and Service
 - frontend Deployment and Service
-- namespace-scoped RBAC for the GitHub Actions deploy role
+- namespace-scoped RBAC for the deploy group, used by the ops instance's
+  deploy document
 - an admission policy that only lets the app Deployments run this account's
   backend and frontend ECR images with their own entrypoint, so the deploy
   role can change which release runs but not what code runs
+- a second admission policy that lets the deploy group change only container
+  images, so a deploy can't add a lifecycle hook, probe, environment variable
+  or volume either
 - ALB-backed Ingress for `app.hospitalsyst.cc`
 - HTTPS listener using ACM
 - `/api` routing to the backend
@@ -253,19 +258,18 @@ does not automatically make an already-started pod unready. The first real
 request after suspension can incur a cold start; `./scripts/monitoring.sh app`
 can check the database on demand and will also wake it.
 
-The ops instance's IAM role and the GitHub Actions deploy role get Kubernetes
-access through Terraform-managed EKS access entries in the
-`hospitalsystem:deployers` group, which is bound by
-`kubernetes/rbac/github-actions-deploy.yaml.j2` to update Deployments only in the
-application namespace, and to send GET requests to the two app Services for the
-deploy's smoke test. The GitHub role keeps the `github-actions-eks-deploy`
-username. Normal CI deployments still run through SSM on the ops instance.
+The ops instance's IAM role gets Kubernetes access through a Terraform-managed
+EKS access entry in the `hospitalsystem:deployers` group. That group is bound
+by `kubernetes/rbac/github-actions-deploy.yaml.j2` to read and patch only the
+`hospital-backend` and `hospital-frontend` Deployments, and to send GET
+requests to the two app Services for the deploy's smoke test.
+`kubernetes/policy/deploy-image-only.yaml.j2` then rejects any change by the
+group other than container images. The GitHub Actions deploy role has no
+Kubernetes access: it only sends the SSM deploy document to the ops instance.
 
 The cluster keeps `API_AND_CONFIG_MAP` authentication so existing node and
 other `aws-auth` mappings remain valid. Bootstrap no longer creates or patches
-that ConfigMap. On an existing cluster, applying Terraform adds the GitHub
-deploy access entry; its username and groups take precedence over any old
-mapping for the same role. Leave the ConfigMap and its node mappings in place:
+that ConfigMap. Leave the ConfigMap and its node mappings in place:
 existing managed node groups can still depend on them. EKS manages access for
 new managed node groups. See the AWS guidance on
 [migrating access entries](https://docs.aws.amazon.com/eks/latest/userguide/migrating-access-entries.html)
@@ -343,7 +347,7 @@ Run `./scripts/tf.sh apply` once on a machine before running playbooks by hand;
 without the generated file they stop with a message saying so.
 
 Terraform is wired to run the Ansible bootstrap automatically after the EKS
-cluster, managed node group, and deploy access entries are ready. The bootstrap
+cluster, managed node group, and ops access entry are ready. The bootstrap
 configures kubeconfig, creates the backend Kubernetes
 Secret from local environment variables, installs the AWS Load Balancer
 Controller, applies the Kubernetes manifests, points the Cloudflare DNS record
@@ -492,8 +496,8 @@ Apply the Kubernetes manifests:
 ansible-playbook ansible/playbooks/apply-kubernetes.yml
 ```
 
-This applies the namespace, ConfigMap, Services, HPAs, GitHub Actions deploy
-RBAC, admission policy and Ingress first (`kubernetes_manifests`). It then waits
+This applies the namespace, ConfigMap, Services, HPAs, deploy RBAC,
+admission policies and Ingress first (`kubernetes_manifests`). It then waits
 for the Load Balancer Controller to create a TargetGroupBinding for each Service
 behind the Ingress and for the ALB to become active, and only then applies the
 Deployments (`kubernetes_workload_manifests`). The controller adds the ALB
@@ -513,16 +517,9 @@ export HOSPITALSYSTEM_JWT_SECRET='your-long-jwt-secret'
 ansible-playbook ansible/playbooks/backend-secret.yml
 ```
 
-Manage the GitHub Actions deploy role's Kubernetes authentication with
-Terraform (`aws_eks_access_entry.github_actions_deploy`):
-
-```bash
-./scripts/tf.sh plan
-./scripts/tf.sh apply
-```
-
-Bootstrap waits for both deploy access entries before applying their Kubernetes
-RBAC bindings. There is no separate `aws-auth` playbook to run.
+The ops instance's Kubernetes access is an EKS access entry in Terraform
+(`aws_eks_access_entry.ops`). Bootstrap waits for it before applying the
+deploy RBAC binding. There is no separate `aws-auth` playbook to run.
 
 Install or update the AWS Load Balancer Controller:
 
@@ -781,7 +778,7 @@ During apply, Terraform recreates AWS resources and then runs
 - creates the GitHub Actions OIDC provider and IAM roles
 - creates the EKS cluster and node group, and takes over the vpc-cni, coredns
   and kube-proxy add-ons as EKS managed add-ons
-- creates the ops and GitHub deploy roles' EKS access entries
+- creates the ops role's EKS access entry
 - requests the ACM certificate for `app.hospitalsyst.cc`
 - creates the Cloudflare ACM validation CNAME
 - waits for ACM to issue the certificate

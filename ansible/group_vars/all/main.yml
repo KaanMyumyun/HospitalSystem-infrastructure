@@ -33,6 +33,7 @@ kubernetes_manifests:
   - frontend/hpa.yaml.j2
   - rbac/github-actions-deploy.yaml.j2
   - policy/trusted-workloads.yaml.j2
+  - policy/deploy-image-only.yaml.j2
   - ingress/ingress.yaml.j2
 
 kubernetes_workload_manifests:

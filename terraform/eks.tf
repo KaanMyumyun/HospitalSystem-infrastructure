@@ -52,14 +52,6 @@ resource "aws_eks_cluster" "main" {
   ]
 }
 
-resource "aws_eks_access_entry" "github_actions_deploy" {
-  cluster_name      = aws_eks_cluster.main.name
-  principal_arn     = aws_iam_role.eks_deploy_hospitalsystem.arn
-  kubernetes_groups = [local.k8s_deploy_group]
-  user_name         = "github-actions-eks-deploy"
-  type              = "STANDARD"
-}
-
 resource "aws_eks_node_group" "hospitalsystempr1" {
   cluster_name    = aws_eks_cluster.main.name
   node_group_name = "hospitalsystempr1"

@@ -1175,21 +1175,31 @@ section_workloads() {
     fi
   done
 
-  policy="$NAMESPACE-trusted-workloads"
-  if ! answer="$(kube get validatingadmissionpolicy "$policy" -o name 2>&1)"; then
-    fail "Could not read admission policy $policy: $(last_line "$answer")"
-  elif ! answer="$(kube get validatingadmissionpolicybinding "$policy" -o name 2>&1)"; then
-    fail "Could not read admission policy binding $policy: $(last_line "$answer")"
-  else
-    ok "Admission policy $policy and its binding are in place"
-  fi
+  for policy in "$NAMESPACE-trusted-workloads" "$NAMESPACE-deploy-image-only"; do
+    if ! answer="$(kube get validatingadmissionpolicy "$policy" -o name 2>&1)"; then
+      fail "Could not read admission policy $policy: $(last_line "$answer")"
+    elif ! answer="$(kube get validatingadmissionpolicybinding "$policy" -o name 2>&1)"; then
+      fail "Could not read admission policy binding $policy: $(last_line "$answer")"
+    else
+      ok "Admission policy $policy and its binding are in place"
+    fi
+  done
 
   if [ -n "$DEPLOY_GROUP" ]; then
-    can_patch="$(kube auth can-i patch deployments.apps -n "$NAMESPACE" --as=monitoring-check --as-group="$DEPLOY_GROUP" 2>&1 || true)"
+    for deployment in "$BACKEND_DEPLOYMENT" "$FRONTEND_DEPLOYMENT"; do
+      can_patch="$(kube auth can-i patch "deployments.apps/$deployment" -n "$NAMESPACE" --as=monitoring-check --as-group="$DEPLOY_GROUP" 2>&1 || true)"
+      case "$(last_line "$can_patch")" in
+        yes) ok "Deploy group $DEPLOY_GROUP can patch $deployment" ;;
+        no | "no "*) fail "Deploy group $DEPLOY_GROUP can't patch $deployment; CI/CD deploys will fail" ;;
+        *) fail "Could not check whether $DEPLOY_GROUP can patch $deployment: $(last_line "$can_patch")" ;;
+      esac
+    done
+    # The Role names the two Deployments, so any other name must be refused.
+    can_patch="$(kube auth can-i patch deployments.apps/monitoring-check -n "$NAMESPACE" --as=monitoring-check --as-group="$DEPLOY_GROUP" 2>&1 || true)"
     case "$(last_line "$can_patch")" in
-      yes) ok "Deploy group $DEPLOY_GROUP can patch Deployments" ;;
-      no | "no "*) fail "Deploy group $DEPLOY_GROUP can't patch Deployments; CI/CD deploys will fail" ;;
-      *) fail "Could not check whether $DEPLOY_GROUP can patch Deployments: $(last_line "$can_patch")" ;;
+      yes) warn "Deploy group $DEPLOY_GROUP can patch any Deployment in $NAMESPACE, not just the two apps" ;;
+      no | "no "*) ok "Deploy group $DEPLOY_GROUP can't patch other Deployments" ;;
+      *) warn "Could not check whether $DEPLOY_GROUP can patch other Deployments: $(last_line "$can_patch")" ;;
     esac
   fi
 }
