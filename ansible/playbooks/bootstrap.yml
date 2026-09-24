@@ -22,6 +22,3 @@
 
 - name: Configure monitoring
   ansible.builtin.import_playbook: monitoring.yml
-
-- name: Show final deployment status
-  ansible.builtin.import_playbook: status.yml

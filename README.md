@@ -61,7 +61,7 @@ Main AWS resources used by this deployment:
 | Cluster access | EC2 instance `hospitalsystem-ops` in a private subnet, SSM document `hospitalsystem-deploy`, EKS access entry | Accepts no inbound connections and has no internet access. Operators reach the private API through an SSM port-forwarding session on it, and GitHub Actions deploys by sending it the SSM document. |
 | Containers | Amazon ECR repositories for `hospital-backend` and `hospital-frontend` | Stores backend and frontend images built by GitHub Actions. |
 | Ingress | AWS Application Load Balancer, HTTP/HTTPS listeners, target groups, and AWS Load Balancer Controller | Exposes the app publicly and maps Kubernetes Ingress rules to AWS load-balancing resources. |
-| TLS | AWS Certificate Manager certificate | Provides HTTPS for `app.hospitalsyst.cc`; HTTP traffic redirects to HTTPS. |
+| TLS | AWS Certificate Manager certificate | Provides HTTPS for `app.hospitalsyst.cc` using TLS 1.2/1.3; HTTP traffic redirects to HTTPS. |
 | Identity | IAM roles and policies for EKS, worker nodes, AWS Load Balancer Controller, GitHub Actions OIDC, ECR push, and EKS deployment | Allows AWS services, Kubernetes components, and CI/CD workflows to use AWS resources without long-lived access keys. |
 
 Traffic flow:
@@ -305,7 +305,12 @@ configures kubeconfig, creates the backend Kubernetes
 Secret from local environment variables, installs the AWS Load Balancer
 Controller, applies the Kubernetes manifests, maps the GitHub Actions deploy
 role in `aws-auth`, points the Cloudflare DNS record at the ALB hostname from
-the Kubernetes Ingress, and prints the final app status.
+the Kubernetes Ingress, and configures monitoring.
+
+Bootstrap reruns when its generated variables or tracked inputs change:
+its playbooks, shared tasks and variables, Ansible configuration/inventory,
+Kubernetes templates, and the workload apply helper. Editing independent
+deploy, scale, cleanup, or status playbooks does not trigger bootstrap.
 
 Terraform also runs a destroy-time Ansible cleanup before deleting EKS. That
 cleanup deletes the Kubernetes Ingress and waits for the AWS-managed ALB to be
@@ -381,6 +386,22 @@ where Terraform is running.
 After a fresh Terraform bootstrap, the Kubernetes manifests start the app from
 the bootstrap/default `latest` image tag. The GitHub Actions deploy workflow
 updates the live Deployments to the date + short SHA tag after CI/CD runs.
+
+Later bootstraps preserve each Deployment's live release image and replica
+count, including a rollback or an intentional scale to zero. Only new
+Deployments receive the initial image; replicas are left to Kubernetes and
+the HPA. `scripts/apply-workload.py` removes image and replica ownership from
+the old last-applied annotation before omitting those fields on updates,
+following the [Kubernetes field ownership migration procedure](https://kubernetes.io/docs/tasks/manage-kubernetes-objects/declarative-config/#changing-the-owner-from-a-configuration-file-to-a-direct-imperative-writer).
+This avoids resetting replicas during the first upgrade and avoids overwriting
+a CI image change during bootstrap. Failed or malformed Kubernetes reads stop
+the apply. Use `deploy-image.yml` or CI to change images, and `scale.yml` to
+pause or resume workloads.
+
+The Ingress explicitly selects `ELBSecurityPolicy-TLS13-1-2-2021-06` and enables
+`routing.http.drop_invalid_header_fields.enabled=true`. The ALB accepts TLS
+1.2/1.3 and drops invalid HTTP header fields; the annotations are documented
+in the [AWS Load Balancer Controller guide](https://kubernetes-sigs.github.io/aws-load-balancer-controller/latest/guide/ingress/annotations/).
 
 Configure kubeconfig:
 
@@ -493,7 +514,7 @@ Show current Deployment images and Pods:
 ansible-playbook ansible/playbooks/status.yml
 ```
 
-This is the only status playbook, and the bootstrap ends with it. For anything
+This is the standalone status playbook. For anything
 more (rollout history, HPAs, pod usage, the Ingress, alarms, logs), run the
 matching sections of `scripts/monitoring.sh` (see [Monitoring](#monitoring)).
 
@@ -563,8 +584,10 @@ and requests the frontend and the backend about once a second until the rollout
 finishes. Start it before triggering the deploy workflow. `--restart` starts the
 rollout itself with `kubectl rollout restart`, which replaces the running pods
 with the same image. Either way it fails if a request is refused or answers 5xx,
-or if a Deployment ever drops to zero ready pods, and reports whether it saw the
-extra pod start before the old one stopped.
+if a Deployment ever drops to zero ready pods, or if the Deployments could not
+be read in any sample (their ready pods are then unknown), and reports whether it
+saw the extra pod start before the old one stopped. It stops watching after
+three samples in a row without the Deployment status.
 
 CloudWatch alarms are built from existing AWS metrics. The Ansible monitoring
 playbook creates the ALB alarms, because the ALB only exists once the Load
@@ -640,6 +663,14 @@ During destroy, Terraform runs `ansible/playbooks/cleanup-kubernetes.yml` to
 remove the Ingress first. This gives the AWS Load Balancer Controller time to
 delete the ALB before Terraform deletes the VPC.
 
+Destroy still leaves what Terraform never tracked: the controller's target
+groups, the CloudWatch alarms from the monitoring playbook, and KMS keys waiting
+out their deletion window. `./scripts/cleanup-orphans.sh` lists them and
+`--apply` deletes them. It only picks target groups that carry the controller's
+tags for this cluster and Ingress and whose VPC no longer exists, and alarms
+named `hospitalsystem-*`, so another project's resources in the same account
+are left alone. Any failed AWS lookup stops it before it deletes anything else.
+
 During apply, Terraform recreates AWS resources and then runs
 `ansible/playbooks/bootstrap.yml`. The complete apply path:
 
@@ -658,7 +689,7 @@ During apply, Terraform recreates AWS resources and then runs
 - applies rendered app Kubernetes manifests with current ECR URLs and ACM ARN
 - maps the GitHub Actions deploy role in `aws-auth`
 - updates the Cloudflare app CNAME to the new ALB hostname
-- prints the final deployment status
+- waits for running Deployment rollouts and configures monitoring
 
 After a fresh recreate, Kubernetes starts from the bootstrap/default `latest`
 image tag. The GitHub Actions deploy workflow should be run afterward to update

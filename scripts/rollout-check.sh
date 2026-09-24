@@ -53,7 +53,8 @@ Options:
 During a rollout the script records, for every sample: how many pods each
 Deployment has, how many are ready, and the HTTP code from the frontend and
 from the backend through the ALB. It fails if a request is refused or answers
-5xx, or if a Deployment ever drops to zero ready pods.
+5xx, if a Deployment ever drops to zero ready pods, or if the Deployments
+could not be read in any sample, since their ready pods are then unknown.
 
 Environment overrides: AWS_REGION, NAMESPACE, BACKEND_DEPLOYMENT,
 FRONTEND_DEPLOYMENT, INGRESS_NAME, ALB_NAME, APP_DOMAIN, KUBE_TIMEOUT (30s),
@@ -212,14 +213,31 @@ probe() {
 }
 
 # Echoes one line per Deployment: name|generation|observed|spec|pods|updated|ready|available
+# A Deployment that could not be read gets name|unreadable|error instead, and
+# the function returns 1, so a failed read never looks like 0 pods wanted.
 deployment_state() {
-  local deployment row
+  local deployment row status=0
   for deployment in "$BACKEND_DEPLOYMENT" "$FRONTEND_DEPLOYMENT"; do
-    row="$(
-      kube get deployment "$deployment" -n "$NAMESPACE" -o jsonpath='{.metadata.generation}|{.status.observedGeneration}|{.spec.replicas}|{.status.replicas}|{.status.updatedReplicas}|{.status.readyReplicas}|{.status.availableReplicas}' 2>/dev/null
-    )" || row=""
-    printf '%s|%s\n' "$deployment" "${row:-||||||}"
+    if ! row="$(
+      kube get deployment "$deployment" -n "$NAMESPACE" -o jsonpath='{.metadata.generation}|{.status.observedGeneration}|{.spec.replicas}|{.status.replicas}|{.status.updatedReplicas}|{.status.readyReplicas}|{.status.availableReplicas}' 2>"$TMP_DIR/deployment.err"
+    )"; then
+      row="$(last_line "$(cat "$TMP_DIR/deployment.err")")"
+      row="unreadable|${row:-kubectl get deployment failed}"
+      status=1
+    # The API server always sets generation and spec.replicas. The status
+    # counts are left out while they are 0.
+    elif ! [[ "$row" =~ ^[0-9]+\|[0-9]*\|[0-9]+(\|[0-9]*){4}$ ]]; then
+      row="unreadable|unexpected kubectl output: $row"
+      status=1
+    fi
+    printf '%s|%s\n' "$deployment" "$row"
   done
+  return "$status"
+}
+
+# Echoes the first "deployment: error" from deployment_state output.
+first_read_error() {
+  printf '%s\n' "$1" | sed -n '/|unreadable|/{s//: /p;q;}'
 }
 
 section_settings() {
@@ -367,8 +385,12 @@ section_capacity() {
     return
   fi
 
-  kube get pods -A --field-selector=status.phase=Running --no-headers \
-    -o custom-columns='NODE:.spec.nodeName' 2>/dev/null | sort | uniq -c >"$TMP_DIR/pods-per-node" || true
+  if ! kube get pods -A --field-selector=status.phase=Running --no-headers \
+    -o custom-columns='NODE:.spec.nodeName' >"$TMP_DIR/pod-nodes" 2>"$TMP_DIR/pod-nodes.err"; then
+    fail "Could not list the running pods, so the free pod slots are unknown: $(last_line "$(cat "$TMP_DIR/pod-nodes.err")")"
+    return
+  fi
+  sort "$TMP_DIR/pod-nodes" | uniq -c >"$TMP_DIR/pods-per-node"
 
   while read -r node allocatable; do
     used="$(awk -v node="$node" '$2 == node { print $1 }' "$TMP_DIR/pods-per-node")"
@@ -378,7 +400,9 @@ section_capacity() {
     printf '%-40s %s/%s pod slots used, %s free\n' "$node" "$used" "$allocatable" "$free"
 
     # "Allocated resources" prints the requests percentage first, then limits.
-    line="$(kube describe node "$node" 2>/dev/null | awk '/^Allocated resources:/ { inside = 1 } inside && ($1 == "cpu" || $1 == "memory") { print $1, $3 }' || true)"
+    if ! line="$(kube describe node "$node" 2>/dev/null | awk '/^Allocated resources:/ { inside = 1 } inside && ($1 == "cpu" || $1 == "memory") { print $1, $3 }')"; then
+      warn "Could not read the resource requests on $node"
+    fi
     while read -r resource pct; do
       [ -n "$resource" ] || continue
       pct="${pct//[()%]/}"
@@ -400,8 +424,9 @@ section_capacity() {
 # Samples both Deployments and probes the app until the rollout finishes.
 watch_rollout() {
   local deadline="$1" started_at samples=0 requests=0 failures=0 zero_ready=0 surge=0
-  local row deployment generation observed spec pods updated ready
-  local rolling sample_surge sample_zero
+  local line deployment generation observed spec pods updated ready
+  local rolling sample_surge sample_zero sample_unreadable
+  local unreadable=0 unreadable_in_a_row=0 first_unreadable="" scaled_down=""
   local frontend_probe backend_probe frontend_code backend_code backend_type
   local first_failure="" first_zero="" state summary_line
 
@@ -413,15 +438,27 @@ watch_rollout() {
     state=""
     sample_surge=false
     sample_zero=false
-    while IFS='|' read -r deployment generation observed spec pods updated ready _; do
+    sample_unreadable=false
+    while IFS= read -r line; do
+      IFS='|' read -r deployment generation observed spec pods updated ready _ <<<"$line"
+      if [ "$generation" = unreadable ]; then
+        # Its ready pods are unknown and it may still be rolling.
+        rolling=true
+        sample_unreadable=true
+        [ -n "$first_unreadable" ] || first_unreadable="$(first_read_error "$line")"
+        state="$state$(printf '%s ?  ' "${deployment##*-}")"
+        continue
+      fi
       pods="${pods:-0}"
       ready="${ready:-0}"
       updated="${updated:-0}"
-      spec="${spec:-0}"
       state="$state$(printf '%s %s/%s of %s  ' "${deployment##*-}" "$pods" "$ready" "$spec")"
 
-      [ "$spec" = 0 ] && continue
-      if [ "${observed:-0}" != "${generation:-0}" ] || [ "$updated" -lt "$spec" ] ||
+      if [ "$spec" = 0 ]; then
+        [[ " $scaled_down " == *" $deployment "* ]] || scaled_down="$scaled_down $deployment"
+        continue
+      fi
+      if [ "${observed:-0}" != "$generation" ] || [ "$updated" -lt "$spec" ] ||
         [ "$pods" -gt "$spec" ] || [ "$ready" -lt "$spec" ]; then
         rolling=true
       fi
@@ -434,6 +471,12 @@ watch_rollout() {
 
     [ "$sample_surge" = true ] && surge=$((surge + 1))
     [ "$sample_zero" = true ] && zero_ready=$((zero_ready + 1))
+    if [ "$sample_unreadable" = true ]; then
+      unreadable=$((unreadable + 1))
+      unreadable_in_a_row=$((unreadable_in_a_row + 1))
+    else
+      unreadable_in_a_row=0
+    fi
 
     frontend_probe="$(probe "$FRONTEND_URL")"
     backend_probe="$(probe "$BACKEND_URL")"
@@ -460,6 +503,10 @@ watch_rollout() {
     if [ "$rolling" = false ] && [ "$samples" -gt 1 ]; then
       break
     fi
+    if [ "$unreadable_in_a_row" -ge 3 ]; then
+      fail "Stopped watching: the Deployments could not be read in $unreadable_in_a_row samples in a row"
+      break
+    fi
     if [ "$(date -u +%s)" -ge "$deadline" ]; then
       fail "The rollout did not finish within ${ROLLOUT_TIMEOUT}s"
       break
@@ -476,7 +523,14 @@ watch_rollout() {
 
   if [ "$zero_ready" -gt 0 ]; then
     fail "$first_zero had 0 ready pods in $zero_ready sample(s); the rollout is not keeping the app up"
-  else
+  fi
+  if [ "$unreadable" -gt 0 ]; then
+    fail "Could not read the Deployments in $unreadable of $samples sample(s), so their ready pods are unconfirmed; first error: $first_unreadable"
+  fi
+  if [ -n "$scaled_down" ]; then
+    warn "Scaled to 0 replicas:$scaled_down; there were no pods to keep ready"
+  fi
+  if [ "$zero_ready" -eq 0 ] && [ "$unreadable" -eq 0 ] && [ -z "$scaled_down" ]; then
     ok "Both Deployments kept at least one ready pod the whole time"
   fi
 
@@ -490,7 +544,7 @@ watch_rollout() {
 section_live() {
   section "Live rollout"
   ensure_kube || return
-  local deadline deployment before after waiting_since
+  local deadline deployment before after waiting_since unreadable_in_a_row=0
 
   if ! has_command curl; then
     fail "curl is needed to probe the app during a rollout"
@@ -510,13 +564,25 @@ section_live() {
     done
   else
     note "Waiting up to ${ROLLOUT_TIMEOUT}s for a rollout to start. Trigger the deploy workflow now, or run ansible/playbooks/deploy-image.yml."
-    before="$(deployment_state)"
+    if ! before="$(deployment_state)"; then
+      fail "Could not read the Deployments: $(first_read_error "$before")"
+      return
+    fi
     waiting_since="$(date -u +%s)"
     while true; do
-      after="$(deployment_state)"
-      if [ "$after" != "$before" ]; then
-        ok "A rollout started after $(($(date -u +%s) - waiting_since))s"
-        break
+      # A failed read is not a change; only a readable new state starts the watch.
+      if after="$(deployment_state)"; then
+        unreadable_in_a_row=0
+        if [ "$after" != "$before" ]; then
+          ok "A rollout started after $(($(date -u +%s) - waiting_since))s"
+          break
+        fi
+      else
+        unreadable_in_a_row=$((unreadable_in_a_row + 1))
+        if [ "$unreadable_in_a_row" -ge 3 ]; then
+          fail "Stopped waiting for a rollout: the Deployments could not be read $unreadable_in_a_row times in a row; last error: $(first_read_error "$after")"
+          return
+        fi
       fi
       if [ "$(date -u +%s)" -ge "$deadline" ]; then
         skip "No rollout started within ${ROLLOUT_TIMEOUT}s"

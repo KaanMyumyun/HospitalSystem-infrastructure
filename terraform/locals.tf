@@ -47,16 +47,42 @@ locals {
     ops_instance_id                   = aws_instance.ops.id
   }
 
-  ansible_bootstrap_file_hashes = concat(
+  # Track bootstrap inputs only. Deploy, scale, cleanup, and status playbooks
+  # are independent operations and must not cause Terraform to rerun bootstrap.
+  # Keep this list in sync with the imports in bootstrap.yml.
+  ansible_bootstrap_files = sort(concat(
     [
-      for file in sort(fileset("${path.module}/../ansible", "**/*.yml")) :
-      filesha256("${path.module}/../ansible/${file}")
+      "ansible.cfg",
+      "ansible/inventory.ini",
+      "ansible/playbooks/bootstrap.yml",
+      "ansible/playbooks/kubeconfig.yml",
+      "ansible/playbooks/backend-secret.yml",
+      "ansible/playbooks/load-balancer-controller.yml",
+      "ansible/playbooks/metrics-server.yml",
+      "ansible/playbooks/apply-kubernetes.yml",
+      "ansible/playbooks/aws-auth.yml",
+      "ansible/playbooks/cloudflare-dns.yml",
+      "ansible/playbooks/monitoring.yml",
+      "scripts/apply-workload.py",
+    ],
+    [
+      for file in fileset("${path.module}/../ansible", "group_vars/**/*.yml") :
+      "ansible/${file}"
       if file != "group_vars/all/terraform.yml"
     ],
     [
-      for file in sort(fileset("${path.module}/../kubernetes", "**/*.j2")) :
-      filesha256("${path.module}/../kubernetes/${file}")
+      for file in fileset("${path.module}/../ansible", "tasks/**/*.yml") :
+      "ansible/${file}"
+    ],
+    [
+      for file in fileset("${path.module}/../kubernetes", "**/*.j2") :
+      "kubernetes/${file}"
     ]
-  )
-  ansible_bootstrap_files_hash = sha256(join("", local.ansible_bootstrap_file_hashes))
+  ))
+  # Generated Terraform variables are tracked separately by bootstrap_vars_hash.
+  ansible_bootstrap_file_hashes = {
+    for file in local.ansible_bootstrap_files :
+    file => filesha256("${path.module}/../${file}")
+  }
+  ansible_bootstrap_files_hash = sha256(jsonencode(local.ansible_bootstrap_file_hashes))
 }
