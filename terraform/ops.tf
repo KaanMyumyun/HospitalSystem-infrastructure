@@ -3,80 +3,27 @@ data "aws_ssm_parameter" "al2023_ami" {
 }
 
 locals {
-  deploy_script = <<-EOT
-    set -euo pipefail
-    export IMAGE_TAG='{{ ImageTag }}'
-    EKS_TOKEN="$(aws eks get-token --region '${var.aws_region}' --cluster-name '${aws_eks_cluster.main.name}' --query status.token --output text)"
-    export EKS_TOKEN
-    python3 - <<'PY'
-    import base64
-    import json
-    import os
-    import ssl
-    import sys
-    import time
-    import urllib.error
-    import urllib.request
+  # scripts/deploy-release.py reads these on the ops instance.
+  deploy_settings = {
+    AWS_REGION          = var.aws_region
+    EKS_CLUSTER         = aws_eks_cluster.main.name
+    EKS_SERVER          = aws_eks_cluster.main.endpoint
+    EKS_CA              = aws_eks_cluster.main.certificate_authority[0].data
+    K8S_NAMESPACE       = local.k8s_namespace
+    ECR_ENDPOINT        = "https://${aws_vpc_endpoint.ecr_api.dns_entry[0].dns_name}"
+    BACKEND_REPOSITORY  = aws_ecr_repository.backend.repository_url
+    FRONTEND_REPOSITORY = aws_ecr_repository.frontend.repository_url
+  }
 
-    SERVER = "${aws_eks_cluster.main.endpoint}"
-    NAMESPACE = "${local.k8s_namespace}"
-    CA = base64.b64decode("${aws_eks_cluster.main.certificate_authority[0].data}").decode()
-    TAG = os.environ["IMAGE_TAG"]
-    DEPLOYMENTS = {
-        "hospital-backend": ("backend", "${aws_ecr_repository.backend.repository_url}"),
-        "hospital-frontend": ("frontend", "${aws_ecr_repository.frontend.repository_url}"),
-    }
-    CONTEXT = ssl.create_default_context(cadata=CA)
-
-
-    def call(method, name, body=None):
-        url = f"{SERVER}/apis/apps/v1/namespaces/{NAMESPACE}/deployments/{name}"
-        request = urllib.request.Request(url, method=method)
-        request.add_header("Authorization", "Bearer " + os.environ["EKS_TOKEN"])
-        if body is not None:
-            request.data = json.dumps(body).encode()
-            request.add_header("Content-Type", "application/strategic-merge-patch+json")
-        try:
-            with urllib.request.urlopen(request, context=CONTEXT, timeout=30) as response:
-                return json.load(response)
-        except urllib.error.HTTPError as error:
-            sys.exit(f"{method} {name}: HTTP {error.code}: {error.read().decode()}")
-
-
-    scaled_up = False
-    for name, (container, repository) in DEPLOYMENTS.items():
-        container_patch = {"name": container, "image": f"{repository}:{TAG}"}
-        patch = {"spec": {"template": {"spec": {"containers": [container_patch]} } } }
-        deployment = call("PATCH", name, patch)
-        scaled_up = scaled_up or deployment["spec"].get("replicas", 0) > 0
-        print(f"{name}: {container} image set to {repository}:{TAG}")
-
-    if not scaled_up:
-        print(f"Both Deployments are scaled to 0. The next scale-up runs {TAG}.")
-        sys.exit(0)
-
-    deadline = time.monotonic() + 360
-    for name in DEPLOYMENTS:
-        while True:
-            deployment = call("GET", name)
-            want = deployment["spec"].get("replicas", 0)
-            status = deployment.get("status", {})
-            observed = status.get("observedGeneration", 0) >= deployment["metadata"]["generation"]
-            if observed and any(c.get("reason") == "ProgressDeadlineExceeded" for c in status.get("conditions", [])):
-                sys.exit(f"{name}: rollout exceeded its progress deadline")
-            if (
-                observed
-                and status.get("updatedReplicas", 0) == want
-                and status.get("replicas", 0) == want
-                and status.get("availableReplicas", 0) == want
-            ):
-                print(f"{name}: rollout complete")
-                break
-            if time.monotonic() > deadline:
-                sys.exit(f"{name}: rollout did not finish within 6 minutes")
-            time.sleep(5)
-    PY
-  EOT
+  # One command per line. An indented heredoc would also strip the script's
+  # own indentation, so the script's lines are appended as they are.
+  deploy_commands = concat(
+    ["set -euo pipefail", "export IMAGE_TAG='{{ ImageTag }}'"],
+    [for name, value in local.deploy_settings : "export ${name}='${value}'"],
+    ["python3 - <<'PY'"],
+    split("\n", trimspace(file("${path.module}/../scripts/deploy-release.py"))),
+    ["PY"],
+  )
 }
 
 resource "aws_instance" "ops" {
@@ -127,7 +74,7 @@ resource "aws_ssm_document" "deploy" {
 
   content = yamlencode({
     schemaVersion = "2.2"
-    description   = "Deploy one image tag to the HospitalSystem backend and frontend Deployments."
+    description   = "Deploy one image tag to the HospitalSystem backend and frontend, smoke test it, and roll back on failure."
     parameters = {
       ImageTag = {
         type           = "String"
@@ -141,7 +88,7 @@ resource "aws_ssm_document" "deploy" {
         name   = "deploy"
         inputs = {
           timeoutSeconds = "600"
-          runCommand     = split("\n", trimspace(local.deploy_script))
+          runCommand     = local.deploy_commands
         }
       }
     ]

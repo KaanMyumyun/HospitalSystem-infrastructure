@@ -1,9 +1,11 @@
 ---
+# Sends the same SSM document as the CI deploy, so a manual deploy gets the
+# same image check, smoke test and rollback (scripts/deploy-release.py).
 - name: Deploy a specific image tag to EKS
   hosts: local
   gather_facts: false
-  environment:
-    KUBECONFIG: "{{ kubeconfig_path }}"
+  vars:
+    deploy_result: "{{ deploy_invocation.stdout | from_json }}"
 
   tasks:
     - name: Require image_tag variable
@@ -11,61 +13,70 @@
         msg: "Pass the image tag with -e image_tag=YYYY-MM-DD-shortsha"
       when: image_tag is not defined or image_tag | length == 0
 
-    - name: Configure kubeconfig
-      ansible.builtin.import_tasks: ../tasks/kubeconfig.yml
+    - name: Require Terraform-generated variables
+      ansible.builtin.assert:
+        that:
+          - aws_region is defined
+          - ops_instance_id is defined
+          - deploy_ssm_document_name is defined
+        fail_msg: >-
+          ansible/group_vars/all/terraform.yml is missing or out of date. Run
+          ./scripts/tf.sh apply to generate it.
+        quiet: true
 
-    - name: Update backend image
+    - name: Send the deploy document to the ops instance
       ansible.builtin.command:
         argv:
-          - kubectl
-          - set
-          - image
-          - "deployment/{{ backend_deployment }}"
-          - "{{ backend_container }}={{ backend_repository_url }}:{{ image_tag }}"
-          - -n
-          - "{{ k8s_namespace }}"
-      register: backend_update
-      changed_when: "'image updated' in backend_update.stdout"
+          - aws
+          - ssm
+          - send-command
+          - --region
+          - "{{ aws_region }}"
+          - --document-name
+          - "{{ deploy_ssm_document_name }}"
+          - --instance-ids
+          - "{{ ops_instance_id }}"
+          - --parameters
+          - "{{ {'ImageTag': [image_tag]} | to_json }}"
+          - --comment
+          - "Manual deploy {{ image_tag }}"
+          - --query
+          - Command.CommandId
+          - --output
+          - text
+      register: deploy_command
+      changed_when: true
 
-    - name: Update frontend image
+    # The document times out after 600 seconds; poll a little longer. Right
+    # after send-command the invocation may not exist yet, which also retries.
+    - name: Wait for the deploy to finish
       ansible.builtin.command:
         argv:
-          - kubectl
-          - set
-          - image
-          - "deployment/{{ frontend_deployment }}"
-          - "{{ frontend_container }}={{ frontend_repository_url }}:{{ image_tag }}"
-          - -n
-          - "{{ k8s_namespace }}"
-      register: frontend_update
-      changed_when: "'image updated' in frontend_update.stdout"
-
-    - name: Wait for backend rollout
-      ansible.builtin.command:
-        argv:
-          - kubectl
-          - rollout
-          - status
-          - "deployment/{{ backend_deployment }}"
-          - -n
-          - "{{ k8s_namespace }}"
-          - --timeout=180s
+          - aws
+          - ssm
+          - get-command-invocation
+          - --region
+          - "{{ aws_region }}"
+          - --command-id
+          - "{{ deploy_command.stdout }}"
+          - --instance-id
+          - "{{ ops_instance_id }}"
+          - --output
+          - json
+      register: deploy_invocation
       changed_when: false
+      until: >-
+        deploy_invocation.rc == 0 and
+        (deploy_invocation.stdout | from_json).Status not in ['Pending', 'InProgress', 'Delayed', 'Cancelling']
+      retries: 70
+      delay: 10
 
-    - name: Wait for frontend rollout
-      ansible.builtin.command:
-        argv:
-          - kubectl
-          - rollout
-          - status
-          - "deployment/{{ frontend_deployment }}"
-          - -n
-          - "{{ k8s_namespace }}"
-          - --timeout=180s
-      changed_when: false
-
-    - name: Show update results
+    - name: Show the deploy output
       ansible.builtin.debug:
-        msg:
-          - "{{ backend_update.stdout }}"
-          - "{{ frontend_update.stdout }}"
+        msg: "{{ (deploy_result.StandardOutputContent ~ deploy_result.StandardErrorContent).splitlines() }}"
+
+    - name: Fail unless the deploy succeeded
+      ansible.builtin.assert:
+        that: deploy_result.Status == 'Success'
+        fail_msg: "Deploy command {{ deploy_command.stdout }} ended with status {{ deploy_result.StatusDetails }}."
+        quiet: true

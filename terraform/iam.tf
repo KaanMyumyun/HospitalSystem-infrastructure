@@ -464,6 +464,23 @@ resource "aws_iam_role_policy_attachment" "ops_ssm" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
+resource "aws_iam_role_policy" "ops_ecr_describe" {
+  name = "${local.ops_name}-ecr-describe"
+  role = aws_iam_role.ops.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "CheckReleaseImagesExist"
+        Effect   = "Allow"
+        Action   = "ecr:DescribeImages"
+        Resource = [aws_ecr_repository.backend.arn, aws_ecr_repository.frontend.arn]
+      }
+    ]
+  })
+}
+
 resource "aws_iam_instance_profile" "ops" {
   name = local.ops_name
   role = aws_iam_role.ops.name

@@ -56,7 +56,7 @@ Main AWS resources used by this deployment:
 | Network | VPC `kubes` with CIDR `10.0.0.0/16` | Isolated AWS network for the EKS deployment. |
 | Public subnets | `p1` `10.0.0.0/20` in `eu-north-1a`, `p2` `10.0.16.0/20` in `eu-north-1b` | Host internet-facing resources such as the ALB and NAT gateways. Tagged for Kubernetes external load balancers. |
 | Private subnets | `private1` `10.0.32.0/20` in `eu-north-1a`, `private2` `10.0.48.0/20` in `eu-north-1b` | Host EKS worker nodes and application pods away from direct public internet exposure. Tagged for internal Kubernetes load balancers. |
-| Routing | Internet gateway, public route table, private route tables, NAT gateways, Elastic IPs, and VPC endpoints for SSM and S3 | Public subnets route through the internet gateway. Private subnets route outbound traffic through NAT gateways, and S3 traffic through the free gateway endpoint. |
+| Routing | Internet gateway, public route table, private route tables, NAT gateways, Elastic IPs, and VPC endpoints for SSM, S3 and the ECR API | Public subnets route through the internet gateway. Private subnets route outbound traffic through NAT gateways, and S3 traffic through the free gateway endpoint. The ECR API endpoint serves only the deploy's image check from the ops instance. |
 | Compute | Amazon EKS cluster `eks-pr1`, managed node group `hospitalsystempr1`, Amazon Linux 2023 worker nodes | Runs the Kubernetes control plane and worker capacity for the app. The node group is sized for low-cost testing and can scale to zero. The Kubernetes API endpoint is private. |
 | Cluster access | EC2 instance `hospitalsystem-ops` in a private subnet, SSM document `hospitalsystem-deploy`, EKS access entry | Accepts no inbound connections and has no internet access. Operators reach the private API through an SSM port-forwarding session on it, and GitHub Actions deploys by sending it the SSM document. |
 | Containers | Amazon ECR repositories for `hospital-backend` and `hospital-frontend` | Stores backend and frontend images built by GitHub Actions. |
@@ -194,9 +194,11 @@ Images are tagged three ways:
    - assumes the AWS EKS deployment role through OIDC
    - finds the running ops instance and sends it the deploy SSM document with
      the date + short SHA tag
-   - on the instance, the document sets the backend and frontend Deployment
-     images, checks whether the app is scaled above `0`, and waits for rollout
-     completion
+   - on the instance, the document runs `scripts/deploy-release.py`: it checks
+     that both images exist in ECR, sets the backend and frontend Deployment
+     images, waits for both rollouts, and smoke tests both apps. If a rollout
+     or the smoke test fails, it puts both Deployments back on their previous
+     images
    - fails unless the SSM command succeeded, and prints its output
 
 The Kubernetes API endpoint is private, so GitHub-hosted runners can't reach
@@ -212,6 +214,20 @@ fields to the new date + short SHA tag. It skips waiting for a rollout because
 no pods are running. The next manual scale-up starts pods from that exact image
 tag.
 
+Before it changes anything, the script looks up both tags in ECR, through an
+ECR API VPC endpoint because the ops instance has no internet access. A
+missing image fails the deploy with both apps untouched. After both rollouts
+finish, it requests the backend's `/health/ready`, which also checks the
+database, and the frontend's index page. These requests go through the
+Kubernetes API server's Service proxy, not the ALB, so they don't test the
+Ingress, ALB or DNS. If a rollout fails or times out, or a smoke request
+still fails after three tries, the script sets both Deployments back to the
+images they had before the deploy and waits for that rollout. Both apps go
+back even when only one failed, so they never run different releases. The
+deploy still fails, and its output says whether the rollback finished or
+which images to restore by hand. Rollout, smoke test and rollback fit within
+the document's 600-second timeout.
+
 Both Deployments roll out with `RollingUpdate` (`maxSurge: 1`,
 `maxUnavailable: 0`): a new pod starts next to the old one, and the old pod is
 removed only once the new one is available. The namespace has the
@@ -220,7 +236,8 @@ Balancer Controller holds a new pod's readiness until its ALB target passes
 health checks. A terminating pod waits 15 seconds in a `preStop` hook while the
 ALB deregisters it, and the target groups drain for 30 seconds. If the new pod
 never becomes healthy, the old pod keeps serving, the Deployment is marked
-failed after `progressDeadlineSeconds: 300`, and the deploy step fails.
+failed after `progressDeadlineSeconds: 300`, and the deploy rolls both apps
+back and fails.
 
 The backend first checks `/health/ready` with a startup probe, giving the app
 and the Neon database about two minutes to become reachable. Kubernetes holds
@@ -239,7 +256,8 @@ can check the database on demand and will also wake it.
 The ops instance's IAM role gets Kubernetes access through an EKS access entry
 in the `hospitalsystem:deployers` group, which is bound by
 `kubernetes/rbac/github-actions-deploy.yaml.j2` to update Deployments only in the
-application namespace. The cluster uses `API_AND_CONFIG_MAP` authentication, so
+application namespace, and to send GET requests to the two app Services for the
+deploy's smoke test. The cluster uses `API_AND_CONFIG_MAP` authentication, so
 the nodes and the GitHub Actions deploy role are still mapped in `aws-auth`.
 
 The GitHub Actions roles trust only `KaanMyumyun/HospitalSystem`, each with one
@@ -539,6 +557,9 @@ ansible-playbook ansible/playbooks/deploy-image.yml \
   -e image_tag=2026-08-22-8f88481
 ```
 
+This sends the same SSM document as CI, so a manual deploy gets the same image
+check, smoke test and rollback. It doesn't need the SSM tunnel or `kubectl`.
+
 Scale the app up or down:
 
 ```bash
@@ -547,8 +568,11 @@ ansible-playbook ansible/playbooks/scale.yml -e replicas=0
 ```
 
 Backend and frontend also have HorizontalPodAutoscalers. After the Kubernetes
-manifests are applied, each workload scales between 1 and 3 pods when average
-CPU utilization goes above the configured target. Manual scaling is temporary
+manifests are applied, each workload scales between 1 and 2 pods when average
+CPU utilization goes above the configured target. There is no cluster
+autoscaler, so the cap matches the two t3.small nodes: memory requests equal
+the limits (backend 512Mi, frontend 128Mi), and two pods of each app plus a
+rollout surge fit in the nodes' memory. Manual scaling is temporary
 while HPA is enabled because Kubernetes reconciles the replica count.
 
 ## Monitoring
@@ -902,4 +926,3 @@ kubectl logs -n hospitalsystem <pod-name>
 Planned infrastructure improvements:
 
 - Run at least two replicas of each app, spread across nodes, with a PodDisruptionBudget. Rolling updates already keep deploys up, but with one replica a node drain or node group upgrade still stops the app briefly.
-- Roll back automatically in the deploy SSM document when a rollout fails, instead of leaving the Deployment half-rolled for a manual `kubectl rollout undo`.
