@@ -25,10 +25,45 @@ spec:
         app.kubernetes.io/part-of: hospitalsystem
     spec:
       terminationGracePeriodSeconds: 45
+      # The app never calls the Kubernetes API.
+      automountServiceAccountToken: false
+      # One replica per node. A cordoned or unreachable node doesn't count, so
+      # a drained pod can start again on the node that's left. The template
+      # hash spreads each rollout's pods on their own.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          nodeTaintsPolicy: Honor
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: hospital-backend
+          matchLabelKeys:
+            - pod-template-hash
+      securityContext:
+        runAsNonRoot: true
+        # The image's USER is a name (appuser), which the kubelet can't check
+        # against runAsNonRoot, so its UID and GID are set here.
+        runAsUser: 100
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: backend
           image: "{{ backend_image }}"
           imagePullPolicy: Always
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # .NET keeps its diagnostic pipes in /tmp, and ASP.NET Core its
+          # data-protection keys under $HOME/.aspnet.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: aspnet
+              mountPath: /home/appuser/.aspnet
           lifecycle:
             preStop:
               sleep:
@@ -73,3 +108,10 @@ spec:
               cpu: 500m
               memory: 512Mi
               ephemeral-storage: 1Gi
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: aspnet
+          emptyDir:
+            sizeLimit: 8Mi

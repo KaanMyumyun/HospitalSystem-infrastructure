@@ -1,0 +1,17 @@
+# A drain or node upgrade evicts one replica at a time and waits for its
+# replacement. Pods that aren't ready can always be evicted, so a crashing
+# pod can't block a drain.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: hospital-backend
+  namespace: "{{ k8s_namespace }}"
+  labels:
+    app.kubernetes.io/name: hospital-backend
+    app.kubernetes.io/part-of: hospitalsystem
+spec:
+  minAvailable: 1
+  unhealthyPodEvictionPolicy: AlwaysAllow
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hospital-backend

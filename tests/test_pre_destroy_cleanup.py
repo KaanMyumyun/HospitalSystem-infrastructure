@@ -1,7 +1,8 @@
-"""Run the alarm part of scripts/pre-destroy-cleanup.sh against a fake AWS account.
+"""Run scripts/pre-destroy-cleanup.sh against a fake AWS account.
 
-Reuses the fake aws command from test_cleanup_orphans. The account has no ALB,
-target groups or network leftovers, so only the alarm section finds anything.
+Reuses the fake aws command from test_cleanup_orphans. The default account has
+no ALB, target groups or network leftovers, so only the alarm section finds
+anything. The failure tests add one leftover and make AWS refuse to delete it.
 """
 
 from pathlib import Path
@@ -38,7 +39,7 @@ ALB_ALARMS = [
 
 @skipUnless(importlib.util.find_spec("jmespath"), "needs the jmespath package")
 class PreDestroyAlarmTests(TestCase):
-    def run_cleanup(self, *args, fail=""):
+    def run_cleanup(self, *args, fail="", account=None, errors=None):
         tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         (tmp / "aws").write_text(f"#!{sys.executable}\n{FAKE_AWS}")
         # An unreachable cluster, so the script skips the Ingress quickly.
@@ -54,9 +55,11 @@ class PreDestroyAlarmTests(TestCase):
             "VPC_ID": "vpc-live",
             "ALARM_PREFIX": "hospitalsystem",
             "CERT_ARN": "",
-            "FAKE_ACCOUNT": json.dumps(ACCOUNT),
+            "FAKE_ACCOUNT": json.dumps({**ACCOUNT, **(account or {})}),
             "FAKE_LOG": str(self.log),
             "FAKE_FAIL": fail,
+            "FAKE_ERRORS": json.dumps(errors or {}),
+            "RETRY_DELAY": "0",
         }
         return subprocess.run(
             ["bash", str(SCRIPT), *args], env=env, capture_output=True, text=True, timeout=60
@@ -81,6 +84,60 @@ class PreDestroyAlarmTests(TestCase):
         self.assertIn("could not list alarms: An error occurred (AccessDenied)", result.stderr)
         self.assertEqual(self.alarm_section(result.stdout), [])
         self.assertEqual(self.log.read_text(), "")
+
+
+TARGET_GROUP = "arn:aws:elasticloadbalancing:eu-north-1:123456789012:targetgroup/k8s-hospital-backend/1"
+
+
+@skipUnless(importlib.util.find_spec("jmespath"), "needs the jmespath package")
+class PreDestroyFailureTests(TestCase):
+    run_cleanup = PreDestroyAlarmTests.run_cleanup
+
+    def deleted(self):
+        return [line for line in self.log.read_text().splitlines() if not line.startswith("delete-alarms")]
+
+    def test_target_group_still_in_use_is_retried(self):
+        result = self.run_cleanup(
+            "--apply",
+            account={"TargetGroups": [{
+                "TargetGroupName": "k8s-hospital-backend", "TargetGroupArn": TARGET_GROUP,
+                "VpcId": "vpc-live", "LoadBalancerArns": [],
+            }]},
+            errors={"delete-target-group": ["ResourceInUse", 2]},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.deleted(), [f"delete-target-group {TARGET_GROUP}"])
+        self.assertIn("Now run: ./scripts/tf.sh destroy", result.stdout)
+
+    def test_security_group_that_stays_in_use_fails_the_run(self):
+        result = self.run_cleanup(
+            "--apply",
+            account={"SecurityGroups": [{"GroupId": "sg-k8s"}]},
+            errors={"delete-security-group": ["DependencyViolation", -1]},
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("could not delete sg-k8s: An error occurred (DependencyViolation)", result.stderr)
+        self.assertIn("1 could not be deleted", result.stderr)
+        self.assertNotIn("Now run: ./scripts/tf.sh destroy", result.stdout)
+        self.assertEqual(self.deleted(), [])
+
+    def test_already_deleted_security_group_counts_as_deleted(self):
+        result = self.run_cleanup(
+            "--apply",
+            account={"SecurityGroups": [{"GroupId": "sg-k8s"}]},
+            errors={"delete-security-group": ["InvalidGroup.NotFound", 1]},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("deleted sg-k8s", result.stdout)
+
+    def test_failed_lookup_stops_instead_of_reading_as_none(self):
+        for operation in ("describe-load-balancers", "describe-target-groups",
+                          "describe-security-groups", "describe-network-interfaces"):
+            with self.subTest(operation=operation):
+                result = self.run_cleanup("--apply", fail=operation)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(f"{operation} failed: An error occurred (AccessDenied)", result.stderr)
+                self.assertNotIn("Now run: ./scripts/tf.sh destroy", result.stdout)
 
 
 if __name__ == "__main__":

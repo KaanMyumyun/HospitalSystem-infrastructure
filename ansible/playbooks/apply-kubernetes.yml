@@ -20,6 +20,38 @@
     - name: Configure kubeconfig
       ansible.builtin.import_tasks: ../tasks/kubeconfig.yml
 
+    # policy/network.yaml.j2 lets these ENIs reach the pods for the deploy's
+    # smoke test, which goes through the API server's Service proxy.
+    - name: Look up the EKS control plane's network interfaces
+      ansible.builtin.command:
+        argv:
+          - aws
+          - ec2
+          - describe-network-interfaces
+          - --region
+          - "{{ aws_region }}"
+          - --filters
+          - "Name=vpc-id,Values={{ vpc_id }}"
+          - "Name=description,Values=Amazon EKS {{ eks_cluster_name }}"
+          - --query
+          - NetworkInterfaces[].PrivateIpAddress
+          - --output
+          - json
+      register: eks_control_plane_enis
+      changed_when: false
+
+    - name: Require at least one control plane network interface
+      ansible.builtin.assert:
+        that: eks_control_plane_enis.stdout | from_json | length > 0
+        fail_msg: >-
+          Found no "Amazon EKS {{ eks_cluster_name }}" network interfaces in
+          {{ vpc_id }}, so the NetworkPolicy would block the deploy's smoke test.
+        quiet: true
+
+    - name: Remember the control plane IPs
+      ansible.builtin.set_fact:
+        eks_control_plane_ips: "{{ eks_control_plane_enis.stdout | from_json | sort }}"
+
     - name: Ensure generated Kubernetes manifest directories exist
       ansible.builtin.file:
         path: "{{ manifest_output_dir }}/{{ item }}"

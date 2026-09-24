@@ -1,0 +1,42 @@
+# Nothing may connect to pods in this namespace unless a policy below allows
+# it. The VPC CNI always lets a pod's own node in, so kubelet probes still work.
+# Egress stays open: the backend reaches Neon through the NAT gateways.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: "{{ k8s_namespace }}"
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# The ALB sends requests and health checks straight to pod IPs (target type
+# ip) from its nodes in the public subnets. The EKS API server proxies the
+# deploy's smoke test from its ENIs in the private subnets; apply-kubernetes.yml
+# looks those IPs up, because EKS can replace the ENIs. Other pods get no
+# access: the frontend only serves static files and never calls the backend.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-alb-and-api-server
+  namespace: "{{ k8s_namespace }}"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: hospitalsystem
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+{% for cidr in public_subnet_cidrs %}
+        - ipBlock:
+            cidr: "{{ cidr }}"
+{% endfor %}
+{% for ip in eks_control_plane_ips %}
+        - ipBlock:
+            cidr: "{{ ip }}/32"
+{% endfor %}
+      ports:
+        - protocol: TCP
+          port: 8080

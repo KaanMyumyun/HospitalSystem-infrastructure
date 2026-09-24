@@ -39,6 +39,7 @@ resource "terraform_data" "ansible_bootstrap" {
     terraform_data.initial_ecr_image_push,
     local_file.ansible_vars,
     aws_iam_role_policy.load_balancer_controller,
+    aws_iam_role_policy.backend_secrets_reader,
     aws_instance.ops,
     aws_iam_role_policy_attachment.ops_ssm,
     aws_vpc_endpoint.ssm,
@@ -58,25 +59,45 @@ resource "terraform_data" "kubernetes_cleanup" {
     k8s_namespace           = local.k8s_namespace
     ops_instance_id         = aws_instance.ops.id
     monitoring_alarm_prefix = var.project_name
+    app_domain_name         = var.app_domain_name
+    cloudflare_zone_name    = var.cloudflare_zone_name
   }
 
+  # A failed cleanup stops the destroy here, while the cluster can still
+  # delete the ALB. Otherwise the destroy stalls later on the ALB's subnets,
+  # certificate and internet gateway. Fix the cause and run the destroy again.
   provisioner "local-exec" {
     when        = destroy
     working_dir = "${path.module}/.."
     interpreter = ["/bin/bash", "-c"]
-    command     = "ansible-playbook ansible/playbooks/cleanup-kubernetes.yml -e '${jsonencode(self.input)}' || true"
+    command     = "ansible-playbook ansible/playbooks/cleanup-kubernetes.yml -e '${jsonencode(self.input)}'"
   }
 
+  # Everything the cleanup needs is destroyed only after it has run: the
+  # cluster and the ops instance's tunnel into it, and the Load Balancer
+  # Controller's way to the AWS APIs (its IAM role through the cluster's OIDC
+  # provider, and the NAT gateways and routes out of the private subnets).
   depends_on = [
     aws_eks_cluster.main,
     aws_eks_node_group.hospitalsystempr1,
     aws_eks_addon.core,
+    aws_iam_openid_connect_provider.eks,
     aws_iam_role_policy.load_balancer_controller,
     aws_instance.ops,
     aws_iam_role_policy_attachment.ops_ssm,
     aws_vpc_endpoint.ssm,
     aws_vpc_security_group_egress_rule.ops_vpc_https,
     aws_vpc_security_group_ingress_rule.eks_api_from_ops,
-    aws_vpc_security_group_ingress_rule.vpc_endpoints_https
+    aws_vpc_security_group_ingress_rule.vpc_endpoints_https,
+    aws_internet_gateway.main,
+    aws_nat_gateway.nat_a,
+    aws_nat_gateway.nat_b,
+    aws_route_table.public,
+    aws_route_table.private_a,
+    aws_route_table.private_b,
+    aws_route_table_association.public_a,
+    aws_route_table_association.public_b,
+    aws_route_table_association.private_a,
+    aws_route_table_association.private_b
   ]
 }

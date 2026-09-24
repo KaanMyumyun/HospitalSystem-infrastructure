@@ -64,7 +64,7 @@ resource "aws_eks_node_group" "hospitalsystempr1" {
   instance_types = ["t3.small"]
 
   scaling_config {
-    desired_size = 2
+    desired_size = local.node_desired_size
     max_size     = 2
     min_size     = 0
   }
@@ -109,6 +109,9 @@ resource "aws_eks_addon" "core" {
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "OVERWRITE"
   preserve                    = true
+
+  # Without this the VPC CNI accepts NetworkPolicies but enforces none of them.
+  configuration_values = each.key == "vpc-cni" ? jsonencode({ enableNetworkPolicy = "true" }) : null
 
   depends_on = [aws_eks_node_group.hospitalsystempr1]
 }
