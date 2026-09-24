@@ -50,6 +50,22 @@ resource "aws_vpc_endpoint" "ssm" {
   }
 }
 
+# For the deploy script's image check on the ops instance, which calls it by
+# its own DNS name. No private DNS, so the nodes keep reaching ECR through NAT
+# and don't come to depend on an endpoint in one subnet.
+resource "aws_vpc_endpoint" "ecr_api" {
+  vpc_id              = aws_vpc.kubes.id
+  service_name        = "com.amazonaws.${var.aws_region}.ecr.api"
+  vpc_endpoint_type   = "Interface"
+  private_dns_enabled = false
+  subnet_ids          = [aws_subnet.private_a.id]
+  security_group_ids  = [aws_security_group.vpc_endpoints.id]
+
+  tags = {
+    Name = "${local.vpc_name}-ecr-api-Terraform"
+  }
+}
+
 resource "aws_vpc_endpoint" "s3" {
   vpc_id            = aws_vpc.kubes.id
   service_name      = "com.amazonaws.${var.aws_region}.s3"

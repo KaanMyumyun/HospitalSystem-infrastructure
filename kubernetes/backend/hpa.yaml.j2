@@ -12,7 +12,9 @@ spec:
     kind: Deployment
     name: hospital-backend
   minReplicas: 1
-  maxReplicas: 3
+  # No cluster autoscaler, so this is sized to the two t3.small nodes: two pods
+  # of each app plus a rollout surge fit when memory requests equal limits.
+  maxReplicas: 2
   metrics:
     - type: Resource
       resource:

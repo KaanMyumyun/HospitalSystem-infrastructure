@@ -45,6 +45,7 @@ locals {
     k8s_namespace                     = local.k8s_namespace
     github_actions_deploy_group       = local.k8s_deploy_group
     ops_instance_id                   = aws_instance.ops.id
+    deploy_ssm_document_name          = aws_ssm_document.deploy.name
   }
 
   # Track bootstrap inputs only. Deploy, scale, cleanup, and status playbooks

@@ -73,12 +73,10 @@ resource "aws_eks_node_group" "hospitalsystempr1" {
   }
 
   tags = {
-    Name                                              = "hospitalsystempr1-Terraform"
-    "eks:cluster-name"                                = local.cluster_name
-    "eks:nodegroup-name"                              = "hospitalsystempr1"
-    "k8s.io/cluster-autoscaler/enabled"               = "true"
-    "k8s.io/cluster-autoscaler/${local.cluster_name}" = "owned"
-    (local.eks_cluster_tag_key)                       = "owned"
+    Name                        = "hospitalsystempr1-Terraform"
+    "eks:cluster-name"          = local.cluster_name
+    "eks:nodegroup-name"        = "hospitalsystempr1"
+    (local.eks_cluster_tag_key) = "owned"
   }
 
   lifecycle {

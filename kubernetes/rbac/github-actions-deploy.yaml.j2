@@ -14,6 +14,17 @@ rules:
       - watch
       - patch
       - update
+  # The deploy's smoke test: GET requests to the two apps through the API
+  # server, which names each proxy target "<service>:<port name>".
+  - apiGroups:
+      - ""
+    resources:
+      - services/proxy
+    resourceNames:
+      - "hospital-backend:http"
+      - "hospital-frontend:http"
+    verbs:
+      - get
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

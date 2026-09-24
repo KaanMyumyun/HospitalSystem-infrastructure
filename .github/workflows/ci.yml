@@ -99,7 +99,7 @@ jobs:
       - name: Bootstrap trigger regression tests
         run: python3 -B -m unittest discover -s ../tests -p test_bootstrap_hashes.py -v
 
-      - name: Recovery deploy regression tests
+      - name: Deploy script regression tests
         run: python3 -B -m unittest discover -s ../tests -p test_deploy_rollout.py -v
 
   ansible:
