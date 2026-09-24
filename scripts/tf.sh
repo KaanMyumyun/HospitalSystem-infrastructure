@@ -18,7 +18,7 @@ needs_docker=false
 needs_ssm_plugin=false
 case "${1:-}" in
   apply)
-    required="CLOUDFLARE_API_TOKEN HOSPITALSYSTEM_CONNECTION_STRING HOSPITALSYSTEM_JWT_SECRET"
+    required="CLOUDFLARE_API_TOKEN HOSPITALSYSTEM_CONNECTION_STRING HOSPITALSYSTEM_JWT_SECRET ALERT_EMAIL"
     needs_docker=true
     needs_ssm_plugin=true
     ;;
@@ -44,6 +44,10 @@ fi
 
 if [ -n "${CLOUDFLARE_API_TOKEN:-}" ]; then
   export TF_VAR_cloudflare_api_token="$CLOUDFLARE_API_TOKEN"
+fi
+
+if [ -n "${ALERT_EMAIL:-}" ]; then
+  export TF_VAR_alert_email="$ALERT_EMAIL"
 fi
 
 if [ "$needs_docker" = true ] && ! docker info >/dev/null 2>&1; then

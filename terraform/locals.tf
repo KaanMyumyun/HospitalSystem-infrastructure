@@ -42,6 +42,7 @@ locals {
     app_domain_name                   = var.app_domain_name
     cloudflare_zone_name              = var.cloudflare_zone_name
     monitoring_alarm_prefix           = var.project_name
+    monitoring_alert_sns_topic_arn    = aws_sns_topic.alerts.arn
     k8s_namespace                     = local.k8s_namespace
     github_actions_deploy_group       = local.k8s_deploy_group
     ops_instance_id                   = aws_instance.ops.id

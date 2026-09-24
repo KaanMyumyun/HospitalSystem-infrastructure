@@ -24,8 +24,6 @@ cloudflare_record_ttl: 1
 cloudflare_alb_wait_retries: 30
 cloudflare_alb_wait_delay: 20
 
-monitoring_alert_sns_topic_arn: ""
-
 demo_login_enabled: true
 
 kubernetes_manifests:

@@ -4,11 +4,24 @@
   gather_facts: false
 
   vars:
-    # put-metric-alarm replaces the whole alarm, so leaving this out also
-    # removes an action set by an earlier run.
-    alarm_action_args: "{{ ['--alarm-actions', monitoring_alert_sns_topic_arn] if monitoring_alert_sns_topic_arn | length > 0 else [] }}"
+    # The topic Terraform creates (terraform/monitoring.tf). put-metric-alarm
+    # replaces the whole alarm, so each run sets both actions again.
+    alarm_action_args:
+      - --alarm-actions
+      - "{{ monitoring_alert_sns_topic_arn }}"
+      - --ok-actions
+      - "{{ monitoring_alert_sns_topic_arn }}"
 
   tasks:
+    - name: Require the alert topic from Terraform
+      ansible.builtin.assert:
+        that: monitoring_alert_sns_topic_arn | default('') | length > 0
+        fail_msg: >-
+          monitoring_alert_sns_topic_arn is missing from
+          ansible/group_vars/all/terraform.yml. Run ./scripts/tf.sh apply to
+          generate it.
+        quiet: true
+
     - name: Look up ALB ARN suffix
       ansible.builtin.command:
         argv:

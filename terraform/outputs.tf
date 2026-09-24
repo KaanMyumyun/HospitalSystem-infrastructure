@@ -67,6 +67,11 @@ output "ops_instance_name" {
   value       = local.ops_name
 }
 
+output "alerts_topic_arn" {
+  description = "SNS topic every CloudWatch alarm notifies. Confirm the email subscription AWS sends after an apply."
+  value       = aws_sns_topic.alerts.arn
+}
+
 output "ops_instance_id" {
   description = "Ops instance ID, the SSM target for reaching the private EKS API."
   value       = aws_instance.ops.id

@@ -52,11 +52,12 @@ resource "terraform_data" "kubernetes_cleanup" {
   count = var.run_ansible_bootstrap ? 1 : 0
 
   input = {
-    eks_cluster_name = aws_eks_cluster.main.name
-    aws_region       = var.aws_region
-    vpc_id           = aws_vpc.kubes.id
-    k8s_namespace    = local.k8s_namespace
-    ops_instance_id  = aws_instance.ops.id
+    eks_cluster_name        = aws_eks_cluster.main.name
+    aws_region              = var.aws_region
+    vpc_id                  = aws_vpc.kubes.id
+    k8s_namespace           = local.k8s_namespace
+    ops_instance_id         = aws_instance.ops.id
+    monitoring_alarm_prefix = var.project_name
   }
 
   provisioner "local-exec" {

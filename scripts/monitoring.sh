@@ -28,6 +28,7 @@ FRONTEND_DEPLOYMENT="${FRONTEND_DEPLOYMENT:-$(group_var frontend_deployment)}"
 INGRESS_NAME="${INGRESS_NAME:-$(group_var ingress_name)}"
 ALB_NAME="${ALB_NAME:-$(group_var alb_name)}"
 ALARM_PREFIX="${ALARM_PREFIX:-$(group_var monitoring_alarm_prefix)}"
+ALERT_TOPIC_ARN="${ALERT_TOPIC_ARN:-$(group_var monitoring_alert_sns_topic_arn)}"
 APP_DOMAIN="${APP_DOMAIN:-$(group_var app_domain_name)}"
 ACM_CERT_ARN="${ACM_CERT_ARN:-$(group_var acm_certificate_arn)}"
 OPS_INSTANCE_ID="${OPS_INSTANCE_ID:-$(group_var ops_instance_id)}"
@@ -79,7 +80,7 @@ Options:
 
 Environment overrides: AWS_REGION, EKS_CLUSTER_NAME, NAMESPACE,
 BACKEND_DEPLOYMENT, FRONTEND_DEPLOYMENT, INGRESS_NAME, ALB_NAME, ALARM_PREFIX,
-APP_DOMAIN, ACM_CERT_ARN, OPS_INSTANCE_ID, DEPLOY_SSM_DOCUMENT,
+ALERT_TOPIC_ARN, APP_DOMAIN, ACM_CERT_ARN, OPS_INSTANCE_ID, DEPLOY_SSM_DOCUMENT,
 GITHUB_REPOSITORY, BACKEND_METRICS_PORT (9091), LOG_TAIL_LINES (100),
 LOOKBACK_HOURS (3), KUBE_TIMEOUT (30s), NO_COLOR.
 USAGE
@@ -485,6 +486,7 @@ section_endpoints() {
 section_alarms() {
   section "CloudWatch alarms"
   local alarms name state since actions reason total=0 healthy=0 silent=0 history
+  local subscriptions endpoint subscription
 
   if [ "$REFRESH_ALARMS" = false ]; then
     note "Alarms not refreshed; run with --refresh-alarms after the target groups change."
@@ -526,8 +528,29 @@ section_alarms() {
       ok "All $total alarms are OK"
     fi
     if [ "$silent" -gt 0 ]; then
-      note "$silent of $total alarms have no notification action (monitoring_alert_sns_topic_arn adds one to the ALB alarms)."
+      warn "$silent of $total alarms have no notification action (re-run ansible-playbook ansible/playbooks/monitoring.yml, or ./scripts/tf.sh apply for Terraform's)"
     fi
+  fi
+
+  sub "Alert emails (SNS)"
+  if [ -z "$ALERT_TOPIC_ARN" ]; then
+    skip "monitoring_alert_sns_topic_arn is not set"
+  elif ! subscriptions="$(
+    awsr sns list-subscriptions-by-topic --topic-arn "$ALERT_TOPIC_ARN" \
+      --query 'Subscriptions[?Protocol==`email`].[Endpoint, SubscriptionArn]' \
+      --output text 2>&1
+  )"; then
+    fail "Could not read the subscriptions of $ALERT_TOPIC_ARN: $(last_line "$subscriptions")"
+  elif [ -z "$subscriptions" ]; then
+    fail "No email is subscribed to $ALERT_TOPIC_ARN, so alarms notify no one (set ALERT_EMAIL in .env.local and apply)"
+  else
+    while IFS=$'\t' read -r endpoint subscription; do
+      if [ "$subscription" = PendingConfirmation ]; then
+        warn "$endpoint gets no alarm emails until it clicks the link in the \"AWS Notification - Subscription Confirmation\" email"
+      else
+        ok "$endpoint receives alarm emails"
+      fi
+    done <<<"$subscriptions"
   fi
 
   sub "State changes in the last ${LOOKBACK_HOURS}h"
@@ -827,8 +850,8 @@ section_eks() {
           --query 'AutoScalingGroups[0].EnabledMetrics[].Metric' --output text 2>&1
       )"; then
         warn "Could not read the group metrics on $asg: $(last_line "$metrics")"
-      elif [[ " ${metrics//$'\t'/ } " != *" GroupInServiceInstances "* ]]; then
-        warn "Group metrics are off on $asg, so $ALARM_PREFIX-nodegroup-no-running-nodes never gets data and stays OK (fix: aws autoscaling enable-metrics-collection --auto-scaling-group-name $asg --granularity 1Minute --metrics GroupInServiceInstances)"
+      elif [[ " ${metrics//$'\t'/ } " != *" GroupInServiceInstances "* || " ${metrics//$'\t'/ } " != *" GroupDesiredCapacity "* ]]; then
+        warn "Group metrics are off on $asg, so $ALARM_PREFIX-nodegroup-missing-nodes gets no data (fix: aws autoscaling enable-metrics-collection --auto-scaling-group-name $asg --granularity 1Minute --metrics GroupDesiredCapacity GroupInServiceInstances)"
       fi
     fi
   done

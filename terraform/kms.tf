@@ -1,5 +1,5 @@
 resource "aws_kms_key" "main" {
-  description             = "HospitalSystem encryption key for ECR, EKS Secrets and CloudWatch Logs"
+  description             = "HospitalSystem encryption key for ECR, EKS Secrets, CloudWatch Logs and the alert topic"
   enable_key_rotation     = true
   deletion_window_in_days = 30
 
@@ -28,6 +28,21 @@ resource "aws_kms_key" "main" {
         Condition = {
           ArnLike = {
             "kms:EncryptionContext:aws:logs:arn" = "arn:aws:logs:${var.aws_region}:${local.account_id}:log-group:*"
+          }
+        }
+      },
+      {
+        Sid       = "CloudWatchAlarmsToAlertTopic"
+        Effect    = "Allow"
+        Principal = { Service = "cloudwatch.amazonaws.com" }
+        Action = [
+          "kms:Decrypt",
+          "kms:GenerateDataKey*"
+        ]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "kms:EncryptionContext:aws:sns:topicArn" = local.alerts_topic_arn
           }
         }
       },

@@ -32,8 +32,10 @@ Usage: scripts/cleanup-orphans.sh [--apply]
 Lists what a terraform destroy leaves behind in this account and region.
 A target group is picked only when it has no load balancer, carries the Load
 Balancer Controller's tags for this cluster and Ingress, and its VPC no longer
-exists. Alarms are picked by name (ALARM_PREFIX followed by a dash). Before a
-destroy, use scripts/pre-destroy-cleanup.sh instead.
+exists. Alarms are the ALB alarms monitoring.yml creates, picked by name:
+ALARM_PREFIX-alb-5xx and ALARM_PREFIX-unhealthy-targets-*. Terraform's own
+alarms are left alone. Before a destroy, use scripts/pre-destroy-cleanup.sh
+instead.
 
   --apply   Delete what is found. Without it the script only lists.
   -h        Show this help.
@@ -150,13 +152,14 @@ if [ "$others" -gt 0 ]; then
   printf 'Left alone: %d detached k8s-* target group(s) of other clusters or Ingresses\n' "$others"
 fi
 
-section "CloudWatch alarms (${ALARM_PREFIX}-*)"
+section "ALB alarms (${ALARM_PREFIX}-alb-5xx, ${ALARM_PREFIX}-unhealthy-targets-*)"
 
-# The dash keeps a project whose name only starts with ALARM_PREFIX out.
+# Exact names, so another project whose name starts with ALARM_PREFIX and
+# Terraform's alarms (still live if the environment is up) are never picked.
 alarms="$(
   aws_read cloudwatch describe-alarms \
     --alarm-name-prefix "$ALARM_PREFIX-" \
-    --query 'MetricAlarms[].AlarmName' \
+    --query "MetricAlarms[?AlarmName == '$ALARM_PREFIX-alb-5xx' || starts_with(AlarmName, '$ALARM_PREFIX-unhealthy-targets-')].AlarmName" \
     --output text
 )"
 
