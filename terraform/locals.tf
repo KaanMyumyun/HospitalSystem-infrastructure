@@ -35,8 +35,6 @@ locals {
     backend_repository_url            = aws_ecr_repository.backend.repository_url
     frontend_repository_url           = aws_ecr_repository.frontend.repository_url
     initial_image_tag                 = var.initial_image_tag
-    github_actions_deploy_role_arn    = aws_iam_role.eks_deploy_hospitalsystem.arn
-    eks_node_role_arn                 = aws_iam_role.eks_node.arn
     load_balancer_controller_role_arn = aws_iam_role.load_balancer_controller.arn
     acm_certificate_arn               = aws_acm_certificate.app.arn
     app_domain_name                   = var.app_domain_name
@@ -62,7 +60,6 @@ locals {
       "ansible/playbooks/load-balancer-controller.yml",
       "ansible/playbooks/metrics-server.yml",
       "ansible/playbooks/apply-kubernetes.yml",
-      "ansible/playbooks/aws-auth.yml",
       "ansible/playbooks/cloudflare-dns.yml",
       "ansible/playbooks/monitoring.yml",
       "scripts/apply-workload.py",

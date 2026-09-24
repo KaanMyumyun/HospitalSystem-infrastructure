@@ -1,0 +1,91 @@
+# The deploy group may patch the two app Deployments (see
+# rbac/github-actions-deploy.yaml.j2), but only to change container images.
+# Anything else it could slip into the pod template, such as a lifecycle hook,
+# an exec probe, an environment variable or a volume, is rejected here.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: "{{ k8s_namespace }}-deploy-image-only"
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["UPDATE"]
+        resources: ["deployments"]
+  matchConditions:
+    - name: deploy-group
+      expression: "'{{ github_actions_deploy_group }}' in request.userInfo.groups"
+  # CEL can't compare two objects while ignoring one field, so each level is
+  # walked field by field through dyn(), skipping only the field that leads
+  # down to the images. Fields added in later Kubernetes versions are compared
+  # too. The API server bumps generation, resourceVersion and managedFields on
+  # every update.
+  variables:
+    - name: metadata
+      expression: dyn(object.metadata)
+    - name: oldMetadata
+      expression: dyn(oldObject.metadata)
+    - name: serverManaged
+      expression: "['generation', 'resourceVersion', 'managedFields']"
+    - name: spec
+      expression: dyn(object.spec)
+    - name: oldSpec
+      expression: dyn(oldObject.spec)
+    - name: template
+      expression: dyn(object.spec.template)
+    - name: oldTemplate
+      expression: dyn(oldObject.spec.template)
+    - name: pod
+      expression: dyn(object.spec.template.spec)
+    - name: oldPod
+      expression: dyn(oldObject.spec.template.spec)
+    - name: containers
+      expression: object.spec.template.spec.containers
+    - name: oldContainers
+      expression: oldObject.spec.template.spec.containers
+    # Each level: fields added or changed, then fields removed. A field set
+    # to null is still iterated, but `in` treats it as absent.
+    - name: changedFields
+      expression: >-
+        variables.metadata.filter(k, !(k in variables.serverManaged) && k in variables.metadata
+        && (!(k in variables.oldMetadata) || variables.metadata[k] != variables.oldMetadata[k])).map(k, 'metadata.' + k)
+        + variables.oldMetadata.filter(k, !(k in variables.serverManaged) && k in variables.oldMetadata
+        && !(k in variables.metadata)).map(k, 'metadata.' + k)
+        + variables.spec.filter(k, k != 'template' && k in variables.spec
+        && (!(k in variables.oldSpec) || variables.spec[k] != variables.oldSpec[k])).map(k, 'spec.' + k)
+        + variables.oldSpec.filter(k, k != 'template' && k in variables.oldSpec
+        && !(k in variables.spec)).map(k, 'spec.' + k)
+        + variables.template.filter(k, k != 'spec' && k in variables.template
+        && (!(k in variables.oldTemplate) || variables.template[k] != variables.oldTemplate[k])).map(k, 'spec.template.' + k)
+        + variables.oldTemplate.filter(k, k != 'spec' && k in variables.oldTemplate
+        && !(k in variables.template)).map(k, 'spec.template.' + k)
+        + variables.pod.filter(k, k != 'containers' && k in variables.pod
+        && (!(k in variables.oldPod) || variables.pod[k] != variables.oldPod[k])).map(k, 'spec.template.spec.' + k)
+        + variables.oldPod.filter(k, k != 'containers' && k in variables.oldPod
+        && !(k in variables.pod)).map(k, 'spec.template.spec.' + k)
+    - name: changedContainers
+      expression: >-
+        variables.containers.filter(c, !variables.oldContainers.exists(o, o.name == c.name
+        && dyn(c).all(k, k == 'image' || !(k in dyn(c)) || (k in dyn(o) && dyn(c)[k] == dyn(o)[k]))
+        && dyn(o).all(k, k == 'image' || !(k in dyn(o)) || k in dyn(c)))).map(c, c.name)
+  validations:
+    - expression: "size(variables.changedFields) == 0"
+      messageExpression: "'Deploys may change only container images, not ' + variables.changedFields.join(', ') + '.'"
+    - expression: "variables.containers.map(c, c.name) == variables.oldContainers.map(c, c.name)"
+      message: "Deploys may not add, remove or reorder containers."
+    - expression: "size(variables.changedContainers) == 0"
+      messageExpression: "'Deploys may change only the image of container ' + variables.changedContainers.join(', ') + '.'"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: "{{ k8s_namespace }}-deploy-image-only"
+spec:
+  policyName: "{{ k8s_namespace }}-deploy-image-only"
+  validationActions: ["Deny"]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: "{{ k8s_namespace }}"

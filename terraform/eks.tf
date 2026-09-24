@@ -29,6 +29,8 @@ resource "aws_eks_cluster" "main" {
   }
 
   access_config {
+    # Preserve existing managed-node and other aws-auth mappings during migration.
+    # Deploy roles use access entries, which take precedence for those principals.
     authentication_mode                         = "API_AND_CONFIG_MAP"
     bootstrap_cluster_creator_admin_permissions = true
   }

@@ -4,16 +4,18 @@ metadata:
   name: github-actions-deployer
   namespace: "{{ k8s_namespace }}"
 rules:
+  # scripts/deploy-release.py reads and patches these two Deployments and
+  # nothing else. policy/deploy-image-only.yaml.j2 limits the patch to images.
   - apiGroups:
       - apps
     resources:
       - deployments
+    resourceNames:
+      - "{{ backend_deployment }}"
+      - "{{ frontend_deployment }}"
     verbs:
       - get
-      - list
-      - watch
       - patch
-      - update
   # The deploy's smoke test: GET requests to the two apps through the API
   # server, which names each proxy target "<service>:<port name>".
   - apiGroups:

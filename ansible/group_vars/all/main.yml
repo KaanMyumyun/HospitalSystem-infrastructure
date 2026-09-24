@@ -9,8 +9,6 @@ backend_container: backend
 frontend_deployment: hospital-frontend
 frontend_container: frontend
 
-github_actions_deploy_username: github-actions-eks-deploy
-
 ingress_name: hospital-ingress
 alb_name: hospital-system-alb
 
@@ -35,6 +33,7 @@ kubernetes_manifests:
   - frontend/hpa.yaml.j2
   - rbac/github-actions-deploy.yaml.j2
   - policy/trusted-workloads.yaml.j2
+  - policy/deploy-image-only.yaml.j2
   - ingress/ingress.yaml.j2
 
 kubernetes_workload_manifests:

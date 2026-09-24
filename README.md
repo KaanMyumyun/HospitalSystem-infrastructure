@@ -94,7 +94,8 @@ kubernetes/             # Jinja templates rendered by apply-kubernetes.yml
 ├── rbac/
 │   └── github-actions-deploy.yaml.j2
 ├── policy/
-│   └── trusted-workloads.yaml.j2
+│   ├── trusted-workloads.yaml.j2
+│   └── deploy-image-only.yaml.j2
 ├── backend/
 │   ├── configmap.yaml.j2
 │   ├── deployment.yaml.j2
@@ -113,10 +114,14 @@ The Kubernetes manifests define:
 - `hospitalsystem` namespace, which enforces the baseline Pod Security Standard
 - backend Deployment and Service
 - frontend Deployment and Service
-- namespace-scoped RBAC for the GitHub Actions deploy role
+- namespace-scoped RBAC for the deploy group, used by the ops instance's
+  deploy document
 - an admission policy that only lets the app Deployments run this account's
   backend and frontend ECR images with their own entrypoint, so the deploy
   role can change which release runs but not what code runs
+- a second admission policy that lets the deploy group change only container
+  images, so a deploy can't add a lifecycle hook, probe, environment variable
+  or volume either
 - ALB-backed Ingress for `app.hospitalsyst.cc`
 - HTTPS listener using ACM
 - `/api` routing to the backend
@@ -253,12 +258,22 @@ does not automatically make an already-started pod unready. The first real
 request after suspension can incur a cold start; `./scripts/monitoring.sh app`
 can check the database on demand and will also wake it.
 
-The ops instance's IAM role gets Kubernetes access through an EKS access entry
-in the `hospitalsystem:deployers` group, which is bound by
-`kubernetes/rbac/github-actions-deploy.yaml.j2` to update Deployments only in the
-application namespace, and to send GET requests to the two app Services for the
-deploy's smoke test. The cluster uses `API_AND_CONFIG_MAP` authentication, so
-the nodes and the GitHub Actions deploy role are still mapped in `aws-auth`.
+The ops instance's IAM role gets Kubernetes access through a Terraform-managed
+EKS access entry in the `hospitalsystem:deployers` group. That group is bound
+by `kubernetes/rbac/github-actions-deploy.yaml.j2` to read and patch only the
+`hospital-backend` and `hospital-frontend` Deployments, and to send GET
+requests to the two app Services for the deploy's smoke test.
+`kubernetes/policy/deploy-image-only.yaml.j2` then rejects any change by the
+group other than container images. The GitHub Actions deploy role has no
+Kubernetes access: it only sends the SSM deploy document to the ops instance.
+
+The cluster keeps `API_AND_CONFIG_MAP` authentication so existing node and
+other `aws-auth` mappings remain valid. Bootstrap no longer creates or patches
+that ConfigMap. Leave the ConfigMap and its node mappings in place:
+existing managed node groups can still depend on them. EKS manages access for
+new managed node groups. See the AWS guidance on
+[migrating access entries](https://docs.aws.amazon.com/eks/latest/userguide/migrating-access-entries.html)
+and [managed node group access](https://docs.aws.amazon.com/eks/latest/userguide/creating-access-entries.html).
 
 The GitHub Actions roles trust only `KaanMyumyun/HospitalSystem`, each with one
 OIDC subject:
@@ -332,12 +347,11 @@ Run `./scripts/tf.sh apply` once on a machine before running playbooks by hand;
 without the generated file they stop with a message saying so.
 
 Terraform is wired to run the Ansible bootstrap automatically after the EKS
-cluster and managed node group are created or updated. The bootstrap
+cluster, managed node group, and ops access entry are ready. The bootstrap
 configures kubeconfig, creates the backend Kubernetes
 Secret from local environment variables, installs the AWS Load Balancer
-Controller, applies the Kubernetes manifests, maps the GitHub Actions deploy
-role in `aws-auth`, points the Cloudflare DNS record at the ALB hostname from
-the Kubernetes Ingress, and configures monitoring.
+Controller, applies the Kubernetes manifests, points the Cloudflare DNS record
+at the ALB hostname from the Kubernetes Ingress, and configures monitoring.
 
 Bootstrap reruns when its generated variables or tracked inputs change:
 its playbooks, shared tasks and variables, Ansible configuration/inventory,
@@ -482,8 +496,8 @@ Apply the Kubernetes manifests:
 ansible-playbook ansible/playbooks/apply-kubernetes.yml
 ```
 
-This applies the namespace, ConfigMap, Services, HPAs, GitHub Actions deploy
-RBAC, admission policy and Ingress first (`kubernetes_manifests`). It then waits
+This applies the namespace, ConfigMap, Services, HPAs, deploy RBAC,
+admission policies and Ingress first (`kubernetes_manifests`). It then waits
 for the Load Balancer Controller to create a TargetGroupBinding for each Service
 behind the Ingress and for the ALB to become active, and only then applies the
 Deployments (`kubernetes_workload_manifests`). The controller adds the ALB
@@ -503,11 +517,9 @@ export HOSPITALSYSTEM_JWT_SECRET='your-long-jwt-secret'
 ansible-playbook ansible/playbooks/backend-secret.yml
 ```
 
-Configure the `aws-auth` mapping for the GitHub Actions deploy role:
-
-```bash
-ansible-playbook ansible/playbooks/aws-auth.yml
-```
+The ops instance's Kubernetes access is an EKS access entry in Terraform
+(`aws_eks_access_entry.ops`). Bootstrap waits for it before applying the
+deploy RBAC binding. There is no separate `aws-auth` playbook to run.
 
 Install or update the AWS Load Balancer Controller:
 
@@ -690,6 +702,24 @@ kubectl get hpa -n hospitalsystem
 kubectl top pods -n hospitalsystem
 ```
 
+The two-node resource settings were validated live on 2026-09-24 with five
+minutes at 5 requests/second: 4.4 frontend page/asset requests and 0.6 read-only
+demo API requests per second. All 1,500 requests returned HTTP 200. Steady CPU
+usage was 12–60m per backend pod and about 1m per frontend pod; memory was
+73–90Mi and about 4Mi respectively. Keep CPU requests at 100m/50m, memory
+requests and limits at 512Mi/128Mi, and both HPA maximums at two for this light
+demo profile. This test did not establish maximum throughput or size workloads
+that write appointments or hash passwords.
+
+The backend HPA scaled to two after CPU exceeded its target. With both apps
+temporarily held at two replicas, concurrent rolling restarts completed under
+traffic with no container restarts or node memory pressure. One replacement
+frontend pod waited nine seconds for memory reservations to free while an old
+backend drained, then scheduled successfully. Draining pods can consume capacity
+[beyond the replica count plus surge](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#updating-a-deployment),
+so account for per-node placement and system pods before raising replica caps
+or resource limits. Both HPA minimums were restored to one after the test.
+
 When a check can't read its data (an AWS, Kubernetes, Helm or GitHub call
 fails), `scripts/monitoring.sh` reports it as a failure, or as a warning for
 checks that only ever warn, with the error. It never counts an unreadable check
@@ -748,13 +778,13 @@ During apply, Terraform recreates AWS resources and then runs
 - creates the GitHub Actions OIDC provider and IAM roles
 - creates the EKS cluster and node group, and takes over the vpc-cni, coredns
   and kube-proxy add-ons as EKS managed add-ons
+- creates the ops role's EKS access entry
 - requests the ACM certificate for `app.hospitalsyst.cc`
 - creates the Cloudflare ACM validation CNAME
 - waits for ACM to issue the certificate
 - creates the backend Kubernetes Secret from local environment variables
 - installs the AWS Load Balancer Controller
 - applies rendered app Kubernetes manifests with current ECR URLs and ACM ARN
-- maps the GitHub Actions deploy role in `aws-auth`
 - updates the Cloudflare app CNAME to the new ALB hostname
 - waits for running Deployment rollouts and configures monitoring
 
