@@ -96,12 +96,6 @@ jobs:
       - name: TFLint
         run: tflint --format compact
 
-      - name: Bootstrap trigger regression tests
-        run: python3 -B -m unittest discover -s ../tests -p test_bootstrap_hashes.py -v
-
-      - name: Deploy script regression tests
-        run: python3 -B -m unittest discover -s ../tests -p test_deploy_rollout.py -v
-
   ansible:
     name: Ansible
     runs-on: ubuntu-latest
@@ -132,9 +126,6 @@ jobs:
     env:
       KUBECONFORM_VERSION: v0.8.0
       KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
-      # Used only against the isolated regression-test API, not a live cluster.
-      KUBECTL_VERSION: v1.34.11
-      KUBECTL_SHA256: 8efbb9435132a190920eb65a47a8c1ecf755ad85ab57a600c9bedbab460bb7a8
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -145,21 +136,14 @@ jobs:
         with:
           python-version: "3.14"
 
-      - name: Install Ansible, kubeconform, and test kubectl
+      - name: Install Ansible and kubeconform
         run: |
           pip install ansible-core==2.20.7
           curl -sSfL -o "$RUNNER_TEMP/kubeconform.tar.gz" \
             "https://github.com/yannh/kubeconform/releases/download/$KUBECONFORM_VERSION/kubeconform-linux-amd64.tar.gz"
           echo "$KUBECONFORM_SHA256  $RUNNER_TEMP/kubeconform.tar.gz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/kubeconform.tar.gz" -C "$RUNNER_TEMP" kubeconform
-          curl -sSfL -o "$RUNNER_TEMP/kubectl" \
-            "https://dl.k8s.io/release/$KUBECTL_VERSION/bin/linux/amd64/kubectl"
-          echo "$KUBECTL_SHA256  $RUNNER_TEMP/kubectl" | sha256sum -c -
-          chmod +x "$RUNNER_TEMP/kubectl"
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
-
-      - name: Bootstrap workload regression tests
-        run: python -B -m unittest discover -s tests -p test_bootstrap_workloads.py -v
 
       # Renders with Ansible's template module, like apply-kubernetes.yml, so
       # group_vars/all/main.yml still applies. The values below stand in for
@@ -233,15 +217,112 @@ jobs:
             -e 's/^([^:]+):([0-9]+):([0-9]+): (warning|error): /::\4 file=\1,line=\2,col=\3::/' || true
           shellcheck --severity=warning "${scripts[@]}"
 
+  tests:
+    name: Regression tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # Used only against the isolated regression-test API, not a live cluster.
+      KUBECTL_VERSION: v1.34.11
+      KUBECTL_SHA256: 8efbb9435132a190920eb65a47a8c1ecf755ad85ab57a600c9bedbab460bb7a8
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.14"
 
+      # The bootstrap trigger tests evaluate terraform/locals.tf with it.
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.16.2 # same as local runs
+          terraform_wrapper: false
+
       # The fake aws in the cleanup tests evaluates --query with jmespath, the
-      # library the AWS CLI uses; without it those suites would only skip.
-      - name: Script regression tests
+      # library the AWS CLI uses. The bootstrap workload tests run kubectl.
+      - name: Install jmespath and test kubectl
         run: |
           pip install jmespath==1.0.1
-          python -B -m unittest discover -s tests -p 'test_*cleanup*.py' -v
-          python -B -m unittest discover -s tests -p test_rollout_check.py -v
-          python -B -m unittest discover -s tests -p test_rotate_jwt_key.py -v
+          curl -sSfL -o "$RUNNER_TEMP/kubectl" \
+            "https://dl.k8s.io/release/$KUBECTL_VERSION/bin/linux/amd64/kubectl"
+          echo "$KUBECTL_SHA256  $RUNNER_TEMP/kubectl" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/kubectl"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      # Runs every tests/test_*.py, so a new suite needs no change here. A suite
+      # whose tool is missing skips itself, so a skip fails this step too.
+      - name: Run every tests/test_*.py
+        run: |
+          python -B - <<'EOF'
+          import sys
+          import unittest
+
+          suite = unittest.defaultTestLoader.discover("tests", pattern="test_*.py")
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          for test, reason in result.skipped:
+              print(f"::error::{test.id()} was skipped: {reason}")
+          sys.exit(0 if result.wasSuccessful() and not result.skipped else 1)
+          EOF
+
+  scan:
+    name: Security scans (report only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CHECKOV_VERSION: 3.3.17
+      TRIVY_VERSION: 0.69.3
+      TRIVY_SHA256: 1816b632dfe529869c740c0913e36bd1629cb7688bd5634f4a858c1d57c88b75
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+
+      # Same versions as local runs.
+      - name: Install Checkov and Trivy
+        run: |
+          pip install "checkov==$CHECKOV_VERSION"
+          curl -sSfL -o "$RUNNER_TEMP/trivy.tar.gz" \
+            "https://github.com/aquasecurity/trivy/releases/download/v$TRIVY_VERSION/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          echo "$TRIVY_SHA256  $RUNNER_TEMP/trivy.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/trivy.tar.gz" -C "$RUNNER_TEMP" trivy
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      # Findings never fail this job. They're listed in the log and the job
+      # summary, and nothing is skipped (no #checkov:skip, no .trivyignore).
+      # A scanner that can't run still fails it.
+      - name: Checkov
+        run: |
+          checkov -d terraform --framework terraform --quiet --compact --soft-fail \
+            -o cli -o github_failed_only --output-file-path "console,$RUNNER_TEMP/checkov.md"
+          {
+            printf '## Checkov\n\n'
+            # Checkov writes an empty file when nothing fails.
+            if [ -s "$RUNNER_TEMP/checkov.md" ]; then
+              cat "$RUNNER_TEMP/checkov.md"
+            else
+              echo "No failed checks."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Trivy
+        run: |
+          trivy config --exit-code 0 terraform
+          cat > "$RUNNER_TEMP/trivy.tpl" <<'EOF'
+          ## Trivy
+
+          | ID | Severity | File | Resource | Title |
+          | --- | --- | --- | --- | --- |
+          {{- range . }}{{ $target := .Target }}{{ range .Misconfigurations }}
+          | {{ .ID }} | {{ .Severity }} | terraform/{{ $target }}:{{ .CauseMetadata.StartLine }} | {{ .CauseMetadata.Resource }} | {{ .Title }} |
+          {{- end }}{{ end }}
+          EOF
+          trivy config --quiet --exit-code 0 --format template \
+            --template "@$RUNNER_TEMP/trivy.tpl" terraform >> "$GITHUB_STEP_SUMMARY"

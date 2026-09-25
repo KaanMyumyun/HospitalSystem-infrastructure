@@ -18,6 +18,7 @@ terraform/imports/
 
 .DS_Store
 *.log
+__pycache__/
 tmp/
 dist/
 build/

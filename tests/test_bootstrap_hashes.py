@@ -54,7 +54,7 @@ class BootstrapHashesTests(TestCase):
     def test_operational_playbooks_do_not_retrigger_bootstrap(self):
         self.assert_changes(
             [f"ansible/playbooks/{name}.yml" for name in (
-                "deploy-image", "scale", "cleanup-kubernetes", "status",
+                "deploy-image", "pause", "resume", "cleanup-kubernetes", "status",
             )],
             expected=False,
         )
