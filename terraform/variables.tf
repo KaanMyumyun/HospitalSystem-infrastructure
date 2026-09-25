@@ -59,7 +59,7 @@ variable "cloudflare_zone_name" {
 }
 
 variable "run_ansible_bootstrap" {
-  description = "Run the local Ansible bootstrap after Terraform creates or updates the EKS infrastructure."
+  description = "Run the local Ansible bootstrap after Terraform creates or updates the EKS infrastructure. The Kubernetes cleanup on destroy runs either way."
   type        = bool
   default     = true
 }

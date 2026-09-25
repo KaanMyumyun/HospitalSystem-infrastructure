@@ -2,6 +2,16 @@ resource "aws_ecr_repository" "backend" {
   name         = "hospital-backend"
   force_delete = true
 
+  # A pushed release tag can't be moved to other bytes, so the tag a deploy
+  # checks in ECR and the tag a rollback returns to still name the same image.
+  # latest stays movable: CI moves it on every build.
+  image_tag_mutability = "IMMUTABLE_WITH_EXCLUSION"
+
+  image_tag_mutability_exclusion_filter {
+    filter      = "latest"
+    filter_type = "WILDCARD"
+  }
+
   image_scanning_configuration {
     scan_on_push = true
   }
@@ -15,6 +25,13 @@ resource "aws_ecr_repository" "backend" {
 resource "aws_ecr_repository" "frontend" {
   name         = "hospital-frontend"
   force_delete = true
+
+  image_tag_mutability = "IMMUTABLE_WITH_EXCLUSION"
+
+  image_tag_mutability_exclusion_filter {
+    filter      = "latest"
+    filter_type = "WILDCARD"
+  }
 
   image_scanning_configuration {
     scan_on_push = true
