@@ -244,3 +244,4 @@ jobs:
           pip install jmespath==1.0.1
           python -B -m unittest discover -s tests -p 'test_*cleanup*.py' -v
           python -B -m unittest discover -s tests -p test_rollout_check.py -v
+          python -B -m unittest discover -s tests -p test_rotate_jwt_key.py -v
