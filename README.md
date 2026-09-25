@@ -183,35 +183,44 @@ success:
      so published images pick up base image security fixes
    - restores, builds and tests the backend
    - lints, tests and builds the frontend
-   - builds both Docker images and scans them with Trivy; a fixable `HIGH` or
-     `CRITICAL` vulnerability fails the run. The scan runs here, in a job with
-     no AWS or Docker Hub credentials.
 
 2. `Docker Image CI`
    - runs after the `CI` workflow succeeds on a push to `main` or on the weekly
      scheduled run
    - checks out the exact commit that passed CI
-   - builds backend and frontend Docker images. The frontend is built with
-     `VITE_API_URL=/api`, so it calls the backend on whatever host serves it
-     and the same image works under any domain.
-   - logs in to Docker Hub and Amazon ECR
+   - builds backend and frontend Docker images once each with Buildx, reusing
+     layers from the GitHub Actions cache; the weekly run skips the cache. The
+     frontend is built with `VITE_API_URL=/api`, so it calls the backend on
+     whatever host serves it and the same image works under any domain.
+   - scans those images with Trivy; a fixable `HIGH` or `CRITICAL`
+     vulnerability stops the run before anything is pushed, so the pushed
+     images are the scanned ones
    - uses GitHub Actions OIDC to assume the AWS ECR push role
    - pushes each image to both Docker Hub and Amazon ECR
+   - saves the pushed tag and commit as a `release` artifact for the deploy
 
-Images are tagged three ways:
+Images are tagged two ways:
 
 | Tag | Example | Why it exists |
 | --- | ------- | ------------- |
 | `latest` | `hospital-backend:latest` | Convenience tag for manual testing and simple local references. |
-| date + short SHA | `2026-08-21-a1b2c3d` | The tag used by the EKS deploy workflow so Kubernetes runs a traceable image connected to the build date and commit. |
-| full commit SHA | `a1b2c3d...` | Immutable reference for exact commit-level traceability. |
+| date + short SHA + run number | `2026-08-21-a1b2c3d-57` | The tag the EKS deploy workflow uses. It is unique to the build, so the weekly rebuild of an unchanged commit gets a new tag instead of overwriting the image Kubernetes runs. |
+
+In ECR every tag except `latest` is immutable (`terraform/ecr.tf`): a push
+that reuses a tag fails instead of replacing the image, so the tag a deploy
+checked and the tag a rollback returns to always name the same image. A
+re-run of a `Docker Image CI` run keeps its run number, so once that run has
+pushed to ECR a re-run can fail on the push; start a new CI run instead.
 
 3. `Deploy to EKS`
    - runs after the Docker image workflow succeeds
    - waits for a reviewer to approve it in the `production` GitHub environment
+   - reads the tag and commit from the Docker run's `release` artifact
+     instead of working the tag out again, and skips the deploy if that commit
+     is no longer the tip of `main`
    - assumes the AWS EKS deployment role through OIDC
    - finds the running ops instance and sends it the deploy SSM document with
-     the date + short SHA tag
+     that tag
    - on the instance, the document runs `scripts/deploy-release.py`: it checks
      that both images exist in ECR, sets the backend and frontend Deployment
      images, waits for both rollouts, and smoke tests both apps. If a rollout
@@ -228,7 +237,7 @@ application repository is public, and pull requests from forks could run
 workflows on it.
 
 If the app is scaled down to `0`, the deploy still updates the Deployment image
-fields to the new date + short SHA tag. It skips waiting for a rollout because
+fields to the new tag. It skips waiting for a rollout because
 no pods are running. The next manual scale-up starts pods from that exact image
 tag.
 
@@ -388,6 +397,9 @@ export HOSPITALSYSTEM_JWT_SECRET='your-long-jwt-secret'
 export CLOUDFLARE_API_TOKEN='your-cloudflare-api-token'
 ```
 
+Don't make up the JWT key: `python3 scripts/rotate-jwt-key.py` generates it
+into `.env.local` (see [Rotate the JWT key](#rotate-the-jwt-key)).
+
 The Cloudflare token needs `Zone:Read` and `DNS:Edit` permissions for
 `hospitalsyst.cc`. If you already know the zone ID, you can export it too:
 
@@ -418,8 +430,8 @@ already in ECR, so a later apply doesn't replace what CI pushed), requests and v
 through Cloudflare DNS, and then runs the Ansible Kubernetes bootstrap.
 
 Each bootstrap image is pushed under two tags: `latest`, which the Kubernetes
-manifests start from, and a `<date>-<short sha>` tag matching the deploy
-workflow's convention, so the image the cluster first runs is traceable to the
+manifests start from, and a `<date>-<short sha>` tag, the deploy workflow's
+format without its run number, so the image the cluster first runs is traceable to the
 commit it was built from. The short SHA comes from the application checkout and
 gains a `-dirty` suffix when that working tree has uncommitted or untracked
 files. The image also carries `org.opencontainers.image.revision` and
@@ -431,6 +443,10 @@ bootstrap:
 ```bash
 terraform apply -var run_ansible_bootstrap=false
 ```
+
+This is safe on a running stack: what the bootstrap created, including the
+Ingress and its ALB, stays up. Setting it back to `true` runs the bootstrap
+again. The Kubernetes cleanup still runs on destroy either way.
 
 If you want to skip the local Docker image build/push during a later apply:
 
@@ -444,7 +460,7 @@ where Terraform is running.
 
 After a fresh Terraform bootstrap, the Kubernetes manifests start the app from
 the bootstrap/default `latest` image tag. The GitHub Actions deploy workflow
-updates the live Deployments to the date + short SHA tag after CI/CD runs.
+updates the live Deployments to the tag CI built after CI/CD runs.
 
 Later bootstraps preserve each Deployment's live release image and replica
 count, including a rollback or an intentional scale to zero. Only new
@@ -528,22 +544,20 @@ value stays out of Terraform state. External Secrets (installed by
 `backend-secrets-reader` service account, whose IAM role can read only this
 secret; no pod runs as it.
 
-Store new values, or re-sync after changing the secret in Secrets Manager:
+Change these values in `.env.local`, not in Secrets Manager. Every bootstrap,
+including every rebuild, stores `.env.local`'s values again, so a value changed
+only in Secrets Manager is lost. Push the file's values to a running stack:
 
 ```bash
-export HOSPITALSYSTEM_CONNECTION_STRING='Host=...;Database=...;Username=...;Password=...'
-export HOSPITALSYSTEM_JWT_SECRET='your-long-jwt-secret'
-
-ansible-playbook ansible/playbooks/backend-secret.yml
+(set -a; source .env.local; ansible-playbook ansible/playbooks/backend-secret.yml)
 ```
 
-With both variables set, the playbook stores them if they differ from the
-stored value. With neither set, it keeps what Secrets Manager has, so a value
-rotated there isn't overwritten. It then makes External Secrets sync at once
-and restarts the backend if the Secret changed since its pods started (the
-Deployment records the Secret's hash). A Deployment scaled to 0 stays at 0 and
-reads the new Secret when it scales up. `./scripts/monitoring.sh workloads`
-warns when the pods run an older Secret.
+The playbook stores both values if they differ from the stored ones, makes
+External Secrets sync at once and restarts the backend if the Secret changed
+since its pods started (the Deployment records the Secret's hash). A
+Deployment scaled to 0 stays at 0 and reads the new Secret when it scales up.
+`./scripts/monitoring.sh workloads` warns when the pods run an older Secret.
+To change the JWT key, see [Rotate the JWT key](#rotate-the-jwt-key).
 
 The ops instance's Kubernetes access is an EKS access entry in Terraform
 (`aws_eks_access_entry.ops`). Bootstrap waits for it before applying the
@@ -846,7 +860,7 @@ During apply, Terraform recreates AWS resources and then runs
 
 After a fresh recreate, Kubernetes starts from the bootstrap/default `latest`
 image tag. The GitHub Actions deploy workflow should be run afterward to update
-the live Deployments to the date + short SHA image tag.
+the live Deployments to the tag CI built.
 
 A recreate also gives the NAT gateways new public IPs. If Neon's IP Allow list
 is in use (see Database Access), replace the old addresses with the new ones or
@@ -948,6 +962,35 @@ month before data transfer:
 To stop paying for it, destroy the environment and recreate it when needed
 (see [Disaster Recovery](#disaster-recovery)).
 
+### Rotate the JWT key
+
+```bash
+python3 scripts/rotate-jwt-key.py
+```
+
+The script generates a random 86-character key and saves it to `.env.local`
+before anything else. Only the `HOSPITALSYSTEM_JWT_SECRET` line changes, and
+the file ends up readable only by you (mode 0600). The key is never printed,
+so nobody types or pastes one. The same command fills in the first key in a
+`.env.local` copied from `.env.example`.
+
+- With the stack down (no `ansible/group_vars/all/terraform.yml`), it stops
+  there, and the next `./scripts/tf.sh apply` stores the key.
+- With the stack up, it runs `backend-secret.yml` with `.env.local`'s values,
+  which stores the key in Secrets Manager and restarts the backend one pod at
+  a time. It then checks that the Deployment recorded the new Secret and that
+  all its pods are ready. This needs `ansible-playbook`, `kubectl`, `aws`,
+  `session-manager-plugin` and the connection string in `.env.local`.
+
+Every signed-in user is logged out: the backend only accepts the current key,
+so older tokens get 401. The script asks first; `--yes` skips the question. If
+the playbook fails, the new key is still in `.env.local` and the script prints
+the command that pushes it. Run that command rather than the script, which
+would generate yet another key.
+
+Rotation is manual, and nothing rotates the secret on a schedule, so Checkov's
+CKV2_AWS_57 stays flagged. The script doesn't touch the connection string.
+
 ### Upgrading EKS
 
 The Kubernetes version is the `eks_version` Terraform variable. EKS upgrades one
@@ -964,7 +1007,7 @@ minor version at a time, in this order:
    chart version.
 
 The Kubernetes manifests keep `latest` as the bootstrap/default image tag, but
-the CI/CD deployment updates the live Deployments to date + short SHA tags.
+the CI/CD deployment updates the live Deployments to the tags CI builds.
 
 ## Debug Deployed Images
 

@@ -27,30 +27,36 @@ behind the application repository, so check there for the current version.
    - restores, builds and tests the backend
    - audits npm dependencies (fails on `high` or worse), then lints, tests and
      builds the frontend
-   - builds both Docker images and fails on fixable `HIGH` or `CRITICAL`
-     vulnerabilities found by Trivy
 
 2. `Docker Image CI`
    - runs after `CI` succeeds on `main`
-   - builds backend and frontend Docker images
-   - tags each image as `latest`, `YYYY-MM-DD-shortsha`, and `full-commit-sha`
-   - pushes images to Docker Hub and Amazon ECR
+   - builds the backend and frontend images once each with Buildx, reusing
+     layers from the GitHub Actions cache; the weekly run skips the cache
+   - scans those images with Trivy and stops before pushing anything on a
+     fixable `HIGH` or `CRITICAL` vulnerability
+   - tags each image as `latest` and `YYYY-MM-DD-shortsha-runnumber`, a tag
+     unique to the build, so the weekly rebuild of an unchanged commit gets a
+     new tag instead of overwriting the old image
+   - pushes the scanned images to Docker Hub and Amazon ECR
    - uses GitHub Actions OIDC to assume the AWS ECR push role
+   - saves the pushed tag and commit as a `release` artifact for the deploy
 
 3. `Deploy to EKS`
    - runs after image build and push succeeds
    - waits for approval in the `production` GitHub environment
-   - skips the deploy if the commit is no longer the tip of `main`, so an
+   - reads the tag and commit from the Docker run's `release` artifact
+     instead of working the tag out again
+   - skips the deploy if that commit is no longer the tip of `main`, so an
      older build approved late cannot overwrite a newer one
    - assumes the AWS EKS deploy role through OIDC
    - finds the ops instance named in the `DEPLOY_INSTANCE_NAME` repository
      variable and sends it the `DEPLOY_SSM_DOCUMENT` SSM document, because the
      EKS API endpoint is private
    - on the instance, the document sets backend and frontend Deployment images
-     to the `YYYY-MM-DD-shortsha` tag and waits for rollout completion when
-     deployments are scaled above zero
+     to that tag and waits for rollout completion when deployments are scaled
+     above zero
 
 If the app is scaled down to zero, the deploy workflow still updates the
-Deployment image fields to the new `YYYY-MM-DD-shortsha` tag. It skips waiting for rollout
+Deployment image fields to the new tag. It skips waiting for rollout
 completion because no pods are running. The next manual scale-up starts pods
 from that exact image tag.

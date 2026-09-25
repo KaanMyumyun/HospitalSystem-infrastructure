@@ -10,7 +10,7 @@
   tasks:
     - name: Require image_tag variable
       ansible.builtin.fail:
-        msg: "Pass the image tag with -e image_tag=YYYY-MM-DD-shortsha"
+        msg: "Pass the image tag with -e image_tag=YYYY-MM-DD-shortsha-runnumber (the tag Docker Image CI pushed)"
       when: image_tag is not defined or image_tag | length == 0
 
     - name: Require Terraform-generated variables

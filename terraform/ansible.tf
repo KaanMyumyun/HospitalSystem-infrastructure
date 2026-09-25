@@ -49,9 +49,9 @@ resource "terraform_data" "ansible_bootstrap" {
   ]
 }
 
+# No count: turning off the bootstrap on a running stack would destroy this
+# resource, and its destroy step deletes the live Ingress and ALB.
 resource "terraform_data" "kubernetes_cleanup" {
-  count = var.run_ansible_bootstrap ? 1 : 0
-
   input = {
     eks_cluster_name        = aws_eks_cluster.main.name
     aws_region              = var.aws_region
@@ -100,4 +100,10 @@ resource "terraform_data" "kubernetes_cleanup" {
     aws_route_table_association.private_a,
     aws_route_table_association.private_b
   ]
+}
+
+# A stack built while the cleanup had a count keeps it instead of destroying it.
+moved {
+  from = terraform_data.kubernetes_cleanup[0]
+  to   = terraform_data.kubernetes_cleanup
 }
