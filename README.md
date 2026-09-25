@@ -388,6 +388,9 @@ export HOSPITALSYSTEM_JWT_SECRET='your-long-jwt-secret'
 export CLOUDFLARE_API_TOKEN='your-cloudflare-api-token'
 ```
 
+Don't make up the JWT key: `python3 scripts/rotate-jwt-key.py` generates it
+into `.env.local` (see [Rotate the JWT key](#rotate-the-jwt-key)).
+
 The Cloudflare token needs `Zone:Read` and `DNS:Edit` permissions for
 `hospitalsyst.cc`. If you already know the zone ID, you can export it too:
 
@@ -528,22 +531,20 @@ value stays out of Terraform state. External Secrets (installed by
 `backend-secrets-reader` service account, whose IAM role can read only this
 secret; no pod runs as it.
 
-Store new values, or re-sync after changing the secret in Secrets Manager:
+Change these values in `.env.local`, not in Secrets Manager. Every bootstrap,
+including every rebuild, stores `.env.local`'s values again, so a value changed
+only in Secrets Manager is lost. Push the file's values to a running stack:
 
 ```bash
-export HOSPITALSYSTEM_CONNECTION_STRING='Host=...;Database=...;Username=...;Password=...'
-export HOSPITALSYSTEM_JWT_SECRET='your-long-jwt-secret'
-
-ansible-playbook ansible/playbooks/backend-secret.yml
+(set -a; source .env.local; ansible-playbook ansible/playbooks/backend-secret.yml)
 ```
 
-With both variables set, the playbook stores them if they differ from the
-stored value. With neither set, it keeps what Secrets Manager has, so a value
-rotated there isn't overwritten. It then makes External Secrets sync at once
-and restarts the backend if the Secret changed since its pods started (the
-Deployment records the Secret's hash). A Deployment scaled to 0 stays at 0 and
-reads the new Secret when it scales up. `./scripts/monitoring.sh workloads`
-warns when the pods run an older Secret.
+The playbook stores both values if they differ from the stored ones, makes
+External Secrets sync at once and restarts the backend if the Secret changed
+since its pods started (the Deployment records the Secret's hash). A
+Deployment scaled to 0 stays at 0 and reads the new Secret when it scales up.
+`./scripts/monitoring.sh workloads` warns when the pods run an older Secret.
+To change the JWT key, see [Rotate the JWT key](#rotate-the-jwt-key).
 
 The ops instance's Kubernetes access is an EKS access entry in Terraform
 (`aws_eks_access_entry.ops`). Bootstrap waits for it before applying the
@@ -947,6 +948,35 @@ month before data transfer:
 
 To stop paying for it, destroy the environment and recreate it when needed
 (see [Disaster Recovery](#disaster-recovery)).
+
+### Rotate the JWT key
+
+```bash
+python3 scripts/rotate-jwt-key.py
+```
+
+The script generates a random 86-character key and saves it to `.env.local`
+before anything else. Only the `HOSPITALSYSTEM_JWT_SECRET` line changes, and
+the file ends up readable only by you (mode 0600). The key is never printed,
+so nobody types or pastes one. The same command fills in the first key in a
+`.env.local` copied from `.env.example`.
+
+- With the stack down (no `ansible/group_vars/all/terraform.yml`), it stops
+  there, and the next `./scripts/tf.sh apply` stores the key.
+- With the stack up, it runs `backend-secret.yml` with `.env.local`'s values,
+  which stores the key in Secrets Manager and restarts the backend one pod at
+  a time. It then checks that the Deployment recorded the new Secret and that
+  all its pods are ready. This needs `ansible-playbook`, `kubectl`, `aws`,
+  `session-manager-plugin` and the connection string in `.env.local`.
+
+Every signed-in user is logged out: the backend only accepts the current key,
+so older tokens get 401. The script asks first; `--yes` skips the question. If
+the playbook fails, the new key is still in `.env.local` and the script prints
+the command that pushes it. Run that command rather than the script, which
+would generate yet another key.
+
+Rotation is manual, and nothing rotates the secret on a schedule, so Checkov's
+CKV2_AWS_57 stays flagged. The script doesn't touch the connection string.
 
 ### Upgrading EKS
 
