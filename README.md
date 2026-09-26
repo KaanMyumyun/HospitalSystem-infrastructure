@@ -801,9 +801,38 @@ directly.
 Full recreate:
 
 ```bash
-./scripts/tf.sh destroy
+./scripts/teardown.sh
 ./scripts/tf.sh apply
 ```
+
+`./scripts/teardown.sh` runs every step of a clean destroy and asks you to
+type the cluster name first (`--yes` skips that):
+
+1. checks the AWS login, that you're logged in to the stack's account, and
+   that no interrupted Terraform run left its state lock behind
+2. destroys `terraform_data.kubernetes_cleanup` alone, so the cleanup below
+   runs while the cluster can still delete its ALB
+3. runs `scripts/pre-destroy-cleanup.sh --apply` for anything left, retried
+   once
+4. runs `./scripts/tf.sh destroy`; if it fails, it runs step 3 again,
+   deletes the EKS cluster security group EKS sometimes leaves in the VPC,
+   and retries once
+5. checks the state is empty and runs `scripts/cleanup-orphans.sh --apply`
+6. runs `scripts/account-sweep.py` over every region
+
+It stops at the first step that fails and exits 1 unless the stack is gone
+and nothing billable is left. Each step's output is also saved under
+`.generated/teardown/`.
+
+`./scripts/account-sweep.py` also runs on its own. It is read-only and lists
+what exists in every enabled region: `BILLABLE` for what costs money (for
+example instances, NAT gateways, Elastic IPs, interface endpoints, load
+balancers, EKS, enabled KMS keys, secrets, log groups holding data), `FREE`
+for what doesn't (keys pending deletion, target groups, idle Lambda
+functions), and `IGNORED` for entries in `config/account-sweep-ignore.txt`,
+which says why each is kept. `--region` limits it to one region, and
+`--cost` adds this month's spend without credits (one Cost Explorer call,
+$0.01; its data lags about a day).
 
 During destroy, Terraform runs `ansible/playbooks/cleanup-kubernetes.yml`
 before it deletes the cluster. The playbook removes the app's Cloudflare CNAME
@@ -825,8 +854,8 @@ groups, the monitoring playbook's ALB alarms if neither cleanup reached them,
 and KMS keys waiting out their deletion window. `./scripts/cleanup-orphans.sh`
 lists them and `--apply` deletes them. It only picks target groups that carry
 the controller's tags for this cluster and Ingress and whose VPC no longer
-exists, and only the alarms named `hospitalsystem-alb-5xx` and
-`hospitalsystem-unhealthy-targets-*`, so another project's resources and
+exists, and only the ALB alarms `config/alb-alarms.json` defines (the same
+file `monitoring.yml` creates them from), so another project's resources and
 Terraform's own alarm are left alone. Any failed AWS lookup stops it before it
 deletes anything else.
 
@@ -1016,6 +1045,12 @@ The Kubernetes manifests keep `latest` as the bootstrap/default image tag, but
 the CI/CD deployment updates the live Deployments to the tags CI builds.
 
 ## Debug Deployed Images
+
+For a quick answer, `./scripts/image-check.sh` (or `backend` / `frontend` for
+one app) shows each app's image tag, whether every pod runs the digest that
+tag points to in ECR, and the commit it was built from compared with main on
+GitHub. It changes nothing; `./scripts/monitoring.sh ecr` runs the same check
+next to the ECR image list and scan results.
 
 Use these commands when a deployment breaks and you need to see exactly which
 backend or frontend image is running. They use the tunnel kubeconfig from

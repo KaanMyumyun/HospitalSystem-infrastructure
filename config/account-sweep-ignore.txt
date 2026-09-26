@@ -1,0 +1,5 @@
+# Findings scripts/account-sweep.py reports as IGNORED instead of BILLABLE or
+# FREE: things in the account that aren't from this stack and are kept on
+# purpose. One per line: <region> | <kind> | <name>  # reason
+# Region and name take globs (* and ?); kind is the finding's kind as printed.
+eu-north-1 | Log group | /aws/lambda/hello  # left by the deleted hello Lambda; not this stack

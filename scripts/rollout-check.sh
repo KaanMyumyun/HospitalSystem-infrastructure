@@ -7,12 +7,8 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-GROUP_VARS_DIR="$REPO_ROOT/ansible/group_vars/all"
-
-group_var() {
-  sed -nE "s/^\"?$1\"?:[[:space:]]*\"?([^\"]*)\"?[[:space:]]*\$/\1/p" \
-    "$GROUP_VARS_DIR/main.yml" "$GROUP_VARS_DIR/terraform.yml" 2>/dev/null | tail -n 1 || true
-}
+# shellcheck source=scripts/lib/config.sh
+source "$SCRIPT_DIR/lib/config.sh"
 
 AWS_REGION="${AWS_REGION:-$(group_var aws_region)}"
 NAMESPACE="${NAMESPACE:-$(group_var k8s_namespace)}"

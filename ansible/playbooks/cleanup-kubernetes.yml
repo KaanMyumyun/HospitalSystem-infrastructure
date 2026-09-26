@@ -17,6 +17,14 @@
     # Only a record that still points at this ALB is removed; one a person
     # pointed somewhere else stays.
     alb_hostname_pattern: "^{{ alb_name }}-[0-9]+\\.{{ aws_region }}\\.elb\\.amazonaws\\.com$"
+    # The alarms monitoring.yml creates from the same definitions. It appends
+    # the target group to a target group alarm's name, so those match by
+    # prefix and the others exactly.
+    alb_alarm_definitions: "{{ lookup('file', playbook_dir ~ '/../../config/alb-alarms.json') | from_json }}"
+    alb_alarm_query: >-
+      MetricAlarms[?{% for alarm in alb_alarm_definitions %}{{ ' || ' if not loop.first else '' }}
+      {%- if alarm.scope == 'target_group' %}starts_with(AlarmName, '{{ monitoring_alarm_prefix }}-{{ alarm.suffix }}')
+      {%- else %}AlarmName == '{{ monitoring_alarm_prefix }}-{{ alarm.suffix }}'{% endif %}{% endfor %}].AlarmName
 
   tasks:
     - name: Require Cloudflare API token
@@ -266,9 +274,7 @@
           - --alarm-name-prefix
           - "{{ monitoring_alarm_prefix }}-"
           - --query
-          - >-
-            MetricAlarms[?AlarmName == '{{ monitoring_alarm_prefix }}-alb-5xx'
-            || starts_with(AlarmName, '{{ monitoring_alarm_prefix }}-unhealthy-targets-')].AlarmName
+          - "{{ alb_alarm_query }}"
           - --output
           - text
       register: alb_alarms

@@ -238,6 +238,22 @@
         pod_gates_after_restart.rc != 0
         or '|' in pod_gates_after_restart.stdout_lines
 
+    # backend-secret.yml precedes Deployment creation on a new cluster.
+    # Unknown history is reconciled by a conservative restart, never by
+    # assuming existing pods started with the Secret's current contents.
+    - name: Reconcile the backend Secret after applying workloads
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_playbook_python }}"
+          - "{{ playbook_dir }}/../../scripts/backend-secret.py"
+          - --namespace
+          - "{{ k8s_namespace }}"
+          - --deployment
+          - "{{ backend_deployment }}"
+          - --reconcile-only
+      register: backend_secret_reconcile_after_apply
+      changed_when: (backend_secret_reconcile_after_apply.stdout | from_json).changed
+
     - name: Show apply results
       ansible.builtin.debug:
         msg: "{{ (apply_results.results + workload_apply_results.results) | map(attribute='stdout') | list }}"

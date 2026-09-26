@@ -19,7 +19,7 @@ class BootstrapHashesTests(TestCase):
         self.directory = TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
-        for directory in ("ansible", "kubernetes", "scripts"):
+        for directory in ("ansible", "kubernetes", "scripts", "config"):
             shutil.copytree(ROOT / directory, self.root / directory)
         shutil.copy2(ROOT / "ansible.cfg", self.root / "ansible.cfg")
         self.module = self.root / "terraform"
@@ -75,6 +75,8 @@ class BootstrapHashesTests(TestCase):
                 "ansible/tasks/kubeconfig.yml",
                 "kubernetes/backend/deployment.yaml.j2",
                 "scripts/apply-workload.py",
+                "scripts/backend-secret.py",
+                "config/alb-alarms.json",
             ],
             expected=True,
         )

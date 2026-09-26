@@ -4,6 +4,8 @@
   gather_facts: false
 
   vars:
+    # Creation and every cleanup path consume these same alarm definitions.
+    alb_alarm_definitions: "{{ lookup('file', playbook_dir ~ '/../../config/alb-alarms.json') | from_json }}"
     # The topic Terraform creates (terraform/monitoring.tf). put-metric-alarm
     # replaces the whole alarm, so each run sets both actions again.
     alarm_action_args:
@@ -68,115 +70,13 @@
           {{ target_group_arns.stdout.split()
              | map('regex_replace', '^arn:aws:elasticloadbalancing:[^:]+:[0-9]+:', '')
              | list }}
-        current_target_group_alarm_names: []
 
-    - name: Set current target group alarm names
-      ansible.builtin.set_fact:
-        current_target_group_alarm_names: >-
-          {{ current_target_group_alarm_names
-             + [monitoring_alarm_prefix ~ '-unhealthy-targets-' ~ (item | regex_replace('[^A-Za-z0-9-]', '-'))] }}
-      loop: "{{ target_group_dimensions }}"
-
-    - name: Look up existing target group alarms
-      ansible.builtin.command:
-        argv:
-          - aws
-          - cloudwatch
-          - describe-alarms
-          - --region
-          - "{{ aws_region }}"
-          - --alarm-name-prefix
-          - "{{ monitoring_alarm_prefix }}-unhealthy-targets-"
-          - --query
-          - MetricAlarms[].AlarmName
-          - --output
-          - text
-      register: existing_target_group_alarms
-      changed_when: false
-
-    - name: Delete stale target group alarms
-      ansible.builtin.command:
-        argv:
-          - aws
-          - cloudwatch
-          - delete-alarms
-          - --region
-          - "{{ aws_region }}"
-          - --alarm-names
-          - "{{ item }}"
-      changed_when: true
-      loop: "{{ existing_target_group_alarms.stdout.split() | difference(current_target_group_alarm_names) }}"
-      when: existing_target_group_alarms.stdout | length > 0
-
-    - name: Configure ALB 5xx alarm
-      ansible.builtin.command:
-        argv: "{{ alarm_args + alarm_action_args }}"
-      vars:
-        alarm_args:
-          - aws
-          - cloudwatch
-          - put-metric-alarm
-          - --region
-          - "{{ aws_region }}"
-          - --alarm-name
-          - "{{ monitoring_alarm_prefix }}-alb-5xx"
-          - --alarm-description
-          - "HospitalSystem ALB is returning HTTP 5xx responses"
-          - --namespace
-          - AWS/ApplicationELB
-          - --metric-name
-          - HTTPCode_ELB_5XX_Count
-          - --statistic
-          - Sum
-          - --period
-          - "300"
-          - --evaluation-periods
-          - "1"
-          - --threshold
-          - "5"
-          - --comparison-operator
-          - GreaterThanOrEqualToThreshold
-          - --dimensions
-          - "Name=LoadBalancer,Value={{ alb_dimension }}"
-          - --treat-missing-data
-          - notBreaching
-      changed_when: true
-
-    - name: Configure unhealthy targets alarm for each target group
-      ansible.builtin.command:
-        argv: "{{ alarm_args + alarm_action_args }}"
-      vars:
-        alarm_args:
-          - aws
-          - cloudwatch
-          - put-metric-alarm
-          - --region
-          - "{{ aws_region }}"
-          - --alarm-name
-          - "{{ monitoring_alarm_prefix }}-unhealthy-targets-{{ item | regex_replace('[^A-Za-z0-9-]', '-') }}"
-          - --alarm-description
-          - "HospitalSystem target group has unhealthy targets"
-          - --namespace
-          - AWS/ApplicationELB
-          - --metric-name
-          - UnHealthyHostCount
-          - --statistic
-          - Average
-          - --period
-          - "300"
-          - --evaluation-periods
-          - "1"
-          - --threshold
-          - "1"
-          - --comparison-operator
-          - GreaterThanOrEqualToThreshold
-          - --dimensions
-          - "Name=LoadBalancer,Value={{ alb_dimension }}"
-          - "Name=TargetGroup,Value={{ item }}"
-          - --treat-missing-data
-          - notBreaching
-      changed_when: true
-      loop: "{{ target_group_dimensions }}"
+    - name: Configure each ALB alarm definition
+      ansible.builtin.include_tasks: ../tasks/alb-alarm.yml
+      loop: "{{ alb_alarm_definitions }}"
+      loop_control:
+        loop_var: alarm_definition
+        label: "{{ alarm_definition.suffix }}"
 
     - name: Show configured alarms
       ansible.builtin.command:

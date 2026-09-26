@@ -52,6 +52,8 @@ locals {
     monitoring_alert_sns_topic_arn    = aws_sns_topic.alerts.arn
     k8s_namespace                     = local.k8s_namespace
     github_actions_deploy_group       = local.k8s_deploy_group
+    github_repository                 = var.github_repository
+    github_deploy_environment         = var.github_deploy_environment
     ops_instance_id                   = aws_instance.ops.id
     deploy_ssm_document_name          = aws_ssm_document.deploy.name
   }
@@ -73,6 +75,8 @@ locals {
       "ansible/playbooks/cloudflare-dns.yml",
       "ansible/playbooks/monitoring.yml",
       "scripts/apply-workload.py",
+      "scripts/backend-secret.py",
+      "config/alb-alarms.json",
     ],
     [
       for file in fileset("${path.module}/../ansible", "group_vars/**/*.yml") :
