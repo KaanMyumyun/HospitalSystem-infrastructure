@@ -156,6 +156,11 @@ elif operation == "list-keys":
     result = {"Keys": [{"KeyId": k["KeyId"]} for k in account["Keys"]]}
 elif operation == "describe-key":
     result = {"KeyMetadata": next(k for k in account["Keys"] if k["KeyId"] == options["--key-id"])}
+elif operation == "describe-certificate":
+    found = [c for c in account.get("Certificates", []) if c["CertificateArn"] == options["--certificate-arn"]]
+    if not found:
+        error("ResourceNotFoundException", "Could not find certificate")
+    result = {"Certificate": found[0]}
 else:
     error("Unknown", "fake aws has no " + operation)
 

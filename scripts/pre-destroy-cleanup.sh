@@ -304,15 +304,17 @@ fi
 section "ALB alarms (not blocking)"
 
 # ansible/playbooks/monitoring.yml creates these; Terraform doesn't know them.
-# The node group alarm is Terraform's and goes with the destroy.
-if ! alb_alarms="$(
-  aws cloudwatch describe-alarms --region "$AWS_REGION" \
+# The node group alarm is Terraform's and goes with the destroy. These don't
+# block the destroy, but nothing else would delete them, so a failed lookup
+# stops here too.
+alb_alarms="$(
+  lookup - cloudwatch describe-alarms --region "$AWS_REGION" \
     --alarm-name-prefix "$ALARM_PREFIX-" \
     --query "MetricAlarms[?AlarmName == '$ALARM_PREFIX-alb-5xx' || starts_with(AlarmName, '$ALARM_PREFIX-unhealthy-targets-')].AlarmName" \
-    --output text 2>&1
-)"; then
-  printf 'could not list alarms: %s\n' "$alb_alarms" >&2
-elif [ -z "$alb_alarms" ]; then
+    --output text
+)" || exit 1
+
+if [ -z "$alb_alarms" ]; then
   printf 'none\n'
 else
   for name in $alb_alarms; do printf '%s\n' "$name"; done
@@ -328,11 +330,15 @@ section "ACM certificate (informational)"
 if [ -z "$CERT_ARN" ]; then
   printf 'no certificate arn in group_vars - skipping\n'
 else
+  # JSON keeps a certificate that is gone (prints nothing) apart from one
+  # that nothing uses ([]).
   in_use="$(
-    aws acm describe-certificate --region "$AWS_REGION" --certificate-arn "$CERT_ARN" \
-      --query 'Certificate.InUseBy' --output text 2>/dev/null || true
-  )"
-  if [ -z "$in_use" ] || [ "$in_use" = "None" ]; then
+    lookup ResourceNotFoundException acm describe-certificate --region "$AWS_REGION" \
+      --certificate-arn "$CERT_ARN" --query 'Certificate.InUseBy' --output json
+  )" || exit 1
+  if [ -z "$in_use" ]; then
+    printf 'not found - already deleted\n'
+  elif [ "$in_use" = "[]" ] || [ "$in_use" = null ]; then
     printf 'not in use - terraform destroy can delete it\n'
   else
     printf 'still in use by:\n%s\n' "$in_use"

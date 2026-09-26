@@ -1,8 +1,9 @@
 """Run scripts/pre-destroy-cleanup.sh against a fake AWS account.
 
 Reuses the fake aws command from test_cleanup_orphans. The default account has
-no ALB, target groups or network leftovers, so only the alarm section finds
-anything. The failure tests add one leftover and make AWS refuse to delete it.
+no ALB, target groups, network leftovers or certificate, so only the alarm
+section finds anything. The failure tests add one leftover and make AWS refuse
+to delete it, and the certificate tests add the certificate.
 """
 
 from pathlib import Path
@@ -39,7 +40,7 @@ ALB_ALARMS = [
 
 @skipUnless(importlib.util.find_spec("jmespath"), "needs the jmespath package")
 class PreDestroyAlarmTests(TestCase):
-    def run_cleanup(self, *args, fail="", account=None, errors=None):
+    def run_cleanup(self, *args, fail="", account=None, errors=None, cert=""):
         tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         (tmp / "aws").write_text(f"#!{sys.executable}\n{FAKE_AWS}")
         # An unreachable cluster, so the script skips the Ingress quickly.
@@ -54,7 +55,7 @@ class PreDestroyAlarmTests(TestCase):
             "AWS_REGION": "eu-north-1",
             "VPC_ID": "vpc-live",
             "ALARM_PREFIX": "hospitalsystem",
-            "CERT_ARN": "",
+            "CERT_ARN": cert,
             "FAKE_ACCOUNT": json.dumps({**ACCOUNT, **(account or {})}),
             "FAKE_LOG": str(self.log),
             "FAKE_FAIL": fail,
@@ -79,14 +80,10 @@ class PreDestroyAlarmTests(TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.log.read_text().splitlines(), ["delete-alarms " + " ".join(ALB_ALARMS)])
 
-    def test_failed_lookup_is_reported_not_taken_for_none(self):
-        result = self.run_cleanup("--apply", fail="describe-alarms")
-        self.assertIn("could not list alarms: An error occurred (AccessDenied)", result.stderr)
-        self.assertEqual(self.alarm_section(result.stdout), [])
-        self.assertEqual(self.log.read_text(), "")
-
 
 TARGET_GROUP = "arn:aws:elasticloadbalancing:eu-north-1:123456789012:targetgroup/k8s-hospital-backend/1"
+CERT = "arn:aws:acm:eu-north-1:123456789012:certificate/00000000-0000-0000-0000-000000000000"
+ALB = "arn:aws:elasticloadbalancing:eu-north-1:123456789012:loadbalancer/app/hospital-system-alb/1"
 
 
 @skipUnless(importlib.util.find_spec("jmespath"), "needs the jmespath package")
@@ -132,12 +129,38 @@ class PreDestroyFailureTests(TestCase):
 
     def test_failed_lookup_stops_instead_of_reading_as_none(self):
         for operation in ("describe-load-balancers", "describe-target-groups",
-                          "describe-security-groups", "describe-network-interfaces"):
+                          "describe-security-groups", "describe-network-interfaces",
+                          "describe-alarms", "describe-certificate"):
             with self.subTest(operation=operation):
-                result = self.run_cleanup("--apply", fail=operation)
+                result = self.run_cleanup("--apply", fail=operation, cert=CERT)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(f"{operation} failed: An error occurred (AccessDenied)", result.stderr)
                 self.assertNotIn("Now run: ./scripts/tf.sh destroy", result.stdout)
+                self.assertNotIn("not in use", result.stdout)
+
+
+@skipUnless(importlib.util.find_spec("jmespath"), "needs the jmespath package")
+class PreDestroyCertificateTests(TestCase):
+    run_cleanup = PreDestroyAlarmTests.run_cleanup
+
+    def certificate_section(self, certificates):
+        result = self.run_cleanup(cert=CERT, account={"Certificates": certificates})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.split("== ACM certificate (informational) ==\n", 1)[1].split("\n==", 1)[0]
+
+    def test_unused_certificate_is_left_to_terraform(self):
+        section = self.certificate_section([{"CertificateArn": CERT, "InUseBy": []}])
+        self.assertIn("not in use - terraform destroy can delete it", section)
+
+    def test_certificate_in_use_names_what_holds_it(self):
+        section = self.certificate_section([{"CertificateArn": CERT, "InUseBy": [ALB]}])
+        self.assertIn("still in use by:", section)
+        self.assertIn(ALB, section)
+
+    def test_deleted_certificate_is_not_called_unused(self):
+        section = self.certificate_section([])
+        self.assertIn("not found", section)
+        self.assertNotIn("not in use", section)
 
 
 if __name__ == "__main__":

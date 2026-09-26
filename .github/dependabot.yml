@@ -1,0 +1,15 @@
+version: 2
+updates:
+  # .github/workflows pins every action to a commit SHA with its version in a
+  # comment; this keeps both current. CICD/ is a copy of the app repo's
+  # workflows and isn't scanned here.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns:
+          - "*"

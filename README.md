@@ -470,8 +470,8 @@ the old last-applied annotation before omitting those fields on updates,
 following the [Kubernetes field ownership migration procedure](https://kubernetes.io/docs/tasks/manage-kubernetes-objects/declarative-config/#changing-the-owner-from-a-configuration-file-to-a-direct-imperative-writer).
 This avoids resetting replicas during the first upgrade and avoids overwriting
 a CI image change during bootstrap. Failed or malformed Kubernetes reads stop
-the apply. Use `deploy-image.yml` or CI to change images, `scale.yml` to scale
-workloads, and `pause.yml`/`resume.yml` to stop and start the app and its nodes.
+the apply. Use `deploy-image.yml` or CI to change images, and
+`pause.yml`/`resume.yml` to stop and start the app and its nodes.
 
 The Ingress explicitly selects `ELBSecurityPolicy-TLS13-1-2-2021-06` and enables
 `routing.http.drop_invalid_header_fields.enabled=true`. The ALB accepts TLS
@@ -614,13 +614,6 @@ ansible-playbook ansible/playbooks/deploy-image.yml \
 This sends the same SSM document as CI, so a manual deploy gets the same image
 check, smoke test and rollback. It doesn't need the SSM tunnel or `kubectl`.
 
-Scale the app up or down:
-
-```bash
-ansible-playbook ansible/playbooks/scale.yml -e replicas=2
-ansible-playbook ansible/playbooks/scale.yml -e replicas=0
-```
-
 Stop the app and scale the node group to 0, then bring both back:
 
 ```bash
@@ -640,9 +633,9 @@ cluster autoscaler, so the cap matches the two t3.small nodes: memory requests
 equal the limits (backend 512Mi, frontend 128Mi), and two pods of each app plus
 a rollout surge fit in the nodes' memory. With one node drained, the second
 backend pod doesn't fit on the remaining node and waits until the node comes
-back, while the PodDisruptionBudget keeps one of each app serving. Manual
-scaling is temporary while HPA is enabled because Kubernetes reconciles the
-replica count.
+back, while the PodDisruptionBudget keeps one of each app serving. The HPAs
+put any other replica count straight back to two. Scaling to 0 by hand does
+stay, but it leaves the alarms on, so stop the app with `pause.yml` instead.
 
 ## Monitoring
 
@@ -859,8 +852,13 @@ During apply, Terraform recreates AWS resources and then runs
 - waits for running Deployment rollouts and configures monitoring
 
 After a fresh recreate, Kubernetes starts from the bootstrap/default `latest`
-image tag. The GitHub Actions deploy workflow should be run afterward to update
-the live Deployments to the tag CI built.
+image tag, and the new ECR repositories hold only those `latest` images. No
+earlier release tag is in them, so re-running an old `Deploy to EKS` run fails
+its ECR check. Build a release into the new repositories first: re-run the
+`Docker Image CI` run for the commit at the tip of `main` (the new repositories
+have none of its tags, so its push goes through; the deploy skips older
+commits), or push a commit to `main`. The `Deploy to EKS` run that follows
+moves the live Deployments to the new tag after the `production` approval.
 
 A recreate also gives the NAT gateways new public IPs. If Neon's IP Allow list
 is in use (see Database Access), replace the old addresses with the new ones or
@@ -1000,8 +998,16 @@ minor version at a time, in this order:
    control plane, then moves the vpc-cni, coredns and kube-proxy add-ons
    (`aws_eks_addon.core` in `terraform/eks.tf`) to EKS's default version for the
    new Kubernetes version.
-2. Update the node group AMI (`aws eks update-nodegroup-version`).
-3. Update the Helm charts pinned in `load-balancer-controller.yml` and
+2. Run `ansible-playbook ansible/playbooks/apply-kubernetes.yml`, then
+   `scripts/monitoring.sh workloads`. The NetworkPolicy lets the control
+   plane's network interfaces reach the pods, and `apply-kubernetes.yml` looks
+   up their IPs only when it runs. The upgrade doesn't re-run the bootstrap,
+   but EKS can replace those interfaces during it. With the old IPs, every
+   deploy's smoke test times out through the Service proxy and the deploy
+   rolls back. The `workloads` section fails if the policy misses a current
+   interface.
+3. Update the node group AMI (`aws eks update-nodegroup-version`).
+4. Update the Helm charts pinned in `load-balancer-controller.yml` and
    `metrics-server.yml` if their releases require it, and keep the Load
    Balancer Controller IAM policy in `terraform/iam.tf` in step with its
    chart version.
