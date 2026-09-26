@@ -3,12 +3,8 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-GROUP_VARS_DIR="$REPO_ROOT/ansible/group_vars/all"
-
-group_var() {
-  sed -nE "s/^\"?$1\"?:[[:space:]]*\"?([^\"]*)\"?[[:space:]]*\$/\1/p" \
-    "$GROUP_VARS_DIR/main.yml" "$GROUP_VARS_DIR/terraform.yml" 2>/dev/null | tail -n 1 || true
-}
+# shellcheck source=scripts/lib/config.sh
+source "$SCRIPT_DIR/lib/config.sh"
 
 # terraform.yml is gone after a destroy, so these fall back to the fixed names
 # in terraform/locals.tf, terraform/variables.tf and group_vars/all/main.yml.
@@ -22,6 +18,7 @@ INGRESS_NAME="${INGRESS_NAME:-$(group_var ingress_name)}"
 INGRESS_NAME="${INGRESS_NAME:-hospital-ingress}"
 ALARM_PREFIX="${ALARM_PREFIX:-$(group_var monitoring_alarm_prefix)}"
 ALARM_PREFIX="${ALARM_PREFIX:-hospitalsystem}"
+ALB_ALARM_QUERY="$(alb_alarm_query "$ALARM_PREFIX")"
 
 APPLY=false
 
@@ -32,9 +29,8 @@ Usage: scripts/cleanup-orphans.sh [--apply]
 Lists what a terraform destroy leaves behind in this account and region.
 A target group is picked only when it has no load balancer, carries the Load
 Balancer Controller's tags for this cluster and Ingress, and its VPC no longer
-exists. Alarms are the ALB alarms monitoring.yml creates, picked by name:
-ALARM_PREFIX-alb-5xx and ALARM_PREFIX-unhealthy-targets-*. Terraform's own
-alarms are left alone. Before a destroy, use scripts/pre-destroy-cleanup.sh
+exists. Alarms are the ALB alarms monitoring.yml creates, picked by the names
+config/alb-alarms.json gives them. Terraform's own alarms are left alone. Before a destroy, use scripts/pre-destroy-cleanup.sh
 instead.
 
   --apply   Delete what is found. Without it the script only lists.
@@ -152,14 +148,14 @@ if [ "$others" -gt 0 ]; then
   printf 'Left alone: %d detached k8s-* target group(s) of other clusters or Ingresses\n' "$others"
 fi
 
-section "ALB alarms (${ALARM_PREFIX}-alb-5xx, ${ALARM_PREFIX}-unhealthy-targets-*)"
+section "ALB alarms (config/alb-alarms.json)"
 
 # Exact names, so another project whose name starts with ALARM_PREFIX and
 # Terraform's alarms (still live if the environment is up) are never picked.
 alarms="$(
   aws_read cloudwatch describe-alarms \
     --alarm-name-prefix "$ALARM_PREFIX-" \
-    --query "MetricAlarms[?AlarmName == '$ALARM_PREFIX-alb-5xx' || starts_with(AlarmName, '$ALARM_PREFIX-unhealthy-targets-')].AlarmName" \
+    --query "$ALB_ALARM_QUERY" \
     --output text
 )"
 

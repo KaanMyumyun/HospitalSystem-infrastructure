@@ -3,17 +3,10 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-GROUP_VARS_DIR="$REPO_ROOT/ansible/group_vars/all"
-
-group_var() {
-  sed -nE "s/^\"?$1\"?:[[:space:]]*\"?([^\"]*)\"?[[:space:]]*\$/\1/p" \
-    "$GROUP_VARS_DIR/main.yml" "$GROUP_VARS_DIR/terraform.yml" 2>/dev/null | tail -n 1 || true
-}
-
-tf_default() {
-  sed -nE "/^variable \"$1\"/,/^}/ s/^[[:space:]]*default[[:space:]]*=[[:space:]]*\"([^\"]*)\".*/\1/p" \
-    "$REPO_ROOT/terraform/variables.tf" 2>/dev/null || true
-}
+# shellcheck source=scripts/lib/config.sh
+source "$SCRIPT_DIR/lib/config.sh"
+# shellcheck source=scripts/lib/image-check.sh
+source "$SCRIPT_DIR/lib/image-check.sh"
 
 #./scripts/monitoring.sh                    # everything, including cost; changes nothing in AWS
 #./scripts/monitoring.sh --refresh-alarms   # also recreates the ALB alarms (monitoring.yml) first
@@ -37,8 +30,8 @@ FRONTEND_REPOSITORY_URL="${FRONTEND_REPOSITORY_URL:-$(group_var frontend_reposit
 DEPLOY_GROUP="${DEPLOY_GROUP:-$(group_var github_actions_deploy_group)}"
 # terraform/ops.tf names the deploy document after var.project_name, which is also the alarm prefix.
 DEPLOY_SSM_DOCUMENT="${DEPLOY_SSM_DOCUMENT:-${ALARM_PREFIX:+$ALARM_PREFIX-deploy}}"
-GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-$(tf_default github_repository)}"
-GITHUB_DEPLOY_ENVIRONMENT="${GITHUB_DEPLOY_ENVIRONMENT:-$(tf_default github_deploy_environment)}"
+GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-$(group_var github_repository)}"
+GITHUB_DEPLOY_ENVIRONMENT="${GITHUB_DEPLOY_ENVIRONMENT:-$(group_var github_deploy_environment)}"
 BACKEND_METRICS_PORT="${BACKEND_METRICS_PORT:-9091}"
 LOG_TAIL_LINES="${LOG_TAIL_LINES:-100}"
 LOOKBACK_HOURS="${LOOKBACK_HOURS:-3}"
@@ -69,7 +62,8 @@ Sections:
   events         recent Warning events
   logs           app logs, plus the previous container's logs after a restart
   control-plane  errors and denied logins in the EKS control plane logs
-  ecr            newest images, scan findings, whether the newest image is deployed
+  ecr            newest images, scan findings, whether the newest image is deployed,
+                 and the commit it was built from vs main (also scripts/image-check.sh)
   cicd           SSM deploy history, GitHub Actions runs, repository variables vs Terraform
   cost           month-to-date spend without credits (one Cost Explorer call, $0.01)
 
@@ -232,6 +226,7 @@ last_line() {
 }
 
 ensure_kube() {
+  local context
   case "$KUBE_STATE" in
     ok) return 0 ;;
     failed)
@@ -252,8 +247,15 @@ ensure_kube() {
     return 1
   fi
 
+  if ! context="$(kubectl config current-context 2>&1)"; then
+    fail "Could not read the kubectl context: $(last_line "$context")"
+    return 1
+  elif [ -z "$context" ]; then
+    fail "kubectl has no current context"
+    return 1
+  fi
   KUBE_STATE=ok
-  ok "kubectl context $(kubectl config current-context)"
+  ok "kubectl context $context"
 }
 
 load_alb() {
@@ -903,8 +905,9 @@ section_nodes() {
   local readyz rows name ready memory disk pid pods cordoned count placements total=0
   declare -A node_pods=() node_capacity=()
 
-  readyz="$(kube get --raw /readyz 2>&1)"
-  if [ "$readyz" = ok ]; then
+  if ! readyz="$(kube get --raw /readyz 2>&1)"; then
+    fail "Could not read API server /readyz: $(last_line "$readyz")"
+  elif [ "$readyz" = ok ]; then
     ok "API server /readyz is ok"
   else
     fail "API server /readyz: $(last_line "$readyz")"
@@ -980,7 +983,9 @@ section_system() {
     }
     IFS='|' read -r ready want <<<"$row"
     ready="${ready:-0}"
-    if [ "$ready" = "$want" ] && [ "$want" != 0 ]; then
+    if ! [[ "$ready" =~ ^[0-9]+$ && "$want" =~ ^[0-9]+$ ]]; then
+      fail "Could not read valid replica counts for $name in kube-system"
+    elif [ "$ready" -eq "$want" ] && [ "$want" -gt 0 ]; then
       ok "$name: $ready/$want ready"
     else
       fail "$name: $ready/$want ready"
@@ -1056,16 +1061,22 @@ section_workloads() {
     }
     IFS='|' read -r desired ready updated image <<<"$row"
     ready="${ready:-0}"
-    if [ "$desired" = 0 ]; then
+    if ! [[ "$desired" =~ ^[0-9]+$ && "$ready" =~ ^[0-9]+$ && "${updated:-0}" =~ ^[0-9]+$ ]] || [ -z "$image" ]; then
+      fail "Could not read valid replica counts and image for Deployment $deployment"
+      continue
+    elif [ "$desired" = 0 ]; then
       warn "$deployment is scaled to 0"
     elif [ "$ready" -lt "$desired" ]; then
       fail "$deployment: $ready/$desired ready, ${updated:-0} updated"
     else
       ok "$deployment: $ready/$desired ready on ${image##*:}"
     fi
-    status="$(kube rollout status "deployment/$deployment" -n "$NAMESPACE" --watch=false 2>&1)"
-    if [[ "$status" == *"exceeded its progress deadline"* ]]; then
-      fail "$deployment rollout exceeded its progress deadline; roll back with kubectl rollout undo deployment/$deployment -n $NAMESPACE"
+    if ! status="$(kube rollout status "deployment/$deployment" -n "$NAMESPACE" --watch=false 2>&1)"; then
+      if [[ "$status" == *"exceeded its progress deadline"* ]]; then
+        fail "$deployment rollout exceeded its progress deadline; roll back with kubectl rollout undo deployment/$deployment -n $NAMESPACE"
+      else
+        fail "Could not read the rollout status of $deployment: $(last_line "$status")"
+      fi
     elif [[ "$status" != *"successfully rolled out"* ]]; then
       warn "$deployment rollout: $(last_line "$status")"
     fi
@@ -1222,6 +1233,8 @@ section_workloads() {
       --query 'NetworkInterfaces[].PrivateIpAddress' --output text 2>&1
   )"; then
     warn "Could not list the EKS control plane ENIs: $(last_line "$enis")"
+  elif [ -z "$enis" ] || [ "$enis" = None ]; then
+    warn "No EKS control plane ENIs found; the NetworkPolicy could not be checked"
   else
     missing=""
     for ip in $enis; do
@@ -1550,6 +1563,7 @@ section_ecr() {
     else
       warn "$deployment runs $tag but the newest $repo image is tagged ${newest:-untagged}"
     fi
+    check_image "$deployment"
     if ! row="$(
       awsr ecr describe-images --repository-name "$repo" --image-ids "imageTag=$tag" \
         --query 'imageDetails[0].[imageScanStatus.status || `NONE`, imageScanFindingsSummary.findingSeverityCounts.CRITICAL || `0`, imageScanFindingsSummary.findingSeverityCounts.HIGH || `0`]' \

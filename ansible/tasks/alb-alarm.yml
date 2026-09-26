@@ -1,0 +1,83 @@
+---
+# alarm_definition comes from config/alb-alarms.json, also read by cleanup.
+- name: Set dimensions for this alarm
+  ansible.builtin.set_fact:
+    alarm_dimensions: "{{ target_group_dimensions if alarm_definition.scope == 'target_group' else [alb_dimension] }}"
+    current_alarm_names: []
+
+- name: Set current alarm names
+  ansible.builtin.set_fact:
+    current_alarm_names: >-
+      {{ current_alarm_names + [monitoring_alarm_prefix ~ '-' ~ alarm_definition.suffix
+         ~ ((item | regex_replace('[^A-Za-z0-9-]', '-')) if alarm_definition.scope == 'target_group' else '')] }}
+  loop: "{{ alarm_dimensions }}"
+
+- name: Look up existing target group alarms
+  ansible.builtin.command:
+    argv:
+      - aws
+      - cloudwatch
+      - describe-alarms
+      - --region
+      - "{{ aws_region }}"
+      - --alarm-name-prefix
+      - "{{ monitoring_alarm_prefix }}-{{ alarm_definition.suffix }}"
+      - --query
+      - MetricAlarms[].AlarmName
+      - --output
+      - text
+  register: existing_target_group_alarms
+  changed_when: false
+  when: alarm_definition.scope == 'target_group'
+
+- name: Delete stale target group alarms
+  ansible.builtin.command:
+    argv:
+      - aws
+      - cloudwatch
+      - delete-alarms
+      - --region
+      - "{{ aws_region }}"
+      - --alarm-names
+      - "{{ item }}"
+  changed_when: true
+  loop: "{{ (existing_target_group_alarms.stdout | default('')).split() | difference(current_alarm_names) }}"
+  when: alarm_definition.scope == 'target_group'
+
+- name: Configure alarm
+  ansible.builtin.command:
+    argv: "{{ alarm_args + dimension_args + alarm_action_args }}"
+  vars:
+    alarm_args:
+      - aws
+      - cloudwatch
+      - put-metric-alarm
+      - --region
+      - "{{ aws_region }}"
+      - --alarm-name
+      - "{{ current_alarm_names[alarm_index] }}"
+      - --alarm-description
+      - "{{ alarm_definition.description }}"
+      - --namespace
+      - AWS/ApplicationELB
+      - --metric-name
+      - "{{ alarm_definition.metric }}"
+      - --statistic
+      - "{{ alarm_definition.statistic }}"
+      - --period
+      - "300"
+      - --evaluation-periods
+      - "1"
+      - --threshold
+      - "{{ alarm_definition.threshold | string }}"
+      - --comparison-operator
+      - GreaterThanOrEqualToThreshold
+      - --treat-missing-data
+      - notBreaching
+    dimension_args: >-
+      {{ ['--dimensions', 'Name=LoadBalancer,Value=' ~ alb_dimension]
+         + (['Name=TargetGroup,Value=' ~ item] if alarm_definition.scope == 'target_group' else []) }}
+  changed_when: true
+  loop: "{{ alarm_dimensions }}"
+  loop_control:
+    index_var: alarm_index

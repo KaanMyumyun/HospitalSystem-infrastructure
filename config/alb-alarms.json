@@ -1,0 +1,18 @@
+[
+  {
+    "suffix": "alb-5xx",
+    "scope": "load_balancer",
+    "metric": "HTTPCode_ELB_5XX_Count",
+    "statistic": "Sum",
+    "threshold": 5,
+    "description": "HospitalSystem ALB is returning HTTP 5xx responses"
+  },
+  {
+    "suffix": "unhealthy-targets-",
+    "scope": "target_group",
+    "metric": "UnHealthyHostCount",
+    "statistic": "Average",
+    "threshold": 1,
+    "description": "HospitalSystem target group has unhealthy targets"
+  }
+]

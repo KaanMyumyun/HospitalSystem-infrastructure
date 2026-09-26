@@ -3,12 +3,8 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-GROUP_VARS_DIR="$REPO_ROOT/ansible/group_vars/all"
-
-group_var() {
-  sed -nE "s/^\"?$1\"?:[[:space:]]*\"?([^\"]*)\"?[[:space:]]*\$/\1/p" \
-    "$GROUP_VARS_DIR/main.yml" "$GROUP_VARS_DIR/terraform.yml" 2>/dev/null | tail -n 1 || true
-}
+# shellcheck source=scripts/lib/config.sh
+source "$SCRIPT_DIR/lib/config.sh"
 
 AWS_REGION="${AWS_REGION:-$(group_var aws_region)}"
 AWS_REGION="${AWS_REGION:-eu-north-1}"
@@ -22,6 +18,7 @@ K8S_NAMESPACE="${K8S_NAMESPACE:-hospitalsystem}"
 CERT_ARN="${CERT_ARN:-$(group_var acm_certificate_arn)}"
 ALARM_PREFIX="${ALARM_PREFIX:-$(group_var monitoring_alarm_prefix)}"
 ALARM_PREFIX="${ALARM_PREFIX:-hospitalsystem}"
+ALB_ALARM_QUERY="$(alb_alarm_query "$ALARM_PREFIX")"
 # Seconds between retries of an ALB wait or a delete that AWS reports as in use.
 RETRY_DELAY="${RETRY_DELAY:-10}"
 # The playbooks write the tunnel kubeconfig here and leave ~/.kube/config alone.
@@ -303,14 +300,15 @@ fi
 
 section "ALB alarms (not blocking)"
 
-# ansible/playbooks/monitoring.yml creates these; Terraform doesn't know them.
+# ansible/playbooks/monitoring.yml creates these from config/alb-alarms.json;
+# Terraform doesn't know them.
 # The node group alarm is Terraform's and goes with the destroy. These don't
 # block the destroy, but nothing else would delete them, so a failed lookup
 # stops here too.
 alb_alarms="$(
   lookup - cloudwatch describe-alarms --region "$AWS_REGION" \
     --alarm-name-prefix "$ALARM_PREFIX-" \
-    --query "MetricAlarms[?AlarmName == '$ALARM_PREFIX-alb-5xx' || starts_with(AlarmName, '$ALARM_PREFIX-unhealthy-targets-')].AlarmName" \
+    --query "$ALB_ALARM_QUERY" \
     --output text
 )" || exit 1
 
