@@ -96,6 +96,15 @@ jobs:
       - name: TFLint
         run: tflint --format compact
 
+      # The state bucket's config is a separate root module; Format already
+      # covers it.
+      - name: Bootstrap init, validate and TFLint
+        working-directory: terraform/bootstrap
+        run: |
+          terraform init -backend=false -input=false -lockfile=readonly
+          terraform validate
+          tflint --format compact
+
   ansible:
     name: Ansible
     runs-on: ubuntu-latest

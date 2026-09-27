@@ -9,6 +9,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=scripts/lib/config.sh
 source "$SCRIPT_DIR/lib/config.sh"
+# shellcheck source=scripts/lib/state.sh
+source "$SCRIPT_DIR/lib/state.sh"
 
 # Read now: the destroy deletes terraform.yml early, and the later steps
 # still need these.
@@ -18,7 +20,6 @@ ALARM_PREFIX="${ALARM_PREFIX:-$(group_var monitoring_alarm_prefix)}"
 K8S_NAMESPACE="${K8S_NAMESPACE:-$(group_var k8s_namespace)}"
 INGRESS_NAME="${INGRESS_NAME:-$(group_var ingress_name)}"
 TF_DIR="$REPO_ROOT/terraform"
-LOCK_FILE="$TF_DIR/.terraform.tfstate.lock.info"
 LOG_DIR="$REPO_ROOT/.generated/teardown/$(date -u +%Y%m%dT%H%M%SZ)"
 ASSUME_YES=false
 
@@ -26,11 +27,11 @@ usage() {
   cat <<'USAGE'
 Usage: scripts/teardown.sh [--yes]
 
-Destroys everything in Terraform state and checks that nothing billable is
-left anywhere in the account:
+Destroys everything in Terraform state, then the S3 bucket that held the
+state, and checks that nothing billable is left anywhere in the account:
 
-  1. checks: AWS login, the logged-in account is the stack's, no lock left
-     by an interrupted Terraform run; then asks you to type the cluster name
+  1. checks: AWS login, the logged-in account's state bucket, no Terraform
+     run holds the state lock; then asks you to type the cluster name
   2. destroys terraform_data.kubernetes_cleanup alone, which runs
      cleanup-kubernetes.yml while the cluster can still delete its ALB
   3. scripts/pre-destroy-cleanup.sh --apply for anything step 2 left
@@ -40,10 +41,13 @@ left anywhere in the account:
      retries once
   5. checks the state is empty, then scripts/cleanup-orphans.sh --apply
      for this stack's target groups and ALB alarms
-  6. scripts/account-sweep.py: everything billable in every region
+  6. deletes the state bucket (terraform/bootstrap), only when the state is
+     empty and unlocked
+  7. scripts/account-sweep.py: everything billable in every region
 
 Stops at the first step that fails, so a destroy never starts while an ALB
-it would stall on is still up. With nothing in state it runs only 5 and 6.
+it would stall on is still up. With nothing in state it runs only 5 to 7,
+and with no state bucket only 5 and 7.
 Each step's output is also saved under .generated/teardown/.
 
   --yes     don't ask for the cluster name
@@ -81,6 +85,23 @@ run_logged() {
 
 state_list() {
   terraform -chdir="$TF_DIR" state list
+}
+
+# Prints the lock a Terraform run holds on the state; nothing when unlocked.
+state_lock() {
+  local found
+  found="$(aws s3api list-objects-v2 --bucket "$STATE_BUCKET" --prefix "$LOCK_KEY" \
+    --query "Contents[?Key=='$LOCK_KEY'].Key" --output text)" || return 1
+  [ -n "$found" ] && [ "$found" != None ] || return 0
+  aws s3 cp "s3://$STATE_BUCKET/$LOCK_KEY" -
+}
+
+# "WHO<tab>OPERATION<tab>CREATED<tab>ID" of the lock on stdin.
+lock_summary() {
+  python3 -c 'import json, sys
+lock = json.load(sys.stdin)
+operation = lock.get("Operation", "").removeprefix("OperationType").lower()
+print(lock.get("Who", "?"), operation or "?", lock.get("Created", "?"), lock.get("ID", "?"), sep="\t")'
 }
 
 output() {
@@ -126,32 +147,47 @@ show_what_is_left() {
 
 mkdir -p "$LOG_DIR"
 
-step "1/6 Checks"
+step "1/7 Checks"
 if ! identity="$(aws sts get-caller-identity --query Account --output text 2>&1)"; then
   stop "No usable AWS credentials ($identity). Run: aws login"
 fi
-if [ -e "$LOCK_FILE" ]; then
-  if pgrep -x terraform >/dev/null; then
-    stop "Another Terraform run holds the state lock. Wait for it to finish."
+STATE_BUCKET="$(state_bucket "$identity")"
+LOCK_KEY="hospitalsystem/terraform.tfstate.tflock" # next to the backend block's key in terraform/versions.tf
+bucket_status=0
+state_bucket_exists "$STATE_BUCKET" || bucket_status=$?
+[ "$bucket_status" != 2 ] || stop "Could not list the S3 buckets (see the error above)."
+if [ "$bucket_status" = 1 ]; then
+  # tf.sh creates the bucket before the first apply, so no bucket means
+  # nothing was applied since the last teardown.
+  printf 'No state bucket (%s), so nothing is in Terraform state.\n' "$STATE_BUCKET"
+  HAVE_BUCKET=false
+  resources=""
+  OUTPUTS="{}"
+else
+  HAVE_BUCKET=true
+  if ! init_output="$(ensure_backend "$STATE_BUCKET" 2>&1)"; then
+    stop "terraform init failed: $init_output"
   fi
-  stop "A Terraform run was interrupted and left ${LOCK_FILE#"$REPO_ROOT"/}. Nothing is running, so delete it (rm \"$LOCK_FILE\") and run this again."
-fi
-if ! resources="$(state_list 2>&1)"; then
-  stop "Could not read the Terraform state: $resources"
+  if ! lock="$(state_lock)"; then
+    stop "Could not check the state lock in s3://$STATE_BUCKET (see the error above)."
+  fi
+  if [ -n "$lock" ]; then
+    IFS=$'\t' read -r who operation created lock_id <<<"$(lock_summary <<<"$lock")"
+    stop "The state is locked by $who ($operation since $created). If that run is still going, wait for it to finish. If it was interrupted, unlock it (./scripts/tf.sh force-unlock $lock_id) and run this again."
+  fi
+  if ! resources="$(state_list 2>&1)"; then
+    stop "Could not read the Terraform state: $resources"
+  fi
+  if ! OUTPUTS="$(terraform -chdir="$TF_DIR" output -json 2>&1)"; then
+    stop "Could not read the Terraform outputs: $OUTPUTS"
+  fi
 fi
 count="$(grep -c . <<<"$resources" || true)"
-if ! OUTPUTS="$(terraform -chdir="$TF_DIR" output -json 2>&1)"; then
-  stop "Could not read the Terraform outputs: $OUTPUTS"
-fi
 CLUSTER_NAME="$(output cluster_name)"
 VPC_ID="$(output vpc_id)"
 OPS_INSTANCE_ID="$(output ops_instance_id)"
-state_account="$(output account_id)"
 printf 'Account:   %s\nRegion:    %s\nCluster:   %s\nVPC:       %s\nIn state:  %s resource(s)\n' \
   "$identity" "$AWS_REGION" "${CLUSTER_NAME:-none}" "${VPC_ID:-none}" "$count"
-if [ -n "$state_account" ] && [ "$state_account" != "$identity" ]; then
-  stop "You are logged in to account $identity, but the stack is in $state_account."
-fi
 
 if [ "$count" -gt 0 ]; then
   if [ "$ASSUME_YES" = false ]; then
@@ -161,7 +197,7 @@ if [ "$count" -gt 0 ]; then
     [ "$answer" = "$word" ] || stop "Not confirmed. Nothing was changed."
   fi
 
-  step "2/6 Kubernetes cleanup while the cluster is up"
+  step "2/7 Kubernetes cleanup while the cluster is up"
   cleanup_address="$(grep -xE 'terraform_data\.kubernetes_cleanup(\[0\])?' <<<"$resources" || true)"
   if [ -z "$cleanup_address" ]; then
     printf 'terraform_data.kubernetes_cleanup is not in state; skipping.\n'
@@ -170,11 +206,11 @@ if [ "$count" -gt 0 ]; then
     stop "The Kubernetes cleanup failed, and the cluster is still up. Fix the cause shown above and run this again."
   fi
 
-  step "3/6 Pre-destroy cleanup"
+  step "3/7 Pre-destroy cleanup"
   pre_destroy_cleanup 3-pre-destroy-cleanup \
     || stop "Something blocking the destroy couldn't be deleted (see above). Fix it and run this again."
 
-  step "4/6 terraform destroy"
+  step "4/7 terraform destroy"
   if ! run_logged 4-destroy "$SCRIPT_DIR/tf.sh" destroy -auto-approve -input=false -no-color; then
     printf '\nThe destroy failed. Cleaning up what usually blocks it, then retrying once.\n'
     pre_destroy_cleanup 4-pre-destroy-cleanup-again || true
@@ -186,18 +222,25 @@ if [ "$count" -gt 0 ]; then
   fi
 fi
 
-step "5/6 Leftovers"
+step "5/7 Leftovers"
 problems=0
-left="$(state_list | grep -c . || true)"
-if [ "$left" -gt 0 ]; then
-  printf 'Terraform state still has %s resource(s).\n' "$left"
-  problems=$((problems + 1))
-else
-  printf 'Terraform state is empty.\n'
-fi
-if [ -e "$LOCK_FILE" ]; then
-  printf 'The state lock file is still there: %s\n' "$LOCK_FILE"
-  problems=$((problems + 1))
+state_clean=true
+if [ "$HAVE_BUCKET" = true ]; then
+  left="$(state_list | grep -c . || true)"
+  if [ "$left" -gt 0 ]; then
+    printf 'Terraform state still has %s resource(s).\n' "$left"
+    state_clean=false
+  else
+    printf 'Terraform state is empty.\n'
+  fi
+  if ! lock="$(state_lock)"; then
+    printf 'Could not check the state lock.\n'
+    state_clean=false
+  elif [ -n "$lock" ]; then
+    printf 'The state is still locked: s3://%s/%s\n' "$STATE_BUCKET" "$LOCK_KEY"
+    state_clean=false
+  fi
+  [ "$state_clean" = true ] || problems=$((problems + 1))
 fi
 if ! run_logged 5-cleanup-orphans env ${CLUSTER_NAME:+CLUSTER_NAME="$CLUSTER_NAME"} \
   ${ALARM_PREFIX:+ALARM_PREFIX="$ALARM_PREFIX"} ${K8S_NAMESPACE:+K8S_NAMESPACE="$K8S_NAMESPACE"} \
@@ -210,8 +253,31 @@ if [ -n "${OPS_INSTANCE_ID:-}" ] && tunnels="$(pgrep -f "ssm start-session.*$OPS
     "$(tr '\n' ' ' <<<"$tunnels")"
 fi
 
-step "6/6 Account sweep"
-if ! run_logged 6-account-sweep "$SCRIPT_DIR/account-sweep.py"; then
+step "6/7 State bucket"
+if [ "$HAVE_BUCKET" = false ]; then
+  printf 'Already gone.\n'
+elif [ "$state_clean" = false ]; then
+  # Deleting it would lose track of what the state still holds.
+  printf 'Kept %s: the state still has resources or a lock (see 5/7).\n' "$STATE_BUCKET"
+else
+  run_logged 6-state-bucket delete_state_bucket "$STATE_BUCKET" || true
+  bucket_status=0
+  state_bucket_exists "$STATE_BUCKET" || bucket_status=$?
+  if [ "$bucket_status" = 1 ]; then
+    printf 'Deleted %s.\n' "$STATE_BUCKET"
+  elif [ "$bucket_status" = 2 ]; then
+    printf 'Could not check that %s is gone.\n' "$STATE_BUCKET"
+    problems=$((problems + 1))
+  else
+    # Also when terraform/bootstrap/terraform.tfstate was lost: the destroy
+    # then has nothing to delete.
+    printf 'The state bucket %s is still there. Empty and delete it in the S3 console.\n' "$STATE_BUCKET"
+    problems=$((problems + 1))
+  fi
+fi
+
+step "7/7 Account sweep"
+if ! run_logged 7-account-sweep "$SCRIPT_DIR/account-sweep.py"; then
   problems=$((problems + 1))
 fi
 
