@@ -1,5 +1,15 @@
 terraform {
-  required_version = ">= 1.6.0"
+  # use_lockfile needs 1.11.
+  required_version = ">= 1.11.0"
+
+  # State lives in the bucket terraform/bootstrap creates. Its name has the
+  # account ID in it, so ./scripts/tf.sh passes it to terraform init.
+  backend "s3" {
+    key          = "hospitalsystem/terraform.tfstate"
+    region       = "eu-north-1"
+    encrypt      = true
+    use_lockfile = true
+  }
 
   required_providers {
     aws = {

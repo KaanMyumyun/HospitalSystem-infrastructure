@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-env_file="$repo_root/.env.local"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+env_file="$REPO_ROOT/.env.local"
+# shellcheck source=scripts/lib/state.sh
+source "$REPO_ROOT/scripts/lib/state.sh"
 
 if [ -f "$env_file" ]; then
   set -a
@@ -62,5 +64,42 @@ if [ "$needs_ssm_plugin" = true ] && ! command -v session-manager-plugin >/dev/n
   exit 1
 fi
 
-cd "$repo_root/terraform"
+cd "$REPO_ROOT/terraform"
+case "${1:-}" in
+  "" | fmt | validate | version | providers | -version | --version | -help | --help | -h)
+    exec terraform "$@"
+    ;;
+esac
+
+# Everything else reads or writes the state in S3.
+if ! account="$(aws sts get-caller-identity --query Account --output text)"; then
+  echo "No usable AWS credentials. Run: aws login" >&2
+  exit 1
+fi
+bucket="$(state_bucket "$account")"
+status=0
+state_bucket_exists "$bucket" || status=$?
+if [ "$status" = 2 ]; then
+  echo "Could not list the S3 buckets (see the error above)." >&2
+  exit 1
+fi
+if [ "$status" = 1 ]; then
+  case "$1" in
+    apply | plan | init | import)
+      echo "Creating the state bucket $bucket (terraform/bootstrap)." >&2
+      create_state_bucket "$bucket" >&2
+      ;;
+    *)
+      echo "There is no state bucket ($bucket), so there is no state: nothing has been applied since the last teardown." >&2
+      exit 1
+      ;;
+  esac
+fi
+
+# The backend block in versions.tf leaves the bucket out: its name has the
+# account ID in it.
+if [ "$1" = init ]; then
+  exec terraform "$@" -backend-config="bucket=$bucket"
+fi
+ensure_backend "$bucket" >&2
 exec terraform "$@"

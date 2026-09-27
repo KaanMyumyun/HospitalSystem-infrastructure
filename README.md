@@ -81,6 +81,7 @@ User
 ```text
 terraform/
 ├── *.tf
+├── bootstrap/      # the S3 state bucket, created and deleted by the scripts
 └── imports/        # ignored unedited Terracognita output
 ansible/
 ├── group_vars/all/
@@ -329,14 +330,48 @@ so there is nothing to import first. Check and review a change before applying
 it:
 
 ```bash
-cd terraform
-terraform init
-terraform fmt -check -recursive
-terraform validate
-cd ..
-./scripts/tf.sh plan
+./scripts/tf.sh fmt -check -recursive
+./scripts/tf.sh plan    # validates too; the first run creates the state bucket
 ./scripts/tf.sh apply
 ```
+
+### Remote state
+
+The state lives in the S3 bucket `hospitalsystem-tfstate-<account ID>`, under
+`hospitalsystem/terraform.tfstate`, and the bucket lives only as long as the
+stack, so nothing is left billing after a teardown:
+
+- `./scripts/tf.sh apply` (and `plan`, `init`, `import`) creates the bucket
+  from `terraform/bootstrap` when it is missing, then runs `terraform init`
+  against it when this checkout isn't set up for it yet.
+- `./scripts/teardown.sh` deletes the bucket, with every state version in it,
+  after the destroy, and only when the state is empty and unlocked. If the
+  state still holds anything, the bucket stays and the teardown reports it.
+
+So a full cycle is still two commands, with nothing to set up by hand:
+
+```bash
+./scripts/tf.sh apply
+./scripts/teardown.sh --yes
+```
+
+Terraform locks the state with a `.tflock` object next to it
+(`use_lockfile`), so no DynamoDB table is needed. While the stack is up the
+bucket is versioned, so an earlier state can be restored. It is encrypted
+with SSE-S3, private, and reachable only over TLS.
+
+`terraform/bootstrap` is a separate configuration because the bucket can't
+hold the state of the configuration that creates it. Its own state is local
+(`terraform/bootstrap/terraform.tfstate`, ignored by git). If that file is
+lost while the bucket exists, the teardown can't delete the bucket and says
+so; empty and delete it in the S3 console.
+
+Without the bucket, `./scripts/tf.sh output`, `state` and `destroy` stop and
+say there is no state. `fmt` and `validate` don't touch AWS.
+
+If an interrupted run leaves the lock behind, the next run fails with
+`Error acquiring the state lock` and prints the lock ID. When nothing is still
+running, remove it with `./scripts/tf.sh force-unlock <ID>`.
 
 ## Ansible Operations
 
@@ -411,8 +446,9 @@ Then run Terraform through the wrapper, which loads `.env.local` and exports
 `TF_VAR_cloudflare_api_token`. It only checks what the command needs: `apply`
 requires the backend secrets, the Cloudflare token, and a running Docker
 daemon; `plan`, `destroy`, `refresh`, and `import` require the Cloudflare
-token; read-only commands such as `output`, `state`, and `validate` require
-nothing:
+token; read-only commands such as `output`, `state`, and `validate` require no
+variables. Every command except `fmt` and `validate` needs an AWS login, since
+the state is in S3:
 
 ```bash
 ./scripts/tf.sh apply
@@ -808,8 +844,10 @@ Full recreate:
 `./scripts/teardown.sh` runs every step of a clean destroy and asks you to
 type the cluster name first (`--yes` skips that):
 
-1. checks the AWS login, that you're logged in to the stack's account, and
-   that no interrupted Terraform run left its state lock behind
+1. checks the AWS login, finds the logged-in account's state bucket, and
+   checks that no Terraform run holds the state lock (if one does, it shows
+   who took the lock, when, and the `force-unlock` command for an interrupted
+   run). With no state bucket there is nothing in state, so it skips to step 5
 2. destroys `terraform_data.kubernetes_cleanup` alone, so the cleanup below
    runs while the cluster can still delete its ALB
 3. runs `scripts/pre-destroy-cleanup.sh --apply` for anything left, retried
@@ -818,7 +856,9 @@ type the cluster name first (`--yes` skips that):
    deletes the EKS cluster security group EKS sometimes leaves in the VPC,
    and retries once
 5. checks the state is empty and runs `scripts/cleanup-orphans.sh --apply`
-6. runs `scripts/account-sweep.py` over every region
+6. deletes the state bucket, only if the state is empty and unlocked
+7. runs `scripts/account-sweep.py` over every region, which lists a state
+   bucket still there as `BILLABLE`
 
 It stops at the first step that fails and exits 1 unless the stack is gone
 and nothing billable is left. Each step's output is also saved under
