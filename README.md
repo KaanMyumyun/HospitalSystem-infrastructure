@@ -124,9 +124,11 @@ The Kubernetes manifests define:
   node, with a PodDisruptionBudget that keeps one available during a drain
 - NetworkPolicies that deny all ingress to the namespace except port 8080
   from the ALB's public subnets and from the EKS control plane's network
-  interfaces (the deploy's smoke test goes through the API server). The
-  vpc-cni add-on enforces them; the node's own traffic, such as kubelet
-  probes, is always allowed.
+  interfaces (the deploy's smoke test goes through the API server), plus the
+  backend's metrics port 9091 from the control plane only, for
+  `scripts/monitoring.sh`'s per-pod metrics read. The vpc-cni add-on
+  enforces them; the node's own traffic, such as kubelet probes, is always
+  allowed.
 - an ExternalSecret that copies the backend secret from AWS Secrets Manager
 - namespace-scoped RBAC for the deploy group, used by the ops instance's
   deploy document
@@ -137,7 +139,10 @@ The Kubernetes manifests define:
   images, so a deploy can't add a lifecycle hook, probe, environment variable
   or volume either
 - ALB-backed Ingress for `app.hospitalsyst.cc`
-- HTTPS listener using ACM
+- HTTPS listener using ACM, which adds `Strict-Transport-Security` (one
+  year), `X-Content-Type-Options: nosniff` and `X-Frame-Options: DENY` to
+  every response and drops the ALB's own `Server` header; no
+  Content-Security-Policy yet
 - `/api` routing to the backend
 - `/` routing to the frontend
 
@@ -205,13 +210,14 @@ Images are tagged two ways:
 | Tag | Example | Why it exists |
 | --- | ------- | ------------- |
 | `latest` | `hospital-backend:latest` | Convenience tag for manual testing and simple local references. |
-| date + short SHA + run number | `2026-08-21-a1b2c3d-57` | The tag the EKS deploy workflow uses. It is unique to the build, so the weekly rebuild of an unchanged commit gets a new tag instead of overwriting the image Kubernetes runs. |
+| date + short SHA + run number + attempt | `2026-08-21-a1b2c3d-57-1` | The tag the EKS deploy workflow uses. It is unique to the build, so the weekly rebuild of an unchanged commit gets a new tag instead of overwriting the image Kubernetes runs. Tags from before the attempt was added end at the run number. |
 
 In ECR every tag except `latest` is immutable (`terraform/ecr.tf`): a push
 that reuses a tag fails instead of replacing the image, so the tag a deploy
 checked and the tag a rollback returns to always name the same image. A
-re-run of a `Docker Image CI` run keeps its run number, so once that run has
-pushed to ECR a re-run can fail on the push; start a new CI run instead.
+re-run of a `Docker Image CI` run keeps its run number but not its attempt,
+so it pushes under a new tag instead of failing on the one the first attempt
+pushed.
 
 3. `Deploy to EKS`
    - runs after the Docker image workflow succeeds
@@ -467,7 +473,7 @@ through Cloudflare DNS, and then runs the Ansible Kubernetes bootstrap.
 
 Each bootstrap image is pushed under two tags: `latest`, which the Kubernetes
 manifests start from, and a `<date>-<short sha>` tag, the deploy workflow's
-format without its run number, so the image the cluster first runs is traceable to the
+format without its run number and attempt, so the image the cluster first runs is traceable to the
 commit it was built from. The short SHA comes from the application checkout and
 gains a `-dirty` suffix when that working tree has uncommitted or untracked
 files. The image also carries `org.opencontainers.image.revision` and

@@ -11,6 +11,13 @@ metadata:
     alb.ingress.kubernetes.io/certificate-arn: "{{ acm_certificate_arn }}"
     alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS13-1-2-2021-06
     alb.ingress.kubernetes.io/load-balancer-attributes: routing.http.drop_invalid_header_fields.enabled=true
+    # Neither app sets security headers, so the ALB adds them to every HTTPS
+    # response, and drops its own Server header. No Content-Security-Policy yet.
+    alb.ingress.kubernetes.io/listener-attributes.HTTPS-443: >-
+      routing.http.response.strict_transport_security.header_value=max-age=31536000; includeSubDomains,
+      routing.http.response.x_content_type_options.header_value=nosniff,
+      routing.http.response.x_frame_options.header_value=DENY,
+      routing.http.response.server.enabled=false
     alb.ingress.kubernetes.io/healthcheck-path: /health
     alb.ingress.kubernetes.io/target-group-attributes: deregistration_delay.timeout_seconds=30
     alb.ingress.kubernetes.io/ssl-redirect: "443"
