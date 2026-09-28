@@ -6,7 +6,7 @@ Infrastructure and Kubernetes deployment configuration for:
 
 Current AWS deployment target:
 
-- Public app URL: `https://app.hospitalsyst.cc`
+- Public app URL: [https://app.hospitalsyst.cc](https://app.hospitalsyst.cc)
 - Runtime platform: Amazon EKS
 - Container registry: Amazon ECR
 - Ingress: AWS Application Load Balancer
@@ -73,7 +73,7 @@ The Terraform is now the source of truth for the AWS layer; see
 
 ## Architecture
 
-![AWS infrastructure architecture](assets/images/aws-architecture.png)
+![AWS infrastructure architecture](assets/images/infrastructure-architecture.png)
 
 The application runs on Amazon EKS inside a custom VPC. Public traffic enters
 through an AWS Application Load Balancer managed by the AWS Load Balancer
@@ -148,7 +148,7 @@ config/
 ├── alb-alarms.json             # the ALB alarms, read by monitoring.yml and the cleanup
 └── account-sweep-ignore.txt    # resources the sweep reports as IGNORED
 tests/                  # Python regression tests (see Checks and Tests)
-assets/images/          # README diagrams
+assets/images/          # README diagrams: each .png is rendered from its .svg
 CICD/                   # copy of the app repository's workflows, not run here
 .github/                # this repository's CI and Dependabot
 kubernetes/             # Jinja templates rendered by apply-kubernetes.yml
@@ -243,7 +243,7 @@ Kubernetes manages the workload layer:
 
 ## CI/CD Workflow
 
-![CI/CD deployment flow](assets/images/cicd-flow.png)
+![CI/CD pipeline](assets/images/cicd-pipeline.png)
 
 The CI/CD pipeline lives in the `.github/workflows` directory of the application
 repository:

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1920" height="772" viewBox="0 0 1920 772" role="img" aria-labelledby="t d" font-family="'Open Sans', 'Segoe UI', Helvetica, Arial, sans-serif">
   <title id="t">HospitalSystem CI/CD pipeline</title>
-  <desc id="d">A push to main runs CI (build, test, Trivy scan), then Docker Image CI builds both images, tags them latest, date plus short SHA and full SHA, and pushes them to Amazon ECR and Docker Hub. Deploy to EKS waits for a reviewer, assumes an AWS role with OIDC and sends an SSM command to the ops instance, which patches the Deployments through the private EKS API. The AWS Load Balancer Controller serves the app at https://app.hospitalsyst.cc.</desc>
+  <desc id="d">A push to main runs CI (build, test, npm audit), then Docker Image CI builds both images, scans them with Trivy, tags them latest and date-SHA-run-attempt, and pushes them to Amazon ECR and Docker Hub. Deploy to EKS waits for a reviewer, assumes an AWS role with OIDC and sends an SSM command to the ops instance, which checks the images in ECR, sets both Deployments through the private EKS API, smoke tests them and rolls both back on failure. The AWS Load Balancer Controller serves the app at https://app.hospitalsyst.cc.</desc>
   <defs>
     <marker id="ah1f2328" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1f2328"/></marker>
     <symbol id="user" viewBox="0 0 100 100"><image width="100" height="100" preserveAspectRatio="xMidYMid meet" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0OCA0OCI+PHRpdGxlPkljb24tUmVzb3VyY2UvR2VuZXJhbC1SZXNvdXJjZS9SZXNfVXNlcl80OF9MaWdodDwvdGl0bGU+PHBhdGggZmlsbD0iIzI0MmYzZSIgZmlsbC1ydWxlPSJldmVub2RkIiBkPSJNNi4wMjUgNDRjLjQ5OS05LjkxNSA4LjM3LTE3LjgyMiAxNy45NzUtMTcuODIyIDMuMjQ4IDAgNi40My45MTQgOS4yMDUgMi42NDQgNS4xNDkgMy4yMTEgOC40NDggOC45NjEgOC43NjkgMTUuMTc4em04LjE2Ny0zMC4xMjJjMC01LjQ0NiA0LjQtOS44NzggOS44MDktOS44NzggNS40MDcgMCA5LjgwNiA0LjQzMiA5LjgwNiA5Ljg3OCAwIDUuNDQ3LTQuMzk5IDkuODc5LTkuODA2IDkuODc5LTUuNDA5IDAtOS44MDktNC40MzItOS44MDktOS44NzltMjAuMDcxIDEzLjI0N2ExOS40IDE5LjQgMCAwIDAtNS41NjUtMi4zNTQgMTEuODkgMTEuODkgMCAwIDAgNy4xMDktMTAuODkzQzM1LjgwNyA3LjMyOSAzMC41MSAyIDI0LjAwMSAyYy02LjUxMiAwLTExLjgwOSA1LjMyOS0xMS44MDkgMTEuODc4IDAgNC44NzcgMi45MzggOS4wNzIgNy4xMjUgMTAuOUMxMC41NDUgMjYuOTgxIDQgMzUuMiA0IDQ1YTEgMSAwIDAgMCAxIDFoMzhhMSAxIDAgMCAwIDEtMWMwLTcuMjgxLTMuNzMxLTE0LjEzLTkuNzM3LTE3Ljg3NSIvPjwvc3ZnPg=="/></symbol>
@@ -62,34 +62,41 @@
   <use href="#si-npm" x="384.5" y="270" width="40" height="40"/>
   <text x="404.5" y="328" font-size="12.5" font-weight="600" fill="#1f2328" text-anchor="middle">npm audit / lint /</text>
   <text x="404.5" y="344" font-size="12.5" font-weight="600" fill="#1f2328" text-anchor="middle">test / build</text>
-  <use href="#si-trivy" x="384.5" y="362" width="40" height="40"/>
-  <text x="404.5" y="420" font-size="12.5" font-weight="600" fill="#1f2328" text-anchor="middle">Trivy image scan</text>
-  <text x="404.5" y="436" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="middle">fails on HIGH / CRITICAL</text>
+  <line x1="336" y1="372" x2="473" y2="372" stroke="#d0d7de" stroke-width="1.5"/>
+  <text x="404.5" y="398" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="middle">runs on pull requests,</text>
+  <text x="404.5" y="413" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="middle">pushes to main</text>
+  <text x="404.5" y="428" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="middle">and weekly</text>
   <rect x="509" y="120" width="165" height="350" rx="8" fill="#ffffff" stroke="#24292f" stroke-width="2"/>
   <path d="M509,166 V128 Q509,120 517,120 H666 Q674,120 674,128 V166 Z" fill="#24292f"/>
   <text x="591.5" y="149" font-size="15.5" font-weight="700" fill="#ffffff" text-anchor="middle">Docker Workflow</text>
-  <use href="#si-docker" x="567.5" y="182" width="48" height="48"/>
-  <text x="591.5" y="248" font-size="12.5" font-weight="600" fill="#1f2328" text-anchor="middle">Build backend image</text>
-  <use href="#si-docker" x="567.5" y="274" width="48" height="48"/>
-  <text x="591.5" y="340" font-size="12.5" font-weight="600" fill="#1f2328" text-anchor="middle">Build frontend image</text>
+  <use href="#si-docker" x="567.5" y="176" width="48" height="48"/>
+  <text x="591.5" y="240" font-size="12.5" font-weight="600" fill="#1f2328" text-anchor="middle">Build both images</text>
+  <text x="591.5" y="255" font-size="11" font-weight="400" fill="#57606a" text-anchor="middle">Buildx · GHA cache</text>
+  <use href="#si-trivy" x="571.5" y="268" width="40" height="40"/>
+  <text x="591.5" y="324" font-size="12.5" font-weight="600" fill="#1f2328" text-anchor="middle">Trivy scan</text>
+  <text x="591.5" y="339" font-size="11" font-weight="400" fill="#57606a" text-anchor="middle">fixable HIGH / CRITICAL</text>
+  <text x="591.5" y="353" font-size="11" font-weight="400" fill="#57606a" text-anchor="middle">stops before push</text>
   <line x1="523" y1="372" x2="660" y2="372" stroke="#d0d7de" stroke-width="1.5"/>
   <text x="591.5" y="398" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="middle">exact commit</text>
   <text x="591.5" y="413" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="middle">that passed CI</text>
-  <text x="591.5" y="436" font-size="11" font-weight="400" fill="#57606a" text-anchor="middle">--pull --no-cache</text>
+  <text x="591.5" y="436" font-size="11" font-weight="400" fill="#57606a" text-anchor="middle">weekly run: no cache</text>
   <rect x="696" y="120" width="160" height="350" rx="8" fill="#ffffff" stroke="#E8710A" stroke-width="2"/>
   <path d="M696,166 V128 Q696,120 704,120 H848 Q856,120 856,128 V166 Z" fill="#E8710A"/>
   <text x="776.0" y="149" font-size="15.5" font-weight="700" fill="#ffffff" text-anchor="middle">Tags</text>
   <polygon points="708.0,199.0 721.0,199.0 736.0,214.0 724.0,226.0 708.0,210.0" fill="none" stroke="#E8710A" stroke-width="2.4" stroke-linejoin="round" transform="rotate(-8 722.0 212.0)"/>
   <circle cx="714.5" cy="205.5" r="2.6" fill="none" stroke="#E8710A" stroke-width="2.0"/>
   <text x="746" y="216" font-size="12.5" font-weight="600" fill="#1f2328" text-anchor="start">latest</text>
+  <text x="746" y="232" font-size="10" font-weight="400" fill="#57606a" text-anchor="start">convenience only</text>
   <polygon points="708.0,289.0 721.0,289.0 736.0,304.0 724.0,316.0 708.0,300.0" fill="none" stroke="#E8710A" stroke-width="2.4" stroke-linejoin="round" transform="rotate(-8 722.0 302.0)"/>
   <circle cx="714.5" cy="295.5" r="2.6" fill="none" stroke="#E8710A" stroke-width="2.0"/>
-  <text x="746" y="306" font-size="12.5" font-weight="600" fill="#1f2328" text-anchor="start">date-short SHA</text>
-  <text x="746" y="322" font-size="10" font-weight="400" fill="#57606a" text-anchor="start">2026-09-22-a1b2c3d</text>
-  <polygon points="708.0,379.0 721.0,379.0 736.0,394.0 724.0,406.0 708.0,390.0" fill="none" stroke="#E8710A" stroke-width="2.4" stroke-linejoin="round" transform="rotate(-8 722.0 392.0)"/>
-  <circle cx="714.5" cy="385.5" r="2.6" fill="none" stroke="#E8710A" stroke-width="2.0"/>
-  <text x="746" y="396" font-size="12.5" font-weight="600" fill="#1f2328" text-anchor="start">full commit SHA</text>
-  <text x="746" y="412" font-size="10" font-weight="400" fill="#57606a" text-anchor="start">a1b2c3d…</text>
+  <text x="746" y="306" font-size="12.5" font-weight="600" fill="#1f2328" text-anchor="start">release tag</text>
+  <text x="708" y="334" font-size="10.5" font-weight="600" fill="#1f2328" text-anchor="start">date-SHA-run-attempt</text>
+  <text x="708" y="349" font-size="10" font-weight="400" fill="#57606a" text-anchor="start">2026-09-28-a1b2c3d-57-1</text>
+  <line x1="710" y1="368" x2="842" y2="368" stroke="#E8710A" stroke-width="1.5"/>
+  <text x="776" y="392" font-size="12.5" font-weight="600" fill="#1f2328" text-anchor="middle">release tags are</text>
+  <text x="776" y="408" font-size="12.5" font-weight="600" fill="#1f2328" text-anchor="middle">immutable in ECR</text>
+  <text x="776" y="430" font-size="11" font-weight="400" fill="#57606a" text-anchor="middle">a re-run gets a new</text>
+  <text x="776" y="445" font-size="11" font-weight="400" fill="#57606a" text-anchor="middle">attempt number</text>
   <rect x="878" y="120" width="160" height="350" rx="8" fill="#ffffff" stroke="#E8710A" stroke-width="2"/>
   <path d="M878,166 V128 Q878,120 886,120 H1030 Q1038,120 1038,128 V166 Z" fill="#E8710A"/>
   <text x="958.0" y="149" font-size="15.5" font-weight="700" fill="#ffffff" text-anchor="middle">Registries</text>
@@ -117,7 +124,7 @@
   <line x1="1074" y1="358" x2="1211" y2="358" stroke="#d0d7de" stroke-width="1.5"/>
   <use href="#ssm" x="1124.5" y="368" width="36" height="36"/>
   <text x="1142.5" y="420" font-size="12.5" font-weight="600" fill="#1f2328" text-anchor="middle">SSM send-command</text>
-  <text x="1142.5" y="435" font-size="11" font-weight="400" fill="#57606a" text-anchor="middle">ImageTag = date-SHA</text>
+  <text x="1142.5" y="435" font-size="11" font-weight="400" fill="#57606a" text-anchor="middle">ImageTag = release tag</text>
   <rect x="1247" y="120" width="145" height="350" rx="8" fill="#ffffff" stroke="#232F3E" stroke-width="2"/>
   <path d="M1247,166 V128 Q1247,120 1255,120 H1384 Q1392,120 1392,128 V166 Z" fill="#232F3E"/>
   <text x="1319.5" y="149" font-size="15.5" font-weight="700" fill="#ffffff" text-anchor="middle">Ops Instance</text>
@@ -125,12 +132,14 @@
   <text x="1319.5" y="258" font-size="12" font-weight="700" fill="#1f2328" text-anchor="middle">hospitalsystem-ops</text>
   <text x="1319.5" y="274" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="middle">private subnet</text>
   <line x1="1261" y1="290" x2="1378" y2="290" stroke="#d0d7de" stroke-width="1.5"/>
-  <text x="1319.5" y="314" font-size="12.5" font-weight="600" fill="#1f2328" text-anchor="middle">PATCH both</text>
-  <text x="1319.5" y="330" font-size="12.5" font-weight="600" fill="#1f2328" text-anchor="middle">Deployments via</text>
-  <text x="1319.5" y="346" font-size="12.5" font-weight="600" fill="#1f2328" text-anchor="middle">the private</text>
-  <text x="1319.5" y="362" font-size="12.5" font-weight="600" fill="#1f2328" text-anchor="middle">EKS API</text>
-  <text x="1319.5" y="392" font-size="11" font-weight="400" fill="#57606a" text-anchor="middle">the only way in:</text>
-  <text x="1319.5" y="407" font-size="11" font-weight="400" fill="#57606a" text-anchor="middle">no public endpoint</text>
+  <text x="1319.5" y="314" font-size="12.5" font-weight="600" fill="#1f2328" text-anchor="middle">Check ECR images</text>
+  <text x="1319.5" y="330" font-size="12.5" font-weight="600" fill="#1f2328" text-anchor="middle">Set both images</text>
+  <text x="1319.5" y="346" font-size="12.5" font-weight="600" fill="#1f2328" text-anchor="middle">Wait for rollouts</text>
+  <text x="1319.5" y="362" font-size="12.5" font-weight="600" fill="#1f2328" text-anchor="middle">Smoke test both</text>
+  <text x="1319.5" y="386" font-size="11" font-weight="400" fill="#57606a" text-anchor="middle">rolls both back</text>
+  <text x="1319.5" y="401" font-size="11" font-weight="400" fill="#57606a" text-anchor="middle">on any failure</text>
+  <text x="1319.5" y="425" font-size="11" font-weight="400" fill="#57606a" text-anchor="middle">private EKS API:</text>
+  <text x="1319.5" y="440" font-size="11" font-weight="400" fill="#57606a" text-anchor="middle">no public endpoint</text>
   <rect x="1414" y="120" width="150" height="350" rx="8" fill="#ffffff" stroke="#1F5BD8" stroke-width="2"/>
   <path d="M1414,166 V128 Q1414,120 1422,120 H1556 Q1564,120 1564,128 V166 Z" fill="#1F5BD8"/>
   <text x="1489.0" y="149" font-size="15.5" font-weight="700" fill="#ffffff" text-anchor="middle">EKS Cluster</text>
@@ -143,8 +152,9 @@
   <text x="1428" y="352" font-size="12" font-weight="600" fill="#1F5BD8" text-anchor="start">• hospital-backend</text>
   <text x="1428" y="369" font-size="12" font-weight="600" fill="#1F5BD8" text-anchor="start">• hospital-frontend</text>
   <text x="1489.0" y="400" font-size="11" font-weight="400" fill="#57606a" text-anchor="middle">RBAC + admission</text>
-  <text x="1489.0" y="415" font-size="11" font-weight="400" fill="#57606a" text-anchor="middle">policy: only this</text>
-  <text x="1489.0" y="430" font-size="11" font-weight="400" fill="#57606a" text-anchor="middle">account&#x27;s ECR images</text>
+  <text x="1489.0" y="415" font-size="11" font-weight="400" fill="#57606a" text-anchor="middle">policies: only this</text>
+  <text x="1489.0" y="430" font-size="11" font-weight="400" fill="#57606a" text-anchor="middle">account&#x27;s ECR images,</text>
+  <text x="1489.0" y="445" font-size="11" font-weight="400" fill="#57606a" text-anchor="middle">only image changes</text>
   <rect x="1586" y="120" width="150" height="350" rx="8" fill="#ffffff" stroke="#1F5BD8" stroke-width="2"/>
   <path d="M1586,166 V128 Q1586,120 1594,120 H1728 Q1736,120 1736,128 V166 Z" fill="#1F5BD8"/>
   <text x="1661.0" y="140" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">AWS Load</text>
@@ -165,8 +175,8 @@
   <text x="404.5" y="524" font-size="12.5" font-weight="400" fill="#1f2328" text-anchor="middle">Pull requests stop after CI;</text>
   <text x="404.5" y="541" font-size="12.5" font-weight="400" fill="#1f2328" text-anchor="middle">only main goes further</text>
   <rect x="672.0" y="504" width="208" height="54" rx="4" fill="#ffffff" stroke="#1f2328" stroke-width="1.3" stroke-dasharray="5 4"/>
-  <text x="776.0" y="524" font-size="12.5" font-weight="400" fill="#1f2328" text-anchor="middle">Deploy uses the</text>
-  <text x="776.0" y="541" font-size="12.5" font-weight="400" fill="#1f2328" text-anchor="middle">date-short SHA tag</text>
+  <text x="776.0" y="524" font-size="12.5" font-weight="400" fill="#1f2328" text-anchor="middle">Deploy reads the release</text>
+  <text x="776.0" y="541" font-size="12.5" font-weight="400" fill="#1f2328" text-anchor="middle">tag from the run&#x27;s artifact</text>
   <rect x="1022.5" y="504" width="240" height="54" rx="4" fill="#ffffff" stroke="#1f2328" stroke-width="1.3" stroke-dasharray="5 4"/>
   <text x="1142.5" y="524" font-size="12.5" font-weight="400" fill="#1f2328" text-anchor="middle">Skipped if the commit is no</text>
   <text x="1142.5" y="541" font-size="12.5" font-weight="400" fill="#1f2328" text-anchor="middle">longer the tip of main</text>
@@ -179,17 +189,17 @@
   <rect x="216" y="648" width="480" height="128" rx="8" fill="#ffffff" stroke="#7B42BC" stroke-width="1.8"/>
   <use href="#si-terraform" x="383.3" y="664" width="38" height="38"/>
   <text x="433.3" y="690" font-size="19" font-weight="700" fill="#6A2DB5" text-anchor="start">Terraform</text>
-  <text x="456" y="728" font-size="14" font-weight="400" fill="#1f2328" text-anchor="middle">VPC, subnets, IAM + OIDC roles, EKS,</text>
-  <text x="456" y="748" font-size="14" font-weight="400" fill="#1f2328" text-anchor="middle">ECR, ACM, ops instance, SSM document</text>
+  <text x="456" y="728" font-size="14" font-weight="400" fill="#1f2328" text-anchor="middle">VPC, EKS, IAM + OIDC roles, ECR, ACM, KMS,</text>
+  <text x="456" y="748" font-size="14" font-weight="400" fill="#1f2328" text-anchor="middle">Secrets Manager, ops instance, SSM document</text>
   <rect x="720" y="648" width="480" height="128" rx="8" fill="#ffffff" stroke="#326CE5" stroke-width="1.8"/>
   <use href="#si-kubernetes" x="829.0" y="664" width="38" height="38"/>
   <text x="879.0" y="690" font-size="19" font-weight="700" fill="#1F4FB5" text-anchor="start">Kubernetes manifests</text>
-  <text x="960" y="728" font-size="14" font-weight="400" fill="#1f2328" text-anchor="middle">Deployments, Services, Ingress, HPA,</text>
-  <text x="960" y="748" font-size="14" font-weight="400" fill="#1f2328" text-anchor="middle">deploy RBAC, admission policy</text>
+  <text x="960" y="728" font-size="14" font-weight="400" fill="#1f2328" text-anchor="middle">Deployments, Services, Ingress, HPAs, PDBs,</text>
+  <text x="960" y="748" font-size="14" font-weight="400" fill="#1f2328" text-anchor="middle">NetworkPolicies, deploy RBAC, admission policies</text>
   <rect x="1224" y="648" width="480" height="128" rx="8" fill="#ffffff" stroke="#CC0000" stroke-width="1.8"/>
   <use href="#si-ansible" x="1401.9" y="664" width="38" height="38"/>
   <text x="1451.9" y="690" font-size="19" font-weight="700" fill="#A30000" text-anchor="start">Ansible</text>
-  <text x="1464" y="728" font-size="14" font-weight="400" fill="#1f2328" text-anchor="middle">bootstrap: LB controller, backend Secret,</text>
-  <text x="1464" y="748" font-size="14" font-weight="400" fill="#1f2328" text-anchor="middle">aws-auth, Cloudflare DNS record</text>
+  <text x="1464" y="728" font-size="14" font-weight="400" fill="#1f2328" text-anchor="middle">bootstrap: LB controller, External Secrets,</text>
+  <text x="1464" y="748" font-size="14" font-weight="400" fill="#1f2328" text-anchor="middle">manifests, Cloudflare DNS record, alarms</text>
   </g>
 </svg>
