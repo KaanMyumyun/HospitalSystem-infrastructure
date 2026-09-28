@@ -44,7 +44,7 @@ jobs:
           IMAGE_TAG=$(cat release/image-tag)
           HEAD_SHA=$(cat release/commit-sha)
 
-          if ! [[ "$IMAGE_TAG" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9a-f]{7}-[0-9]+$ ]] \
+          if ! [[ "$IMAGE_TAG" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9a-f]{7}-[0-9]+-[0-9]+$ ]] \
             || ! [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             echo "The release record from Docker Image CI is malformed."
             exit 1
@@ -90,7 +90,7 @@ jobs:
 
       - name: Configure AWS credentials
         if: steps.tip.outputs.current == 'true'
-        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ env.AWS_DEPLOY_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
