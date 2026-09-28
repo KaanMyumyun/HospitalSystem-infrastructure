@@ -29,14 +29,16 @@ behind the application repository, so check there for the current version.
      builds the frontend
 
 2. `Docker Image CI`
-   - runs after `CI` succeeds on `main`
+   - runs after `CI` succeeds on a push to `main` or on the weekly run
    - builds the backend and frontend images once each with Buildx, reusing
      layers from the GitHub Actions cache; the weekly run skips the cache
    - scans those images with Trivy and stops before pushing anything on a
      fixable `HIGH` or `CRITICAL` vulnerability
-   - tags each image as `latest` and `YYYY-MM-DD-shortsha-runnumber`, a tag
-     unique to the build, so the weekly rebuild of an unchanged commit gets a
-     new tag instead of overwriting the old image
+   - tags each image as `latest` and `YYYY-MM-DD-shortsha-runnumber-attempt`,
+     a tag unique to the build, so the weekly rebuild of an unchanged commit
+     gets a new tag instead of overwriting the old image. ECR release tags are
+     immutable, and a re-run keeps its run number, so the attempt gives the
+     re-run a new tag instead of a failed push
    - pushes the scanned images to Docker Hub and Amazon ECR
    - uses GitHub Actions OIDC to assume the AWS ECR push role
    - saves the pushed tag and commit as a `release` artifact for the deploy
@@ -52,9 +54,11 @@ behind the application repository, so check there for the current version.
    - finds the ops instance named in the `DEPLOY_INSTANCE_NAME` repository
      variable and sends it the `DEPLOY_SSM_DOCUMENT` SSM document, because the
      EKS API endpoint is private
-   - on the instance, the document sets backend and frontend Deployment images
-     to that tag and waits for rollout completion when deployments are scaled
-     above zero
+   - on the instance, the document checks that both images exist in ECR, sets
+     the backend and frontend Deployment images to that tag, waits for both
+     rollouts and smoke tests both apps. If a rollout or the smoke test fails,
+     it puts both Deployments back on their previous images
+   - fails unless the SSM command succeeded, and prints its output
 
 If the app is scaled down to zero, the deploy workflow still updates the
 Deployment image fields to the new tag. It skips waiting for rollout
