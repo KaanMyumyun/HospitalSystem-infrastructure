@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1640" height="1160" viewBox="0 0 1640 1160" role="img" aria-labelledby="t d" font-family="'Open Sans', 'Segoe UI', Helvetica, Arial, sans-serif">
   <title id="t">HospitalSystem AWS infrastructure</title>
-  <desc id="d">Users reach app.hospitalsyst.cc through Cloudflare DNS and an internet-facing ALB that terminates TLS with an ACM certificate and sends /api and / to backend and frontend pods in a private EKS cluster. The backend reaches Neon PostgreSQL through the NAT gateways. GitHub Actions assumes IAM roles over OIDC: one pushes images to ECR, the other sends an SSM command to an ops instance, the only way into the private EKS API.</desc>
+  <desc id="d">Users reach app.hospitalsyst.cc through Cloudflare DNS and an internet-facing ALB that terminates TLS with an ACM certificate and sends /api and / to backend and frontend pods in a private EKS cluster. The backend reaches Neon PostgreSQL through the NAT gateways, and External Secrets copies its secret from AWS Secrets Manager. GitHub Actions assumes IAM roles over OIDC: one pushes images to ECR, the other sends an SSM command to an ops instance, the only way into the private EKS API.</desc>
   <defs>
     <symbol id="users" viewBox="0 0 100 100"><image width="100" height="100" preserveAspectRatio="xMidYMid meet" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0OCA0OCI+PHRpdGxlPkljb24tUmVzb3VyY2UvR2VuZXJhbC1SZXNvdXJjZS9SZXNfVXNlcnNfNDhfTGlnaHQ8L3RpdGxlPjxwYXRoIGZpbGw9IiMyNDJmM2UiIGZpbGwtcnVsZT0iZXZlbm9kZCIgZD0iTTI4LjYzOSA5LjI4NmMwLTIuOTE1IDIuNDEzLTUuMjg2IDUuMzgtNS4yODZzNS4zNzggMi4zNzEgNS4zNzggNS4yODYtMi40MTIgNS4yODYtNS4zNzggNS4yODYtNS4zOC0yLjM3MS01LjM4LTUuMjg2bTExLjUyNCA3LjA0OGExMS43IDExLjcgMCAwIDAtMi4wMzUtMS4wMDFjMS45Ny0xLjMxIDMuMjY5LTMuNTMxIDMuMjY5LTYuMDQ3IDAtNC4wMTctMy4zMS03LjI4Ni03LjM3OC03LjI4Ni00LjA2OSAwLTcuMzggMy4yNjktNy4zOCA3LjI4NiAwIDIuNTEgMS4yOTMgNC43MjggMy4yNTYgNi4wMzlhMTEuOSAxMS45IDAgMCAwLTMuNTQ2IDIuMWwxLjMwMyAxLjUxOEE5Ljc3IDkuNzcgMCAwIDEgMzQgMTYuNTcyYzEuODAyIDAgMy41NjkuNTA1IDUuMTA5IDEuNDYxIDIuNzQgMS43MDIgNC41MzggNC42OTIgNC44NDQgNy45NjdIMzR2MmgxMWExIDEgMCAwIDAgMS0xYzAtNC4zNDMtMi4yMzYtOC40My01LjgzNy0xMC42NjZNOC42MzkgOS4yODZDOC42MzkgNi4zNzEgMTEuMDUyIDQgMTQuMDE5IDRzNS4zNzggMi4zNzEgNS4zNzggNS4yODYtMi40MTIgNS4yODYtNS4zNzggNS4yODYtNS4zOC0yLjM3MS01LjM4LTUuMjg2TTE0IDI2SDQuMDQ2QzQuNTMgMjAuNzE3IDguODEgMTYuNTcyIDE0IDE2LjU3MmMxLjgwMiAwIDMuNTY5LjUwNSA1LjEwOSAxLjQ2MS40MzIuMjY5Ljg0OS41NzUgMS4yNC45MWwxLjMwMy0xLjUxN2ExMS43MSAxMS43MSAwIDAgMC0zLjUyNC0yLjA5M2MxLjk3LTEuMzEgMy4yNjktMy41MzEgMy4yNjktNi4wNDcgMC00LjAxNy0zLjMxLTcuMjg2LTcuMzc4LTcuMjg2LTQuMDY5IDAtNy4zOCAzLjI2OS03LjM4IDcuMjg2IDAgMi41MTUgMS4yOTggNC43MzcgMy4yNjggNi4wNDZDNS4zMDIgMTcuMDcxIDIgMjEuNjM4IDIgMjdhMSAxIDAgMCAwIDEgMWgxMXptLjA0NiAxOGMuNDg0LTUuMjgzIDQuNzY0LTkuNDI4IDkuOTU0LTkuNDI4IDEuODAyIDAgMy41NjkuNTA1IDUuMTA5IDEuNDYxIDIuNzQgMS43MDIgNC41MzggNC42OTIgNC44NDQgNy45Njd6bTQuNTkzLTE2LjcxNGMwLTIuOTE1IDIuNDEzLTUuMjg2IDUuMzgtNS4yODZzNS4zNzggMi4zNzEgNS4zNzggNS4yODYtMi40MTIgNS4yODYtNS4zNzggNS4yODYtNS4zOC0yLjM3MS01LjM4LTUuMjg2bTExLjUyNCA3LjA0OGExMS43IDExLjcgMCAwIDAtMi4wMzUtMS4wMDFjMS45Ny0xLjMxIDMuMjY5LTMuNTMxIDMuMjY5LTYuMDQ3IDAtNC4wMTctMy4zMS03LjI4Ni03LjM3OC03LjI4Ni00LjA2OSAwLTcuMzggMy4yNjktNy4zOCA3LjI4NiAwIDIuNTE1IDEuMjk4IDQuNzM3IDMuMjY4IDYuMDQ2QzE1LjMwMiAzNS4wNzEgMTIgMzkuNjM4IDEyIDQ1YTEgMSAwIDAgMCAxIDFoMjJhMSAxIDAgMCAwIDEtMWMwLTQuMzQzLTIuMjM2LTguNDMtNS44MzctMTAuNjY2Ii8+PC9zdmc+"/></symbol>
     <marker id="ah1f2328" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1f2328"/></marker>
@@ -38,6 +38,8 @@
     <symbol id="si-postgresql" viewBox="0 0 100 100"><image width="100" height="100" preserveAspectRatio="xMidYMid meet" href="data:image/svg+xml;base64,PHN2ZyBmaWxsPSIjNDE2OUUxIiByb2xlPSJpbWciIHZpZXdCb3g9IjAgMCAyNCAyNCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48dGl0bGU+UG9zdGdyZVNRTDwvdGl0bGU+PHBhdGggZD0iTTIzLjU1OTQgMTQuNzIyOGEuNTI2OS41MjY5IDAgMCAwLS4wNTYzLS4xMTkxYy0uMTM5LS4yNjMyLS40NzY4LS4zNDE4LTEuMDA3NC0uMjMyMS0xLjY1MzMuMzQxMS0yLjI5MzUuMTMxMi0yLjUyNTYtLjAxOTEgMS4zNDItMi4wNDgyIDIuNDQ1LTQuNTIyIDMuMDQxMS02LjgyOTcuMjcxNC0xLjA1MDcuNzk4Mi0zLjUyMzcuMTIyMi00LjczMTZhMS41NjQxIDEuNTY0MSAwIDAgMC0uMTUwOS0uMjM1QzIxLjY5MzEuOTA4NiAxOS44MDA3LjAyNDggMTcuNTA5OS4wMDA1Yy0xLjQ5NDctLjAxNTgtMi43NzA1LjM0NjEtMy4xMTYxLjQ3OTRhOS40NDkgOS40NDkgMCAwIDAtLjUxNTktLjA4MTYgOC4wNDQgOC4wNDQgMCAwIDAtMS4zMTE0LS4xMjc4Yy0xLjE4MjItLjAxODQtMi4yMDM4LjI2NDItMy4wNDk4Ljg0MDYtLjg1NzMtLjMyMTEtNC43ODg4LTEuNjQ1LTcuMjIxOS4wNzg4Qy45MzU5IDIuMTUyNi4zMDg2IDMuODczMy40MzAyIDYuMzA0M2MuMDQwOS44MTguNTA2OSAzLjMzNCAxLjI0MjMgNS43NDM2LjQ1OTggMS41MDY1LjkzODcgMi43MDE5IDEuNDMzNCAzLjU4Mi41NTMuOTk0MiAxLjEyNTkgMS41OTMzIDEuNzE0MyAxLjc4OTUuNDQ3NC4xNDkxIDEuMTMyNy4xNDQxIDEuODU4MS0uNzI3OS44MDEyLS45NjM1IDEuNTkwMy0xLjgyNTggMS45NDQ2LTIuMjA2OS40MzUxLjIzNTUuOTA2NC4zNjI1IDEuMzkuMzc3MmEuMDU2OS4wNTY5IDAgMCAwIC4wMDA0LjAwNDEgMTEuMDMxMiAxMS4wMzEyIDAgMCAwLS4yNDcyLjMwNTRjLS4zMzg5LjQzMDItLjQwOTQuNTE5Ny0xLjUwMDIuNzQ0My0uMzEwMi4wNjQtMS4xMzQ0LjIzMzktMS4xNDY0LjgxMTUtLjAwMjUuMTIyNC4wMzI5LjIzMDkuMDkxOS4zMjY4LjIyNjkuNDIzMS45MjE2LjYwOTcgMS4wMTUuNjMzMSAxLjMzNDUuMzMzNSAyLjUwNDQuMDkyIDMuMzcxNC0uNjc4Ny0uMDE3IDIuMjMxLjA3NzUgNC40MTc0LjM0NTQgNS4wODc0LjIyMTIuNTUyOS43NjE4IDEuOTA0NSAyLjQ2OTIgMS45MDQzLjI1MDUgMCAuNTI2My0uMDI5MS44Mjk2LS4wOTQxIDEuNzgxOS0uMzgyMSAyLjU1NTctMS4xNjk2IDIuODU1LTIuOTA1OS4xNTAzLS44NzA3LjQwMTYtMi44NzUzLjUzODgtNC4xMDEyLjAxNjktLjA3MDMuMDM1Ny0uMTIwNy4wNTctLjEzNjIuMDAwNy0uMDAwNS4wNjk3LS4wNDcxLjQyNzIuMDMwN2EuMzY3My4zNjczIDAgMCAwIC4wNDQzLjAwNjhsLjI1MzkuMDIyMy4wMTQ5LjAwMWMuODQ2OC4wMzg0IDEuOTExNC0uMTQyNiAyLjUzMTItLjQzMDguNjQzOC0uMjk4OCAxLjgwNTctMS4wMzIzIDEuNTk1MS0xLjY2OTh6TTIuMzcxIDExLjg3NjVjLS43NDM1LTIuNDM1OC0xLjE3NzktNC44ODUxLTEuMjEyMy01LjU3MTktLjEwODYtMi4xNzE0LjQxNzEtMy42ODI5IDEuNTYyMy00LjQ5MjcgMS44MzY3LTEuMjk4NiA0LjgzOTgtLjU0MDggNi4xMDgtLjEzLS4wMDMyLjAwMzItLjAwNjYuMDA2MS0uMDA5OC4wMDk0LTIuMDIzOCAyLjA0NC0xLjk3NTggNS41MzYtMS45NzA4IDUuNzQ5NS0uMDAwMi4wODIzLjAwNjYuMTk4OS4wMTYyLjM1OTMuMDM0OC41ODczLjA5OTYgMS42ODA0LS4wNzM1IDIuOTE4NC0uMTYwOSAxLjE1MDQuMTkzNyAyLjI3NjQuOTcyOCAzLjA4OTIuMDgwNi4wODQxLjE2NDguMTYzMS4yNTE4LjIzNzQtLjM0NjguMzcxNC0xLjEwMDQgMS4xOTI2LTEuOTAyNSAyLjE1NzYtLjU2NzcuNjgyNS0uOTU5Ny41NTE3LTEuMDg4Ni41MDg3LS4zOTE5LS4xMzA3LS44MTMtLjU4NzEtMS4yMzgxLTEuMzIyMy0uNDc5Ni0uODM5LS45NjM1LTIuMDMxNy0xLjQxNTUtMy41MTI2em02LjAwNzIgNS4wODcxYy0uMTcxMS0uMDQyOC0uMzI3MS0uMTEzMi0uNDMyMi0uMTc3Mi4wODg5LS4wMzk0LjIzNzQtLjA5MDIuNDgzMy0uMTQwOSAxLjI4MzMtLjI2NDEgMS40ODE1LS40NTA2IDEuOTE0My0xLjAwMDIuMDk5Mi0uMTI2LjIxMTYtLjI2ODcuMzY3My0uNDQyNmEuMzU0OS4zNTQ5IDAgMCAwIC4wNzM3LS4xMjk4Yy4xNzA4LS4xNTEzLjI3MjQtLjEwOTkuNDM2OS0uMDQxNy4xNTYuMDY0Ni4zMDc4LjI2LjM2OTUuNDc1Mi4wMjkxLjEwMTYuMDYxOS4yOTQ1LS4wNDUyLjQ0NDQtLjkwNDMgMS4yNjU4LTIuMjIxNiAxLjI0OTQtMy4xNjc2IDEuMDEyOHptMi4wOTQtMy45ODgtLjA1MjUuMTQxYy0uMTMzLjM1NjYtLjI1NjcuNjg4MS0uMzMzNCAxLjAwMy0uNjY3NC0uMDAyMS0xLjMxNjgtLjI4NzItMS44MTA1LS44MDI0LS42Mjc5LS42NTUxLS45MTMxLTEuNTY2NC0uNzgyNS0yLjUwMDQuMTgyOC0xLjMwNzkuMTE1My0yLjQ0NjguMDc5LTMuMDU4Ni0uMDA1LS4wODU3LS4wMDk1LS4xNjA3LS4wMTIyLS4yMTk5LjI5NTctLjI2MjEgMS42NjU5LS45OTYyIDIuNjQyOS0uNzcyNC40NDU5LjEwMjIuNzE3Ni40MDU3LjgzMDUuOTI4LjU4NDYgMi43MDM4LjA3NzQgMy44MzA3LS4zMzAyIDQuNzM2My0uMDg0LjE4NjYtLjE2MzMuMzYyOS0uMjMxMS41NDU0em03LjM2MzcgNC41NzI1Yy0uMDE2OS4xNzY4LS4wMzU4LjM3Ni0uMDYxOC41OTU5bC0uMTQ2LjQzODNhLjM1NDcuMzU0NyAwIDAgMC0uMDE4Mi4xMDc3Yy0uMDA1OS40NzQ3LS4wNTQuNjQ4OS0uMTE1Ljg2OTMtLjA2MzQuMjI5Mi0uMTM1My40ODkxLS4xNzk0IDEuMDU3NS0uMTEgMS40MTQzLS44NzgyIDIuMjI2Ny0yLjQxNzIgMi41NTY1LTEuNTE1NS4zMjUxLTEuNzg0My0uNDk2OC0yLjAyMTItMS4yMjE3YTYuNTgyNCA2LjU4MjQgMCAwIDAtLjA3NjktLjIyNjZjLS4yMTU0LS41ODU4LS4xOTExLTEuNDExOS0uMTU3NC0yLjU1NTEuMDE2NS0uNTYxMi0uMDI0OS0xLjkwMTMtLjMzMDItMi42NDYyLjAwNDQtLjI5MzIuMDEwNi0uNTkwOS4wMTktLjg5MThhLjM1MjkuMzUyOSAwIDAgMC0uMDE1My0uMTEyNiAxLjQ5MjcgMS40OTI3IDAgMCAwLS4wNDM5LS4yMDhjLS4xMjI2LS40MjgzLS40MjEzLS43ODY2LS43Nzk3LS45MzUxLS4xNDI0LS4wNTktLjQwMzgtLjE2NzItLjcxNzgtLjA4NjkuMDY3LS4yNzYuMTgzMS0uNTg3NS4zMDktLjkyNDlsLjA1MjktLjE0MmMuMDU5NS0uMTYuMTM0LS4zMjU3LjIxMy0uNTAxMi40MjY1LS45NDc2IDEuMDEwNi0yLjI0NTMuMzc2Ni01LjE3NzItLjIzNzQtMS4wOTgxLTEuMDMwNC0xLjYzNDMtMi4yMzI0LTEuNTA5OC0uNzIwNy4wNzQ2LTEuMzc5OS4zNjU0LTEuNzA4OC41MzIxYTUuNjcxNiA1LjY3MTYgMCAwIDAtLjE5NTguMTA0MWMuMDkxOC0xLjEwNjQuNDM4Ni0zLjE3NDEgMS43MzU3LTQuNDgyM2E0LjAzMDYgNC4wMzA2IDAgMCAxIC4zMDMzLS4yNzYuMzUzMi4zNTMyIDAgMCAwIC4xNDQ3LS4wNjQ0Yy43NTI0LS41NzA2IDEuNjk0NS0uODUwNiAyLjgwMi0uODMyNS40MDkxLjAwNjcuODAxNy4wMzM5IDEuMTc0Mi4wODEgMS45MzkuMzU0NCAzLjI0MzkgMS40NDY4IDQuMDM1OSAyLjM4MjcuODE0My45NjIzIDEuMjU1MiAxLjkzMTUgMS40MzEyIDIuNDU0My0xLjMyMzItLjEzNDYtMi4yMjM0LjEyNjgtMi42Nzk3Ljc3OS0uOTkyNiAxLjQxODkuNTQzIDQuMTcyOSAxLjI4MTEgNS40OTY0LjEzNTMuMjQyNi4yNTIyLjQ1MjIuMjg4OS41NDEzLjI0MDMuNTgyNS41NTE1Ljk3MTMuNzc4NyAxLjI1NTIuMDY5Ni4wODcuMTM3Mi4xNzE0LjE4ODUuMjQ1LS40MDA4LjExNTUtMS4xMjA4LjM4MjUtMS4wNTUyIDEuNzE3LS4wMTIzLjE1NjMtLjA0MjMuNDQ2OS0uMDgzNC44MTQ4LS4wNDYxLjIwNzctLjA3MDIuNDYwMy0uMDk5NC43NjYyem0uODkwNS0xLjYyMTFjLS4wNDA1LS44MzE2LjI2OTEtLjkxODUuNTk2Ny0xLjAxMDVhMi44NTY2IDIuODU2NiAwIDAgMCAuMTM1LS4wNDA2IDEuMjAyIDEuMjAyIDAgMCAwIC4xMzQyLjEwM2MuNTcwMy4zNzY1IDEuNTgyMy40MjEzIDMuMDA2OC4xMzQ0LS4yMDE2LjE3NjktLjUxODkuMzk5NC0uOTUzMy42MDExLS40MDk4LjE5MDMtMS4wOTU3LjMzMy0xLjc0NzMuMzYzNi0uNzE5Ny4wMzM2LTEuMDg1OS0uMDgwNy0xLjE3MjEtLjE1MXptLjU2OTUtOS4yNzEyYy0uMDA1OS4zNTA4LS4wNTQyLjY2OTItLjEwNTQgMS4wMDE3LS4wNTUuMzU3Ni0uMTEyLjcyNzQtLjEyNjQgMS4xNzYyLS4wMTQyLjQzNjguMDQwNC44OTA5LjA5MzIgMS4zMzAxLjEwNjYuODg3LjIxNiAxLjgwMDMtLjIwNzUgMi43MDE0YTMuNTI3MiAzLjUyNzIgMCAwIDEtLjE4NzYtLjM4NTZjLS4wNTI3LS4xMjc2LS4xNjY5LS4zMzI2LS4zMjUxLS42MTYyLS42MTU2LTEuMTA0MS0yLjA1NzQtMy42ODk2LTEuMzE5My00Ljc0NDYuMzc5NS0uNTQyNyAxLjM0MDgtLjU2NjEgMi4xNzgxLS40NjN6bS4yMjg0IDcuMDEzN2ExMi4zNzYyIDEyLjM3NjIgMCAwIDAtLjA4NTMtLjEwNzRsLS4wMzU1LS4wNDQ0Yy43MjYyLTEuMTk5NS41ODQyLTIuMzg2Mi40NTc4LTMuNDM4NS0uMDUxOS0uNDMxOC0uMTAwOS0uODM5Ni0uMDg4NS0xLjIyMjYuMDEyOS0uNDA2MS4wNjY2LS43NTQzLjExODUtMS4wOTExLjA2MzktLjQxNS4xMjg4LS44NDQzLjExMDktMS4zNTA1LjAxMzQtLjA1MzEuMDE4OC0uMTE1OC4wMTE4LS4xOTAyLS4wNDU3LS40ODU1LS41OTk5LTEuOTM4LTEuNzI5NC0zLjI1My0uNjA3Ni0uNzA3My0xLjQ4OTYtMS40OTcyLTIuNjg4OS0yLjAzOTUuNTI1MS0uMTA2NiAxLjIzMjgtLjIwMzUgMi4wMjQ0LS4xODU5IDIuMDUxNS4wNDU2IDMuNjc0Ni44MTM1IDQuODI0MiAyLjI4MjRhLjkwOC45MDggMCAwIDEgLjA2NjcuMTAwMmMuNzIzMSAxLjM1NTYtLjI3NjIgNi4yNzUxLTIuOTg2NyAxMC41NDA1em0tOC44MTY2LTYuMTE2MmMtLjAyNS4xNzk0LS4zMDg5LjQyMjUtLjYyMTEuNDIyNWEuNTgyMS41ODIxIDAgMCAxLS4wODA5LS4wMDU2Yy0uMTg3My0uMDI2LS4zNzY1LS4xNDQtLjUwNTktLjMxNTYtLjA0NTgtLjA2MDUtLjEyMDMtLjE3OC0uMTA1NS0uMjg0NC4wMDU1LS4wNDAxLjAyNjEtLjA5ODUuMDkyNS0uMTQ4OC4xMTgyLS4wODk0LjM1MTgtLjEyMjYuNjA5Ni0uMDg2Ny4zMTYzLjA0NDEuNjQyNi4xOTM4LjYxMTMuNDE4NnptNy45MzA1LS40MTE0Yy4wMTExLjA3OTItLjA0OS4yMDEtLjE1MzEuMzEwMi0uMDY4My4wNzE3LS4yMTIuMTk2MS0uNDA3OS4yMjMyYS41NDU2LjU0NTYgMCAwIDEtLjA3NS4wMDUyYy0uMjkzNSAwLS41NDE0LS4yMzQ0LS41NjA3LS4zNzE3LS4wMjQtLjE3NjUuMjY0MS0uMzEwNi41NjExLS4zNTIuMjk3LS4wNDE0LjYxMTEuMDA4OC42MzU2LjE4NTF6Ii8+PC9zdmc+"/></symbol>
     <symbol id="si-terraform" viewBox="0 0 100 100"><image width="100" height="100" preserveAspectRatio="xMidYMid meet" href="data:image/svg+xml;base64,PHN2ZyBmaWxsPSIjN0I0MkJDIiByb2xlPSJpbWciIHZpZXdCb3g9IjAgMCAyNCAyNCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48dGl0bGU+VGVycmFmb3JtPC90aXRsZT48cGF0aCBkPSJNMS40NCAwdjcuNTc1bDYuNTYxIDMuNzlWMy43ODd6bTIxLjEyIDQuMjI3bC02LjU2MSAzLjc5MXY3LjU3NGw2LjU2LTMuNzg3ek04LjcyIDQuMjN2Ny41NzVsNi41NjEgMy43ODdWOC4wMTh6bTAgOC40MDV2Ny41NzVMMTUuMjggMjR2LTcuNTc4eiIvPjwvc3ZnPg=="/></symbol>
     <symbol id="si-ansible" viewBox="0 0 100 100"><image width="100" height="100" preserveAspectRatio="xMidYMid meet" href="data:image/svg+xml;base64,PHN2ZyBmaWxsPSIjRUUwMDAwIiByb2xlPSJpbWciIHZpZXdCb3g9IjAgMCAyNCAyNCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48dGl0bGU+QW5zaWJsZTwvdGl0bGU+PHBhdGggZD0iTTEwLjYxNyAxMS40NzNsNC42ODYgMy42OTUtMy4xMDItNy42NjJ6TTEyIDBDNS4zNzEgMCAwIDUuMzcxIDAgMTJzNS4zNzEgMTIgMTIgMTIgMTItNS4zNzEgMTItMTJTMTguNjI5IDAgMTIgMHptNS43OTcgMTcuMzA1Yy0uMDExLjQ3MS0uNDAzLjg0Mi0uODc1LjgzLS4yMzYgMC0uNDE2LS4wOS0uNjY0LS4yOTNsLTYuMTktNS0yLjA3OSA1LjIwM0g2LjE5MUwxMS40MzggNS40NGMuMTI0LS4zMTQuNDI3LS41Mi43NjQtLjUwNi4zMjYtLjAxNC42My4xODkuNzQyLjUwNmw0Ljc3NCAxMS40OTRjLjA0NS4xMTEuMDguMjM0LjA4LjM0OC0uMDAxLjAwOS0uMDAxLjAwOS0uMDAxLjAyM3oiLz48L3N2Zz4="/></symbol>
+    <symbol id="secretsmanager" viewBox="0 0 100 100"><image width="100" height="100" preserveAspectRatio="xMidYMid meet" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHRpdGxlPkljb24tQXJjaGl0ZWN0dXJlLzQ4L0FyY2hfQVdTLVNlY3JldHMtTWFuYWdlcl80ODwvdGl0bGU+PGcgZmlsbD0ibm9uZSIgZmlsbC1ydWxlPSJldmVub2RkIj48cGF0aCBmaWxsPSIjZGQzNDRjIiBkPSJNMCAwaDY0djY0SDB6Ii8+PHBhdGggZmlsbD0iI2ZmZiIgZD0iTTMxLjI0IDM0LjY0YS43Ni43NiAwIDAgMCAxLjUyIDAgLjc2Ljc2IDAgMCAwLTEuNTIgMG0tMiAwQTIuNzYzIDIuNzYzIDAgMCAxIDMyIDMxLjg4YTIuNzY0IDIuNzY0IDAgMCAxIDIuNzYgMi43NkEyLjc2IDIuNzYgMCAwIDEgMzMgMzcuMjA1VjQwaC0ydi0yLjc5NWEyLjc2IDIuNzYgMCAwIDEtMS43Ni0yLjU2NU0zOSAzMUgyNXYxMGgxNHYtMmgtMnYtMmgydi0yaC0ydi0yaDJ6bS0xMi0yaDkuOTk5TDM3IDI1YzAtLjg2NS0uNTc2LTEuODU5LTEuNTQzLTIuNjU5LTEuMDE0LS44NC0yLjMwNS0xLjM0MS0zLjQ1NC0xLjM0MWgtLjAwMmMtMi4zODMgMC01IDIuMDkzLTUuMDAxIDR6bTEyLTQtLjAwMSA0SDQwYTEgMSAwIDAgMSAxIDF2MTJhMSAxIDAgMCAxLTEgMUgyNGExIDEgMCAwIDEtMS0xVjMwYTEgMSAwIDAgMSAxLTFoMXYtNGMuMDAxLTMuMDI5IDMuNDY5LTYgNy4wMDEtNmguMDAyYzEuNjI1IDAgMy4zNDguNjU3IDQuNzI5IDEuODAxQzM4LjE3NCAyMS45OTQgMzkuMDAxIDIzLjUyNSAzOSAyNU0xNS40ODkgNDMuOTVsMS42MjEtMS4xNzNBMTguMiAxOC4yIDAgMCAxIDEzLjY3NiAzM0gxNnYtMmgtMi4zMjJhMTguMiAxOC4yIDAgMCAxIDMuNDMyLTkuNzE5bC0xLjYyMS0xLjE3M0EyMC4xOCAyMC4xOCAwIDAgMCAxMS42NzggMzFIMTB2MmgxLjY3NmMuMTg1IDMuOTYyIDEuNDg0IDcuNzMxIDMuODEzIDEwLjk1bTI3LjI1OCAyLjk2OEExOC4yIDE4LjIgMCAwIDEgMzMgNTAuMzVWNDhoLTJ2Mi4zNWExOC4yIDE4LjIgMCAwIDEtOS43NS0zLjQzMmwtMS4xNzIgMS42MkEyMC4xNyAyMC4xNyAwIDAgMCAzMSA1Mi4zNVY1NGgydi0xLjY1YzMuOTUxLS4xOSA3LjcwOS0xLjQ4OCAxMC45MTktMy44MTJ6TTIxLjI1IDE3LjE0QTE4LjIgMTguMiAwIDAgMSAzMSAxMy43MDdWMTZoMnYtMi4yOTNhMTguMiAxOC4yIDAgMCAxIDkuNzQ3IDMuNDMzbDEuMTcyLTEuNjJBMjAuMTYgMjAuMTYgMCAwIDAgMzMgMTEuNzA3VjEwaC0ydjEuNzA3YTIwLjE3IDIwLjE3IDAgMCAwLTEwLjkyMiAzLjgxM3pNNTIuMzE5IDMxYTIwLjE3IDIwLjE3IDAgMCAwLTMuODEtMTAuODkybC0xLjYyMiAxLjE3M0ExOC4xNiAxOC4xNiAwIDAgMSA1MC4zMTkgMzFINDh2MmgyLjMyMmExOC4yIDE4LjIgMCAwIDEtMy40MzUgOS43NzdsMS42MjIgMS4xNzNjMi4zMjktMy4yMTkgMy42MjctNi45ODggMy44MTMtMTAuOTVINTR2LTJ6bS03LjI5My0xMC41ODQgNi4xNTktNi4xNi0xLjQxNC0xLjQxNC02LjE1OSA2LjE2ek0xOC45NzEgNDMuNjQybC02LjE2IDYuMTYgMS40MTQgMS40MTQgNi4xNjEtNi4xNnptNC4yNzUtMjEuODA5LTExLjY2LTExLjY2LTEuNDE0IDEuNDE0IDExLjY2IDExLjY2ek00My4zMDMgNDEuODlsMTAuNTIzIDEwLjUyMy0xLjQxNCAxLjQxNC0xMC41MjQtMTAuNTIzeiIvPjwvZz48L3N2Zz4="/></symbol>
+    <symbol id="sns" viewBox="0 0 100 100"><image width="100" height="100" preserveAspectRatio="xMidYMid meet" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHRpdGxlPkljb24tQXJjaGl0ZWN0dXJlLzQ4L0FyY2hfQW1hem9uLVNpbXBsZS1Ob3RpZmljYXRpb24tU2VydmljZV80ODwvdGl0bGU+PGcgZmlsbD0ibm9uZSIgZmlsbC1ydWxlPSJldmVub2RkIj48cGF0aCBmaWxsPSIjZTcxNTdiIiBkPSJNMCAwaDY0djY0SDB6Ii8+PHBhdGggZmlsbD0iI2ZmZiIgZD0iTTE0IDMxYTEuMDAxIDEuMDAxIDAgMCAxIDAgMiAxLjAwMSAxLjAwMSAwIDAgMSAwLTJtMTkuMzk2IDIwYy04Ljg4OCAwLTE2LjU3NC02LjkxOS0xOC4yNDQtMTYuMjMyQTMgMyAwIDAgMCAxNi44MTUgMzNIMjJ2LTJoLTUuMTg1YTMgMyAwIDAgMC0xLjY2LTEuNzY4QzE2Ljc3NiAyMC40OSAyNC40NTEgMTQgMzMuMzk2IDE0YzQuMTkxIDAgNy4xOTIuODQ0IDEwLjAzMyAyLjgyMWwxLjE0Mi0xLjY0MkM0MS40MTEgMTIuOTggMzcuOTY1IDEyIDMzLjM5NiAxMmMtMTAuMDAyIDAtMTguNTcgNy4zMjItMjAuMjU1IDE3LjE0QTIuOTkgMi45OSAwIDAgMCAxMSAzMmMwIDEuMzUzLjkwNiAyLjQ4NiAyLjEzOSAyLjg1OUMxNC44OCA0NS4yNDggMjMuNDU2IDUzIDMzLjM5NiA1M2M0LjIzMiAwIDguMzMzLTEuNDA5IDEyLjE4OS00LjE4OWwtMS4xNy0xLjYyMkM0MC45MDcgNDkuNzE4IDM3LjE5OSA1MSAzMy4zOTYgNTFtLTguMzM0LTIxLjU0MWMxLjM5NS4zNzggMy4wMjkuNTQxIDQuMzcyLjU0MSAxLjI4MiAwIDIuODI2LS4xNDUgNC4xODQtLjQ3NGwtMy41MTMgNy4wMjdBMSAxIDAgMCAwIDMwIDM3djMuNTAxYTI2IDI2IDAgMCAwLS4zOTkuMzMxYy0uMzk0LjMzLTEuMTY5Ljk4MS0xLjYwMSAxLjE0MlYzN3EwLS4xOTItLjA3MS0uMzcyek0yOS40MzQgMjZjMi41OTkgMCA0LjU4MS41NjYgNS4zMzUgMS0uNzU0LjQzNC0yLjczNiAxLTUuMzM1IDEtMi42OTUgMC00LjUzMy0uNjAxLTUuMjE2LTEgLjY4My0uMzk5IDIuNTIxLTEgNS4yMTYtMU0yNyA0NGgxcS4wNjUgMCAuMTI4LS4wMDhjLjk2Ni0uMTI1IDEuOTE4LS45MjQgMi43NTgtMS42MjguMjU5LS4yMTcuNDg2LS40MTIuNjYtLjUyNi4yODMtLjE4NS40NTQtLjUuNDU0LS44Mzh2LTMuNzY0bDQuNTkyLTkuMTgzYy4yNTgtLjMwOC40MDgtLjY1Ny40MDgtMS4wNTMgMC0yLjIwMS00LjUyNS0zLTcuNTY2LTMtMi45ODkgMC03LjQzNC43OTktNy40MzQgMyAwIC4zMTcuMTAxLjYwMS4yNjguODYyTDI2IDM3LjE5MlY0M2ExIDEgMCAwIDAgMSAxbTIyLTFhMS4wMDEgMS4wMDEgMCAwIDEgMCAyIDEuMDAxIDEuMDAxIDAgMCAxIDAtMm0wLTI0YTEuMDAxIDEuMDAxIDAgMCAxIDAgMiAxLjAwMSAxLjAwMSAwIDAgMSAwLTJtMiAxMmExLjAwMSAxLjAwMSAwIDAgMSAwIDIgMS4wMDEgMS4wMDEgMCAwIDEgMC0ybS03IDJoNC4xODVBMi45OSAyLjk5IDAgMCAwIDUxIDM1YzEuNjU0IDAgMy0xLjM0NiAzLTNzLTEuMzQ2LTMtMy0zYTIuOTkgMi45OSAwIDAgMC0yLjgxNSAySDQ0VjIxaDIuMTg1QTIuOTkgMi45OSAwIDAgMCA0OSAyM2MxLjY1NCAwIDMtMS4zNDYgMy0zcy0xLjM0Ni0zLTMtM2EyLjk5IDIuOTkgMCAwIDAtMi44MTUgMkg0M2ExIDEgMCAwIDAtMSAxdjExaC01djJoNXYxMWExIDEgMCAwIDAgMSAxaDMuMTg1QTIuOTkgMi45OSAwIDAgMCA0OSA0N2MxLjY1NCAwIDMtMS4zNDYgMy0zcy0xLjM0Ni0zLTMtM2EyLjk5IDIuOTkgMCAwIDAtMi44MTUgMkg0NHoiLz48L2c+PC9zdmc+"/></symbol>
   </defs>
   <rect width="1640" height="1160" fill="#ffffff"/>
   <rect x="20" y="136" width="1420" height="902" rx="12" fill="#ffffff" stroke="#ED7100" stroke-width="2"/>
@@ -86,7 +88,7 @@
   <text x="735" y="93" font-size="11" font-weight="400" fill="#1f2328" text-anchor="middle">Redirect to HTTPS</text>
   <rect x="830" y="58" width="146" height="44" rx="6" fill="#ffffff" stroke="#1f2328" stroke-width="1.2"/>
   <text x="903" y="77" font-size="13" font-weight="700" fill="#1f2328" text-anchor="middle">HTTPS 443</text>
-  <text x="903" y="93" font-size="11" font-weight="400" fill="#1f2328" text-anchor="middle">TLS with ACM cert</text>
+  <text x="903" y="93" font-size="11" font-weight="400" fill="#1f2328" text-anchor="middle">TLS 1.2/1.3 · ACM cert</text>
   <rect x="1040" y="36" width="250" height="66" rx="8" fill="#ffffff" stroke="#DD344C" stroke-width="1.8"/>
   <use href="#acm" x="1052" y="47" width="44" height="44"/>
   <text x="1106" y="60" font-size="14" font-weight="700" fill="#1f2328" text-anchor="start">ACM Certificate</text>
@@ -105,7 +107,7 @@
   <text x="1342" y="306" font-size="11" font-weight="600" fill="#067a55" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round">PostgreSQL :5432 · TLS</text>
   <text x="1342" y="330" font-size="10.5" font-weight="600" fill="#57606a" text-anchor="middle" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round">from the NAT Elastic IPs</text>
   <text x="620" y="610" font-size="10.5" font-weight="600" fill="#1f2328" text-anchor="start" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round">private EKS API :443</text>
-  <text x="316" y="872" font-size="11" font-weight="600" fill="#1F6FEB" text-anchor="end" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round">push</text>
+  <text x="326" y="872" font-size="11" font-weight="600" fill="#1F6FEB" text-anchor="start" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round">push</text>
   <text x="488" y="872" font-size="11" font-weight="600" fill="#1F6FEB" text-anchor="start" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round">Pull</text>
   <text x="1068" y="872" font-size="11" font-weight="600" fill="#1F6FEB" text-anchor="start" paint-order="stroke" stroke="#ffffff" stroke-width="4" stroke-linejoin="round">Pull</text>
   <rect x="40" y="180" width="270" height="288" rx="10" fill="#ffffff" stroke="#232F3E" stroke-width="1.5"/>
@@ -137,18 +139,21 @@
   <use href="#iamrole-dd344cED7100" x="54" y="636" width="36" height="36"/>
   <text x="100" y="652" font-size="12.5" font-weight="700" fill="#1f2328" text-anchor="start">EKS Cluster Role</text>
   <text x="100" y="668" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="start">eks-pr1-cluster-role</text>
-  <use href="#iamrole-dd344cED7100" x="54" y="710" width="36" height="36"/>
-  <text x="100" y="726" font-size="12.5" font-weight="700" fill="#1f2328" text-anchor="start">EKS Node Role</text>
-  <text x="100" y="742" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="start">hospital-pr1-node-role</text>
-  <use href="#iamrole-dd344cED7100" x="54" y="784" width="36" height="36"/>
-  <text x="100" y="800" font-size="12.5" font-weight="700" fill="#1f2328" text-anchor="start">LB Controller Role (IRSA)</text>
-  <text x="100" y="816" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="start">eks-pr1-load-balancer-controller</text>
-  <use href="#iamrole-dd344cED7100" x="54" y="858" width="36" height="36"/>
-  <text x="100" y="874" font-size="12.5" font-weight="700" fill="#1f2328" text-anchor="start">Ops Instance Role</text>
-  <text x="100" y="890" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="start">hospitalsystem-ops · EKS access entry</text>
-  <use href="#iamrole-dd344cED7100" x="54" y="932" width="36" height="36"/>
-  <text x="100" y="948" font-size="12.5" font-weight="700" fill="#1f2328" text-anchor="start">VPC Flow Logs Role</text>
-  <text x="100" y="964" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="start">kubes-vpc-flow-logs</text>
+  <use href="#iamrole-dd344cED7100" x="54" y="698" width="36" height="36"/>
+  <text x="100" y="714" font-size="12.5" font-weight="700" fill="#1f2328" text-anchor="start">EKS Node Role</text>
+  <text x="100" y="730" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="start">hospital-pr1-node-role</text>
+  <use href="#iamrole-dd344cED7100" x="54" y="760" width="36" height="36"/>
+  <text x="100" y="776" font-size="12.5" font-weight="700" fill="#1f2328" text-anchor="start">LB Controller Role (IRSA)</text>
+  <text x="100" y="792" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="start">eks-pr1-load-balancer-controller</text>
+  <use href="#iamrole-dd344cED7100" x="54" y="822" width="36" height="36"/>
+  <text x="100" y="838" font-size="12.5" font-weight="700" fill="#1f2328" text-anchor="start">Backend Secrets Reader (IRSA)</text>
+  <text x="100" y="854" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="start">eks-pr1-backend-secrets-reader</text>
+  <use href="#iamrole-dd344cED7100" x="54" y="884" width="36" height="36"/>
+  <text x="100" y="900" font-size="12.5" font-weight="700" fill="#1f2328" text-anchor="start">Ops Instance Role</text>
+  <text x="100" y="916" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="start">hospitalsystem-ops · EKS access entry</text>
+  <use href="#iamrole-dd344cED7100" x="54" y="946" width="36" height="36"/>
+  <text x="100" y="962" font-size="12.5" font-weight="700" fill="#1f2328" text-anchor="start">VPC Flow Logs Role</text>
+  <text x="100" y="978" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="start">kubes-vpc-flow-logs</text>
   <rect x="764" y="154" width="170" height="46" fill="#ffffff"/>
   <use href="#igw" x="768" y="154" width="44" height="44"/>
   <text x="818" y="182" font-size="12.5" font-weight="700" fill="#1f2328" text-anchor="start">Internet Gateway</text>
@@ -166,9 +171,10 @@
   <text x="790" y="357" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="middle">nodes in p1 + p2</text>
   <text x="575" y="458" font-size="13" font-weight="700" fill="#1f2328" text-anchor="middle">private1 · 10.0.32.0/20 – eu-north-1a</text>
   <use href="#vpce" x="404" y="474" width="42" height="42"/>
-  <text x="425" y="532" font-size="12" font-weight="700" fill="#1f2328" text-anchor="middle">SSM Endpoints</text>
+  <text x="425" y="532" font-size="12" font-weight="700" fill="#1f2328" text-anchor="middle">VPC Endpoints</text>
   <text x="425" y="546" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="middle">ssm · ssmmessages</text>
   <text x="425" y="559" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="middle">ec2messages</text>
+  <text x="425" y="572" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="middle">ecr.api</text>
   <use href="#ec2" x="521" y="474" width="42" height="42"/>
   <text x="542" y="532" font-size="12" font-weight="700" fill="#1f2328" text-anchor="middle">Ops Instance</text>
   <text x="542" y="546" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="middle">hospitalsystem-ops</text>
@@ -196,13 +202,13 @@
   <text x="500" y="788" font-size="10" font-weight="400" fill="#57606a" text-anchor="middle">RollingUpdate</text>
   <use href="#k8s-hpa" x="560" y="728" width="30" height="30"/>
   <text x="575" y="774" font-size="11" font-weight="700" fill="#1f2328" text-anchor="middle">HPA</text>
-  <text x="575" y="788" font-size="10" font-weight="400" fill="#57606a" text-anchor="middle">1–3 · 70% CPU</text>
+  <text x="575" y="788" font-size="10" font-weight="400" fill="#57606a" text-anchor="middle">fixed at 2</text>
   <use href="#k8s-pod" x="635" y="728" width="30" height="30"/>
   <text x="650" y="774" font-size="11" font-weight="700" fill="#1f2328" text-anchor="middle">Pod</text>
   <text x="650" y="788" font-size="10" font-weight="400" fill="#57606a" text-anchor="middle">:8080</text>
   <use href="#k8s-pod" x="710" y="728" width="30" height="30"/>
   <text x="725" y="774" font-size="11" font-weight="700" fill="#1f2328" text-anchor="middle">Pod</text>
-  <text x="725" y="788" font-size="10" font-weight="400" fill="#57606a" text-anchor="middle">(HPA)</text>
+  <text x="725" y="788" font-size="10" font-weight="400" fill="#57606a" text-anchor="middle">2nd node</text>
   <text x="822" y="721" font-size="12" font-weight="700" fill="#1f2328" text-anchor="start">hospital-backend</text>
   <use href="#k8s-svc" x="840" y="728" width="30" height="30"/>
   <text x="855" y="774" font-size="11" font-weight="700" fill="#1f2328" text-anchor="middle">Service</text>
@@ -212,19 +218,20 @@
   <text x="930" y="788" font-size="10" font-weight="400" fill="#57606a" text-anchor="middle">RollingUpdate</text>
   <use href="#k8s-hpa" x="990" y="728" width="30" height="30"/>
   <text x="1005" y="774" font-size="11" font-weight="700" fill="#1f2328" text-anchor="middle">HPA</text>
-  <text x="1005" y="788" font-size="10" font-weight="400" fill="#57606a" text-anchor="middle">1–3 · 70% CPU</text>
+  <text x="1005" y="788" font-size="10" font-weight="400" fill="#57606a" text-anchor="middle">fixed at 2</text>
   <use href="#k8s-pod" x="1065" y="728" width="30" height="30"/>
   <text x="1080" y="774" font-size="11" font-weight="700" fill="#1f2328" text-anchor="middle">Pod</text>
   <text x="1080" y="788" font-size="10" font-weight="400" fill="#57606a" text-anchor="middle">:8080</text>
   <use href="#k8s-pod" x="1140" y="728" width="30" height="30"/>
   <text x="1155" y="774" font-size="11" font-weight="700" fill="#1f2328" text-anchor="middle">Pod</text>
-  <text x="1155" y="788" font-size="10" font-weight="400" fill="#57606a" text-anchor="middle">(HPA)</text>
-  <text x="380" y="830" font-size="11.5" font-weight="700" fill="#1F4FB5" text-anchor="start">kube-system</text>
-  <text x="500" y="830" font-size="11" font-weight="400" fill="#1f2328" text-anchor="start">AWS Load Balancer Controller: manages the ALB (IRSA)</text>
-  <text x="840" y="830" font-size="11" font-weight="400" fill="#1f2328" text-anchor="start">metrics-server: feeds the HPAs</text>
+  <text x="1155" y="788" font-size="10" font-weight="400" fill="#57606a" text-anchor="middle">2nd node</text>
+  <text x="380" y="830" font-size="11.5" font-weight="700" fill="#1F4FB5" text-anchor="start">Add-ons</text>
+  <text x="492" y="830" font-size="11" font-weight="400" fill="#1f2328" text-anchor="start">LB Controller: manages the ALB</text>
+  <text x="680" y="830" font-size="11" font-weight="400" fill="#1f2328" text-anchor="start">metrics-server: feeds HPAs</text>
+  <text x="845" y="830" font-size="11" font-weight="400" fill="#1f2328" text-anchor="start">External Secrets: backend Secret</text>
   <use href="#ecr" x="344" y="890" width="40" height="40"/>
   <text x="394" y="915" font-size="15" font-weight="700" fill="#1f2328" text-anchor="start">Amazon ECR</text>
-  <text x="500" y="915" font-size="11" font-weight="400" fill="#57606a" text-anchor="start">scan on push · keeps the latest 30 · KMS-encrypted</text>
+  <text x="500" y="915" font-size="11" font-weight="400" fill="#57606a" text-anchor="start">scan on push · immutable release tags · keeps the latest 30 · KMS-encrypted</text>
   <text x="790" y="940" font-size="13" font-weight="700" fill="#B35400" text-anchor="middle">Repositories / Images</text>
   <rect x="400" y="950" width="260" height="52" rx="8" fill="#ffffff" stroke="#ED7100" stroke-width="1.4"/>
   <use href="#ecrimage" x="414" y="959" width="34" height="34"/>
@@ -232,9 +239,9 @@
   <rect x="930" y="950" width="260" height="52" rx="8" fill="#ffffff" stroke="#ED7100" stroke-width="1.4"/>
   <use href="#ecrimage" x="944" y="959" width="34" height="34"/>
   <text x="990" y="982" font-size="14" font-weight="700" fill="#1f2328" text-anchor="start">hospital-backend</text>
-  <rect x="1266" y="400" width="158" height="372" rx="10" fill="#ffffff" stroke="#E7157B" stroke-width="1.5"/>
-  <text x="1345" y="422" font-size="13" font-weight="700" fill="#1f2328" text-anchor="middle">Monitoring &amp;</text>
-  <text x="1345" y="438" font-size="13" font-weight="700" fill="#1f2328" text-anchor="middle">Encryption</text>
+  <rect x="1266" y="400" width="158" height="590" rx="10" fill="#ffffff" stroke="#E7157B" stroke-width="1.5"/>
+  <text x="1345" y="422" font-size="13" font-weight="700" fill="#1f2328" text-anchor="middle">Monitoring, Secrets</text>
+  <text x="1345" y="438" font-size="13" font-weight="700" fill="#1f2328" text-anchor="middle">&amp; Encryption</text>
   <use href="#cw" x="1326" y="452" width="38" height="38"/>
   <text x="1345" y="506" font-size="12" font-weight="700" fill="#1f2328" text-anchor="middle">CloudWatch Logs</text>
   <text x="1345" y="521" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="middle">EKS control plane</text>
@@ -243,11 +250,19 @@
   <text x="1345" y="610" font-size="12" font-weight="700" fill="#1f2328" text-anchor="middle">CloudWatch Alarms</text>
   <text x="1345" y="625" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="middle">ALB 5xx</text>
   <text x="1345" y="639" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="middle">unhealthy targets</text>
-  <text x="1345" y="653" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="middle">node group empty</text>
-  <use href="#kms" x="1326" y="674" width="38" height="38"/>
-  <text x="1345" y="728" font-size="12" font-weight="700" fill="#1f2328" text-anchor="middle">AWS KMS</text>
-  <text x="1345" y="743" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="middle">ECR · EKS Secrets</text>
-  <text x="1345" y="757" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="middle">logs · ops disk</text>
+  <text x="1345" y="653" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="middle">too few nodes</text>
+  <use href="#sns" x="1326" y="674" width="38" height="38"/>
+  <text x="1345" y="728" font-size="12" font-weight="700" fill="#1f2328" text-anchor="middle">Amazon SNS</text>
+  <text x="1345" y="743" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="middle">emails every alarm</text>
+  <text x="1345" y="757" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="middle">to ALERT_EMAIL</text>
+  <use href="#secretsmanager" x="1326" y="778" width="38" height="38"/>
+  <text x="1345" y="832" font-size="12" font-weight="700" fill="#1f2328" text-anchor="middle">Secrets Manager</text>
+  <text x="1345" y="847" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="middle">hospitalsystem/backend</text>
+  <text x="1345" y="861" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="middle">→ External Secrets</text>
+  <use href="#kms" x="1326" y="882" width="38" height="38"/>
+  <text x="1345" y="936" font-size="12" font-weight="700" fill="#1f2328" text-anchor="middle">AWS KMS</text>
+  <text x="1345" y="951" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="middle">ECR · EKS secrets · logs</text>
+  <text x="1345" y="965" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="middle">SNS · secret · ops disk</text>
   <rect x="1460" y="250" width="160" height="156" rx="10" fill="#ffffff" stroke="#1f2328" stroke-width="1.5"/>
   <text x="1540" y="292" font-size="34" font-weight="700" fill="url(#neon)" text-anchor="middle">Neon</text>
   <use href="#si-postgresql" x="1480" y="308" width="30" height="30"/>
@@ -258,16 +273,16 @@
   <rect x="20" y="1060" width="520" height="80" rx="10" fill="#FBF8FF" stroke="#7B42BC" stroke-width="1.8"/>
   <use href="#si-terraform" x="38" y="1078" width="44" height="44"/>
   <text x="98" y="1088" font-size="15" font-weight="700" fill="#5C2D91" text-anchor="start">Terraform manages AWS infrastructure</text>
-  <text x="98" y="1107" font-size="12" font-weight="400" fill="#1f2328" text-anchor="start">VPC, subnets, NAT + internet gateways, VPC endpoints,</text>
-  <text x="98" y="1123" font-size="12" font-weight="400" fill="#1f2328" text-anchor="start">EKS, IAM + OIDC roles, ECR, ACM, KMS, ops instance</text>
+  <text x="98" y="1107" font-size="12" font-weight="400" fill="#1f2328" text-anchor="start">VPC, subnets, gateways, endpoints, EKS, IAM + OIDC roles,</text>
+  <text x="98" y="1123" font-size="12" font-weight="400" fill="#1f2328" text-anchor="start">ECR, ACM, KMS, Secrets Manager, ops instance, SSM, SNS</text>
   <rect x="560" y="1060" width="520" height="80" rx="10" fill="#F5F8FE" stroke="#326CE5" stroke-width="1.8"/>
   <use href="#si-kubernetes" x="578" y="1078" width="44" height="44"/>
   <text x="638" y="1088" font-size="15" font-weight="700" fill="#1F4FB5" text-anchor="start">Kubernetes manifests manage app workloads</text>
-  <text x="638" y="1107" font-size="12" font-weight="400" fill="#1f2328" text-anchor="start">Namespace, Deployments, Services, HPAs, Ingress,</text>
-  <text x="638" y="1123" font-size="12" font-weight="400" fill="#1f2328" text-anchor="start">ConfigMap, deploy RBAC, admission policy</text>
+  <text x="638" y="1107" font-size="12" font-weight="400" fill="#1f2328" text-anchor="start">Namespace, Deployments, Services, HPAs, PDBs, Ingress,</text>
+  <text x="638" y="1123" font-size="12" font-weight="400" fill="#1f2328" text-anchor="start">NetworkPolicies, ExternalSecret, RBAC, admission policies</text>
   <rect x="1100" y="1060" width="520" height="80" rx="10" fill="#FFF7F7" stroke="#CC0000" stroke-width="1.8"/>
   <use href="#si-ansible" x="1118" y="1078" width="44" height="44"/>
   <text x="1178" y="1088" font-size="15" font-weight="700" fill="#A30000" text-anchor="start">Ansible bootstraps the cluster</text>
-  <text x="1178" y="1107" font-size="12" font-weight="400" fill="#1f2328" text-anchor="start">LB controller, metrics-server, backend Secret,</text>
-  <text x="1178" y="1123" font-size="12" font-weight="400" fill="#1f2328" text-anchor="start">aws-auth, manifests, Cloudflare DNS record</text>
+  <text x="1178" y="1107" font-size="12" font-weight="400" fill="#1f2328" text-anchor="start">LB controller, metrics-server, External Secrets,</text>
+  <text x="1178" y="1123" font-size="12" font-weight="400" fill="#1f2328" text-anchor="start">backend secret, manifests, Cloudflare DNS, ALB alarms</text>
 </svg>
