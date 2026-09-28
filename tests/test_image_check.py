@@ -132,6 +132,14 @@ class ImageCheckTests(TestCase):
         self.assertExit(result, 0)
         self.assertIn("built from 356248d plus uncommitted changes", result.stdout)
 
+    def test_every_ci_tag_format_names_the_commit(self):
+        # With and without the run attempt Docker Image CI now adds.
+        for tag in ("2026-09-27-a9b466a-153-2", TAG):
+            with self.subTest(tag=tag):
+                result = self.run_check(routes=healthy_routes(tag=tag, tags=f"latest,{tag}"))
+                self.assertExit(result, 0)
+                self.assertIn("built from a9b466a, the tip of main", result.stdout)
+
     def test_latest_resolves_the_commit_from_its_other_tag(self):
         result = self.run_check(routes=healthy_routes(tag="latest"))
         self.assertExit(result, 0)

@@ -5,8 +5,9 @@
 # and setting NAMESPACE and GITHUB_REPOSITORY.
 
 # Tags naming a commit: <date>-<sha> from the bootstrap push (-dirty when its
-# checkout had uncommitted changes), <date>-<sha>-<run> from Docker Image CI.
-IMAGE_REVISION_TAG='^[0-9]{4}-[0-9]{2}-[0-9]{2}-([0-9a-f]{7})(-dirty)?(-[0-9]+)?$'
+# checkout had uncommitted changes), <date>-<sha>-<run>-<attempt> from Docker
+# Image CI (<date>-<sha>-<run> before it added the attempt).
+IMAGE_REVISION_TAG='^[0-9]{4}-[0-9]{2}-[0-9]{2}-([0-9a-f]{7})(-dirty)?(-[0-9]+){0,2}$'
 
 check_image() {
   local deployment="$1" image repo tag pods pod image_id count matching digest row pushed tags

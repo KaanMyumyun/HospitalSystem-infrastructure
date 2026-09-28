@@ -6,6 +6,9 @@ frontend_image: "{{ frontend_repository_url }}:{{ initial_image_tag }}"
 
 backend_deployment: hospital-backend
 backend_container: backend
+# The backend's Prometheus endpoint (KestrelMetricServer in the app's
+# Program.cs). policy/network.yaml.j2 opens it to the control plane only.
+backend_metrics_port: 9091
 frontend_deployment: hospital-frontend
 frontend_container: frontend
 

@@ -40,3 +40,27 @@ spec:
       ports:
         - protocol: TCP
           port: 8080
+---
+# scripts/monitoring.sh reads each backend pod's Prometheus metrics through
+# the API server's pod proxy. Only the control plane may reach the metrics
+# port; the ALB never needs it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-api-server-metrics
+  namespace: "{{ k8s_namespace }}"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: hospital-backend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+{% for ip in eks_control_plane_ips %}
+        - ipBlock:
+            cidr: "{{ ip }}/32"
+{% endfor %}
+      ports:
+        - protocol: TCP
+          port: {{ backend_metrics_port }}
