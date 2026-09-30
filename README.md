@@ -18,7 +18,8 @@ Current AWS deployment target:
 
 - [Quick Start](#quick-start)
 - [How This Was Built](#how-this-was-built)
-- [Architecture](#architecture) and [AWS Resources](#aws-resources)
+- [Architecture](#architecture) ([Database schema](#database-schema)) and
+  [AWS Resources](#aws-resources)
 - [Repository Contents](#repository-contents)
 - [CI/CD Workflow](#cicd-workflow)
 - [Terraform Workflow](#terraform-workflow): [Local setup](#local-setup),
@@ -84,6 +85,14 @@ Controller. The ALB terminates HTTPS with ACM and routes:
 
 Backend and frontend images are built in the application repository and pushed
 to Amazon ECR. The database is hosted separately on Neon PostgreSQL.
+
+### Database schema
+
+![HospitalSystem database schema](assets/images/database-schema.png)
+
+The application's EF Core migrations create this schema; nothing in this
+repository changes it. Every foreign key is `ON DELETE RESTRICT`, so a row
+that others reference can't be deleted until those references are gone.
 
 ## AWS Resources
 
