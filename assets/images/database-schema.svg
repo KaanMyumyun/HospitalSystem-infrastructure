@@ -1,0 +1,283 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1640" height="920" viewBox="0 0 1640 920" role="img" aria-labelledby="t d" font-family="'Open Sans', 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title id="t">HospitalSystem database schema</title>
+  <desc id="d">The Neon PostgreSQL database neondb, schema public, as EF Core migrations built it. Departments have many Doctors; each Doctor is one User; Doctors have many Calendars and Appointments; Patients have many Appointments; each Appointment records the front-desk User who created it. Every foreign key is ON DELETE RESTRICT. A partial unique index stops two Scheduled appointments for the same doctor and time. AuditLogs and __EFMigrationsHistory have no foreign keys.</desc>
+  <rect width="1640" height="920" fill="#ffffff"/>
+  <text x="40" y="56" font-size="24" font-weight="700" fill="#1f2328" text-anchor="start">HospitalSystem database</text>
+  <text x="40" y="84" font-size="13.5" font-weight="600" fill="#57606a" text-anchor="start">Neon PostgreSQL 17 · database neondb · schema public</text>
+  <text x="40" y="104" font-size="12.5" font-weight="400" fill="#57606a" text-anchor="start">Built by the application's EF Core migrations · read from the live catalog on 2026-09-30</text>
+  <rect x="900" y="26" width="700" height="94" rx="8" fill="#ffffff" stroke="#d0d7de" stroke-width="1.2"/>
+  <rect x="916" y="45" width="24" height="14" rx="3" fill="#FFF4D6" stroke="#BF8700" stroke-width="1"/>
+  <text x="928" y="55.5" font-size="9" font-weight="700" fill="#7D4E00" text-anchor="middle">PK</text>
+  <text x="946" y="56.5" font-size="12" font-weight="400" fill="#1f2328" text-anchor="start">primary key</text>
+  <rect x="1040" y="45" width="24" height="14" rx="3" fill="#DDF4FF" stroke="#0969DA" stroke-width="1"/>
+  <text x="1052" y="55.5" font-size="9" font-weight="700" fill="#0550AE" text-anchor="middle">FK</text>
+  <text x="1070" y="56.5" font-size="12" font-weight="400" fill="#1f2328" text-anchor="start">foreign key · ON DELETE RESTRICT · indexed</text>
+  <rect x="1354" y="45" width="24" height="14" rx="3" fill="#FBEFFF" stroke="#8250DF" stroke-width="1"/>
+  <text x="1366" y="55.5" font-size="9" font-weight="700" fill="#6639BA" text-anchor="middle">UQ</text>
+  <text x="1384" y="56.5" font-size="12" font-weight="400" fill="#1f2328" text-anchor="start">unique index</text>
+  <text x="1490" y="56" font-size="9.5" font-weight="700" fill="#BC4C00" text-anchor="start">NULL</text>
+  <text x="1520" y="56.5" font-size="12" font-weight="400" fill="#1f2328" text-anchor="start">nullable</text>
+  <path d="M916,88 L960,88" stroke="#1f2328" stroke-width="1.6"/>
+  <path d="M950,95 L950,81" stroke="#1f2328" stroke-width="1.6" fill="none"/>
+  <path d="M944,95 L944,81" stroke="#1f2328" stroke-width="1.6" fill="none"/>
+  <text x="970" y="92.5" font-size="12" font-weight="400" fill="#1f2328" text-anchor="start">exactly one</text>
+  <path d="M1076,88 L1120,88" stroke="#1f2328" stroke-width="1.6"/>
+  <path d="M1110,95 L1110,81" stroke="#1f2328" stroke-width="1.6" fill="none"/>
+  <circle cx="1098" cy="88" r="5" fill="#ffffff" stroke="#1f2328" stroke-width="1.6"/>
+  <text x="1130" y="92.5" font-size="12" font-weight="400" fill="#1f2328" text-anchor="start">zero or one</text>
+  <path d="M1236,88 L1280,88" stroke="#1f2328" stroke-width="1.6"/>
+  <path d="M1266,88 L1280,96" stroke="#1f2328" stroke-width="1.6" fill="none"/>
+  <path d="M1266,88 L1280,88" stroke="#1f2328" stroke-width="1.6" fill="none"/>
+  <path d="M1266,88 L1280,80" stroke="#1f2328" stroke-width="1.6" fill="none"/>
+  <circle cx="1258" cy="88" r="5" fill="#ffffff" stroke="#1f2328" stroke-width="1.6"/>
+  <text x="1290" y="92.5" font-size="12" font-weight="400" fill="#1f2328" text-anchor="start">zero or many</text>
+  <text x="1396" y="92.5" font-size="12" font-weight="400" fill="#57606a" text-anchor="start">Every column is NOT NULL</text>
+  <text x="1396" y="108.5" font-size="12" font-weight="400" fill="#57606a" text-anchor="start">unless marked NULL.</text>
+  <path d="M380,202 L460,202 L460,226 L620,226" fill="none" stroke="#1f2328" stroke-width="1.6" stroke-linejoin="round"/>
+  <path d="M390,195 L390,209" stroke="#1f2328" stroke-width="1.6" fill="none"/>
+  <path d="M396,195 L396,209" stroke="#1f2328" stroke-width="1.6" fill="none"/>
+  <path d="M606,226 L620,234" stroke="#1f2328" stroke-width="1.6" fill="none"/>
+  <path d="M606,226 L620,226" stroke="#1f2328" stroke-width="1.6" fill="none"/>
+  <path d="M606,226 L620,218" stroke="#1f2328" stroke-width="1.6" fill="none"/>
+  <circle cx="598" cy="226" r="5" fill="#ffffff" stroke="#1f2328" stroke-width="1.6"/>
+  <path d="M380,452 L540,452 L540,250 L620,250" fill="none" stroke="#1f2328" stroke-width="1.6" stroke-linejoin="round"/>
+  <path d="M390,445 L390,459" stroke="#1f2328" stroke-width="1.6" fill="none"/>
+  <path d="M396,445 L396,459" stroke="#1f2328" stroke-width="1.6" fill="none"/>
+  <path d="M610,257 L610,243" stroke="#1f2328" stroke-width="1.6" fill="none"/>
+  <circle cx="598" cy="250" r="5" fill="#ffffff" stroke="#1f2328" stroke-width="1.6"/>
+  <path d="M380,452 L540,452 L540,548 L620,548" fill="none" stroke="#1f2328" stroke-width="1.6" stroke-linejoin="round"/>
+  <path d="M606,548 L620,556" stroke="#1f2328" stroke-width="1.6" fill="none"/>
+  <path d="M606,548 L620,548" stroke="#1f2328" stroke-width="1.6" fill="none"/>
+  <path d="M606,548 L620,540" stroke="#1f2328" stroke-width="1.6" fill="none"/>
+  <circle cx="598" cy="548" r="5" fill="#ffffff" stroke="#1f2328" stroke-width="1.6"/>
+  <circle cx="540" cy="452" r="3.5" fill="#1f2328"/>
+  <path d="M1020,202 L1140,202 L1140,226 L1260,226" fill="none" stroke="#1f2328" stroke-width="1.6" stroke-linejoin="round"/>
+  <path d="M1030,195 L1030,209" stroke="#1f2328" stroke-width="1.6" fill="none"/>
+  <path d="M1036,195 L1036,209" stroke="#1f2328" stroke-width="1.6" fill="none"/>
+  <path d="M1246,226 L1260,234" stroke="#1f2328" stroke-width="1.6" fill="none"/>
+  <path d="M1246,226 L1260,226" stroke="#1f2328" stroke-width="1.6" fill="none"/>
+  <path d="M1246,226 L1260,218" stroke="#1f2328" stroke-width="1.6" fill="none"/>
+  <circle cx="1238" cy="226" r="5" fill="#ffffff" stroke="#1f2328" stroke-width="1.6"/>
+  <path d="M1260,452 L1140,452 L1140,572 L1020,572" fill="none" stroke="#1f2328" stroke-width="1.6" stroke-linejoin="round"/>
+  <path d="M1250,459 L1250,445" stroke="#1f2328" stroke-width="1.6" fill="none"/>
+  <path d="M1244,459 L1244,445" stroke="#1f2328" stroke-width="1.6" fill="none"/>
+  <path d="M1034,572 L1020,564" stroke="#1f2328" stroke-width="1.6" fill="none"/>
+  <path d="M1034,572 L1020,572" stroke="#1f2328" stroke-width="1.6" fill="none"/>
+  <path d="M1034,572 L1020,580" stroke="#1f2328" stroke-width="1.6" fill="none"/>
+  <circle cx="1042" cy="572" r="5" fill="#ffffff" stroke="#1f2328" stroke-width="1.6"/>
+  <path d="M820,286 L820,400" fill="none" stroke="#1f2328" stroke-width="1.6" stroke-linejoin="round"/>
+  <path d="M827,296 L813,296" stroke="#1f2328" stroke-width="1.6" fill="none"/>
+  <path d="M827,302 L813,302" stroke="#1f2328" stroke-width="1.6" fill="none"/>
+  <path d="M820,386 L812,400" stroke="#1f2328" stroke-width="1.6" fill="none"/>
+  <path d="M820,386 L820,400" stroke="#1f2328" stroke-width="1.6" fill="none"/>
+  <path d="M820,386 L828,400" stroke="#1f2328" stroke-width="1.6" fill="none"/>
+  <circle cx="820" cy="378" r="5" fill="#ffffff" stroke="#1f2328" stroke-width="1.6"/>
+  <text x="832" y="347" font-size="11" font-weight="600" fill="#57606a" text-anchor="start" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">Appointments.DoctorId</text>
+  <rect x="40" y="150" width="340" height="112" rx="8" fill="#ffffff"/>
+  <path d="M40,190 L40,158 Q40,150 48,150 L372,150 Q380,150 380,158 L380,190 Z" fill="#EAF1FB"/>
+  <line x1="40" y1="190" x2="380" y2="190" stroke="#336791" stroke-width="1.2"/>
+  <text x="54" y="176" font-size="15" font-weight="700" fill="#1f2328" text-anchor="start">Departments</text>
+  <rect x="52" y="195.0" width="24" height="14" rx="3" fill="#FFF4D6" stroke="#BF8700" stroke-width="1"/>
+  <text x="64" y="205.5" font-size="9" font-weight="700" fill="#7D4E00" text-anchor="middle">PK</text>
+  <text x="112" y="206.5" font-size="13" font-weight="600" fill="#1f2328" text-anchor="start">Id</text>
+  <text x="366" y="206" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">int identity</text>
+  <line x1="41" y1="214.0" x2="379" y2="214.0" stroke="#EAEEF2" stroke-width="1"/>
+  <rect x="52" y="219.0" width="24" height="14" rx="3" fill="#FBEFFF" stroke="#8250DF" stroke-width="1"/>
+  <text x="64" y="229.5" font-size="9" font-weight="700" fill="#6639BA" text-anchor="middle">UQ</text>
+  <text x="112" y="230.5" font-size="13" font-weight="600" fill="#1f2328" text-anchor="start">Department</text>
+  <text x="366" y="230" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">text</text>
+  <line x1="41" y1="238.0" x2="379" y2="238.0" stroke="#EAEEF2" stroke-width="1"/>
+  <text x="112" y="254.5" font-size="13" font-weight="400" fill="#1f2328" text-anchor="start">IsActive</text>
+  <text x="366" y="254" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">boolean</text>
+  <rect x="40" y="150" width="340" height="112" rx="8" fill="none" stroke="#336791" stroke-width="1.6"/>
+  <rect x="620" y="150" width="400" height="136" rx="8" fill="#ffffff"/>
+  <path d="M620,190 L620,158 Q620,150 628,150 L1012,150 Q1020,150 1020,158 L1020,190 Z" fill="#EAF1FB"/>
+  <line x1="620" y1="190" x2="1020" y2="190" stroke="#336791" stroke-width="1.2"/>
+  <text x="634" y="176" font-size="15" font-weight="700" fill="#1f2328" text-anchor="start">Doctors</text>
+  <rect x="632" y="195.0" width="24" height="14" rx="3" fill="#FFF4D6" stroke="#BF8700" stroke-width="1"/>
+  <text x="644" y="205.5" font-size="9" font-weight="700" fill="#7D4E00" text-anchor="middle">PK</text>
+  <text x="692" y="206.5" font-size="13" font-weight="600" fill="#1f2328" text-anchor="start">Id</text>
+  <text x="1006" y="206" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">int identity</text>
+  <line x1="621" y1="214.0" x2="1019" y2="214.0" stroke="#EAEEF2" stroke-width="1"/>
+  <rect x="632" y="219.0" width="24" height="14" rx="3" fill="#DDF4FF" stroke="#0969DA" stroke-width="1"/>
+  <text x="644" y="229.5" font-size="9" font-weight="700" fill="#0550AE" text-anchor="middle">FK</text>
+  <text x="692" y="230.5" font-size="13" font-weight="600" fill="#1f2328" text-anchor="start">DepartmentId</text>
+  <text x="1006" y="230" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">int</text>
+  <line x1="621" y1="238.0" x2="1019" y2="238.0" stroke="#EAEEF2" stroke-width="1"/>
+  <rect x="632" y="243.0" width="24" height="14" rx="3" fill="#DDF4FF" stroke="#0969DA" stroke-width="1"/>
+  <text x="644" y="253.5" font-size="9" font-weight="700" fill="#0550AE" text-anchor="middle">FK</text>
+  <rect x="660" y="243.0" width="24" height="14" rx="3" fill="#FBEFFF" stroke="#8250DF" stroke-width="1"/>
+  <text x="672" y="253.5" font-size="9" font-weight="700" fill="#6639BA" text-anchor="middle">UQ</text>
+  <text x="692" y="254.5" font-size="13" font-weight="600" fill="#1f2328" text-anchor="start">UserId</text>
+  <text x="1006" y="254" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">int</text>
+  <line x1="621" y1="262.0" x2="1019" y2="262.0" stroke="#EAEEF2" stroke-width="1"/>
+  <text x="692" y="278.5" font-size="13" font-weight="400" fill="#1f2328" text-anchor="start">IsActive</text>
+  <text x="1006" y="278" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">boolean</text>
+  <rect x="620" y="150" width="400" height="136" rx="8" fill="none" stroke="#336791" stroke-width="1.6"/>
+  <rect x="1260" y="150" width="340" height="160" rx="8" fill="#ffffff"/>
+  <path d="M1260,190 L1260,158 Q1260,150 1268,150 L1592,150 Q1600,150 1600,158 L1600,190 Z" fill="#EAF1FB"/>
+  <line x1="1260" y1="190" x2="1600" y2="190" stroke="#336791" stroke-width="1.2"/>
+  <text x="1274" y="176" font-size="15" font-weight="700" fill="#1f2328" text-anchor="start">Calendars</text>
+  <rect x="1272" y="195.0" width="24" height="14" rx="3" fill="#FFF4D6" stroke="#BF8700" stroke-width="1"/>
+  <text x="1284" y="205.5" font-size="9" font-weight="700" fill="#7D4E00" text-anchor="middle">PK</text>
+  <text x="1332" y="206.5" font-size="13" font-weight="600" fill="#1f2328" text-anchor="start">Id</text>
+  <text x="1586" y="206" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">int identity</text>
+  <line x1="1261" y1="214.0" x2="1599" y2="214.0" stroke="#EAEEF2" stroke-width="1"/>
+  <rect x="1272" y="219.0" width="24" height="14" rx="3" fill="#DDF4FF" stroke="#0969DA" stroke-width="1"/>
+  <text x="1284" y="229.5" font-size="9" font-weight="700" fill="#0550AE" text-anchor="middle">FK</text>
+  <text x="1332" y="230.5" font-size="13" font-weight="600" fill="#1f2328" text-anchor="start">DoctorId</text>
+  <text x="1586" y="230" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">int</text>
+  <line x1="1261" y1="238.0" x2="1599" y2="238.0" stroke="#EAEEF2" stroke-width="1"/>
+  <text x="1332" y="254.5" font-size="13" font-weight="400" fill="#1f2328" text-anchor="start">StartTime</text>
+  <text x="1586" y="254" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">timestamptz</text>
+  <line x1="1261" y1="262.0" x2="1599" y2="262.0" stroke="#EAEEF2" stroke-width="1"/>
+  <text x="1332" y="278.5" font-size="13" font-weight="400" fill="#1f2328" text-anchor="start">EndTime</text>
+  <text x="1586" y="278" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">timestamptz</text>
+  <line x1="1261" y1="286.0" x2="1599" y2="286.0" stroke="#EAEEF2" stroke-width="1"/>
+  <text x="1332" y="302.5" font-size="13" font-weight="400" fill="#1f2328" text-anchor="start">SlotDurationMin</text>
+  <text x="1586" y="302" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">int</text>
+  <rect x="1260" y="150" width="340" height="160" rx="8" fill="none" stroke="#336791" stroke-width="1.6"/>
+  <rect x="40" y="400" width="340" height="224" rx="8" fill="#ffffff"/>
+  <path d="M40,440 L40,408 Q40,400 48,400 L372,400 Q380,400 380,408 L380,440 Z" fill="#EAF1FB"/>
+  <line x1="40" y1="440" x2="380" y2="440" stroke="#336791" stroke-width="1.2"/>
+  <text x="54" y="426" font-size="15" font-weight="700" fill="#1f2328" text-anchor="start">Users</text>
+  <rect x="52" y="445.0" width="24" height="14" rx="3" fill="#FFF4D6" stroke="#BF8700" stroke-width="1"/>
+  <text x="64" y="455.5" font-size="9" font-weight="700" fill="#7D4E00" text-anchor="middle">PK</text>
+  <text x="112" y="456.5" font-size="13" font-weight="600" fill="#1f2328" text-anchor="start">Id</text>
+  <text x="366" y="456" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">int identity</text>
+  <line x1="41" y1="464.0" x2="379" y2="464.0" stroke="#EAEEF2" stroke-width="1"/>
+  <rect x="52" y="469.0" width="24" height="14" rx="3" fill="#FBEFFF" stroke="#8250DF" stroke-width="1"/>
+  <text x="64" y="479.5" font-size="9" font-weight="700" fill="#6639BA" text-anchor="middle">UQ</text>
+  <text x="112" y="480.5" font-size="13" font-weight="600" fill="#1f2328" text-anchor="start">Name</text>
+  <text x="366" y="480" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">varchar(50)</text>
+  <line x1="41" y1="488.0" x2="379" y2="488.0" stroke="#EAEEF2" stroke-width="1"/>
+  <text x="112" y="504.5" font-size="13" font-weight="400" fill="#1f2328" text-anchor="start">PasswordHash</text>
+  <text x="366" y="504" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">varchar(256)</text>
+  <line x1="41" y1="512.0" x2="379" y2="512.0" stroke="#EAEEF2" stroke-width="1"/>
+  <text x="112" y="528.5" font-size="13" font-weight="400" fill="#1f2328" text-anchor="start">Role</text>
+  <text x="366" y="528" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">text</text>
+  <line x1="41" y1="536.0" x2="379" y2="536.0" stroke="#EAEEF2" stroke-width="1"/>
+  <text x="112" y="552.5" font-size="13" font-weight="400" fill="#1f2328" text-anchor="start">SecurityStamp</text>
+  <text x="366" y="552" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">varchar(64)</text>
+  <line x1="40" y1="560" x2="380" y2="560" stroke="#336791" stroke-width="1" stroke-dasharray="4 3"/>
+  <text x="54" y="581" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="start">Role values (text; only the app checks them):</text>
+  <text x="54" y="597" font-size="10.5" font-weight="400" fill="#1f2328" text-anchor="start" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">Pending · Admin · Doctor · FrontDesk</text>
+  <text x="54" y="613" font-size="10.5" font-weight="400" fill="#1f2328" text-anchor="start" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">DemoAdmin · DemoFrontDesk</text>
+  <rect x="40" y="400" width="340" height="224" rx="8" fill="none" stroke="#336791" stroke-width="1.6"/>
+  <rect x="620" y="400" width="400" height="368" rx="8" fill="#ffffff"/>
+  <path d="M620,440 L620,408 Q620,400 628,400 L1012,400 Q1020,400 1020,408 L1020,440 Z" fill="#EAF1FB"/>
+  <line x1="620" y1="440" x2="1020" y2="440" stroke="#336791" stroke-width="1.2"/>
+  <text x="634" y="426" font-size="15" font-weight="700" fill="#1f2328" text-anchor="start">Appointments</text>
+  <rect x="632" y="445.0" width="24" height="14" rx="3" fill="#FFF4D6" stroke="#BF8700" stroke-width="1"/>
+  <text x="644" y="455.5" font-size="9" font-weight="700" fill="#7D4E00" text-anchor="middle">PK</text>
+  <text x="692" y="456.5" font-size="13" font-weight="600" fill="#1f2328" text-anchor="start">Id</text>
+  <text x="1006" y="456" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">int identity</text>
+  <line x1="621" y1="464.0" x2="1019" y2="464.0" stroke="#EAEEF2" stroke-width="1"/>
+  <text x="692" y="480.5" font-size="13" font-weight="400" fill="#1f2328" text-anchor="start">Status</text>
+  <text x="1006" y="480" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">text</text>
+  <line x1="621" y1="488.0" x2="1019" y2="488.0" stroke="#EAEEF2" stroke-width="1"/>
+  <text x="692" y="504.5" font-size="13" font-weight="400" fill="#1f2328" text-anchor="start">TimeOfAppointment</text>
+  <text x="1006" y="504" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">timestamptz</text>
+  <line x1="621" y1="512.0" x2="1019" y2="512.0" stroke="#EAEEF2" stroke-width="1"/>
+  <text x="692" y="528.5" font-size="13" font-weight="400" fill="#1f2328" text-anchor="start">CreatedAt</text>
+  <text x="1006" y="528" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">timestamptz</text>
+  <line x1="621" y1="536.0" x2="1019" y2="536.0" stroke="#EAEEF2" stroke-width="1"/>
+  <rect x="632" y="541.0" width="24" height="14" rx="3" fill="#DDF4FF" stroke="#0969DA" stroke-width="1"/>
+  <text x="644" y="551.5" font-size="9" font-weight="700" fill="#0550AE" text-anchor="middle">FK</text>
+  <text x="692" y="552.5" font-size="13" font-weight="600" fill="#1f2328" text-anchor="start">CreatedByTheFrontDeskId</text>
+  <text x="1006" y="552" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">int</text>
+  <line x1="621" y1="560.0" x2="1019" y2="560.0" stroke="#EAEEF2" stroke-width="1"/>
+  <rect x="632" y="565.0" width="24" height="14" rx="3" fill="#DDF4FF" stroke="#0969DA" stroke-width="1"/>
+  <text x="644" y="575.5" font-size="9" font-weight="700" fill="#0550AE" text-anchor="middle">FK</text>
+  <text x="692" y="576.5" font-size="13" font-weight="600" fill="#1f2328" text-anchor="start">PatientId</text>
+  <text x="1006" y="576" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">int</text>
+  <line x1="621" y1="584.0" x2="1019" y2="584.0" stroke="#EAEEF2" stroke-width="1"/>
+  <rect x="632" y="589.0" width="24" height="14" rx="3" fill="#DDF4FF" stroke="#0969DA" stroke-width="1"/>
+  <text x="644" y="599.5" font-size="9" font-weight="700" fill="#0550AE" text-anchor="middle">FK</text>
+  <text x="692" y="600.5" font-size="13" font-weight="600" fill="#1f2328" text-anchor="start">DoctorId</text>
+  <text x="1006" y="600" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">int</text>
+  <line x1="621" y1="608.0" x2="1019" y2="608.0" stroke="#EAEEF2" stroke-width="1"/>
+  <text x="692" y="624.5" font-size="13" font-weight="400" fill="#1f2328" text-anchor="start">CancellationReason</text>
+  <text x="1006" y="624" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">varchar(500)</text>
+  <text x="914.924" y="624" font-size="9.5" font-weight="700" fill="#BC4C00" text-anchor="end">NULL</text>
+  <line x1="621" y1="632.0" x2="1019" y2="632.0" stroke="#EAEEF2" stroke-width="1"/>
+  <text x="692" y="648.5" font-size="13" font-weight="400" fill="#1f2328" text-anchor="start">CancelledAt</text>
+  <text x="1006" y="648" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">timestamptz</text>
+  <text x="921.847" y="648" font-size="9.5" font-weight="700" fill="#BC4C00" text-anchor="end">NULL</text>
+  <line x1="620" y1="656" x2="1020" y2="656" stroke="#336791" stroke-width="1" stroke-dasharray="4 3"/>
+  <text x="634" y="677" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="start">Status values (text; only the app checks them):</text>
+  <text x="634" y="693" font-size="10.5" font-weight="400" fill="#1f2328" text-anchor="start" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">Scheduled · Completed · Cancelled · NoShow</text>
+  <text x="634" y="709" font-size="10.5" font-weight="400" fill="#1f2328" text-anchor="start" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">UNIQUE (DoctorId, TimeOfAppointment)</text>
+  <text x="634" y="725" font-size="10.5" font-weight="400" fill="#1f2328" text-anchor="start" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">  WHERE Status = 'Scheduled'</text>
+  <text x="634" y="741" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="start">↳ a doctor can't be double-booked</text>
+  <text x="634" y="757" font-size="10.5" font-weight="400" fill="#1f2328" text-anchor="start" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">INDEX (DoctorId, Status, TimeOfAppointment)</text>
+  <rect x="620" y="400" width="400" height="368" rx="8" fill="none" stroke="#336791" stroke-width="1.6"/>
+  <rect x="1260" y="400" width="340" height="136" rx="8" fill="#ffffff"/>
+  <path d="M1260,440 L1260,408 Q1260,400 1268,400 L1592,400 Q1600,400 1600,408 L1600,440 Z" fill="#EAF1FB"/>
+  <line x1="1260" y1="440" x2="1600" y2="440" stroke="#336791" stroke-width="1.2"/>
+  <text x="1274" y="426" font-size="15" font-weight="700" fill="#1f2328" text-anchor="start">Patients</text>
+  <rect x="1272" y="445.0" width="24" height="14" rx="3" fill="#FFF4D6" stroke="#BF8700" stroke-width="1"/>
+  <text x="1284" y="455.5" font-size="9" font-weight="700" fill="#7D4E00" text-anchor="middle">PK</text>
+  <text x="1332" y="456.5" font-size="13" font-weight="600" fill="#1f2328" text-anchor="start">Id</text>
+  <text x="1586" y="456" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">int identity</text>
+  <line x1="1261" y1="464.0" x2="1599" y2="464.0" stroke="#EAEEF2" stroke-width="1"/>
+  <text x="1332" y="480.5" font-size="13" font-weight="400" fill="#1f2328" text-anchor="start">Name</text>
+  <text x="1586" y="480" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">varchar(50)</text>
+  <line x1="1261" y1="488.0" x2="1599" y2="488.0" stroke="#EAEEF2" stroke-width="1"/>
+  <rect x="1272" y="493.0" width="24" height="14" rx="3" fill="#FBEFFF" stroke="#8250DF" stroke-width="1"/>
+  <text x="1284" y="503.5" font-size="9" font-weight="700" fill="#6639BA" text-anchor="middle">UQ</text>
+  <text x="1332" y="504.5" font-size="13" font-weight="600" fill="#1f2328" text-anchor="start">PhoneNumber</text>
+  <text x="1586" y="504" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">varchar(20)</text>
+  <line x1="1261" y1="512.0" x2="1599" y2="512.0" stroke="#EAEEF2" stroke-width="1"/>
+  <text x="1332" y="528.5" font-size="13" font-weight="400" fill="#1f2328" text-anchor="start">DateOfBirth</text>
+  <text x="1586" y="528" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">date</text>
+  <rect x="1260" y="400" width="340" height="136" rx="8" fill="none" stroke="#336791" stroke-width="1.6"/>
+  <rect x="1260" y="600" width="340" height="288" rx="8" fill="#ffffff"/>
+  <path d="M1260,640 L1260,608 Q1260,600 1268,600 L1592,600 Q1600,600 1600,608 L1600,640 Z" fill="#F6F8FA"/>
+  <line x1="1260" y1="640" x2="1600" y2="640" stroke="#8C959F" stroke-width="1.2"/>
+  <text x="1274" y="626" font-size="15" font-weight="700" fill="#1f2328" text-anchor="start">AuditLogs</text>
+  <text x="1586" y="625" font-size="10.5" font-weight="600" fill="#57606a" text-anchor="end" font-style="italic">no foreign keys</text>
+  <rect x="1272" y="645.0" width="24" height="14" rx="3" fill="#FFF4D6" stroke="#BF8700" stroke-width="1"/>
+  <text x="1284" y="655.5" font-size="9" font-weight="700" fill="#7D4E00" text-anchor="middle">PK</text>
+  <text x="1332" y="656.5" font-size="13" font-weight="600" fill="#1f2328" text-anchor="start">Id</text>
+  <text x="1586" y="656" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">int identity</text>
+  <line x1="1261" y1="664.0" x2="1599" y2="664.0" stroke="#EAEEF2" stroke-width="1"/>
+  <text x="1332" y="680.5" font-size="13" font-weight="400" fill="#1f2328" text-anchor="start">Action</text>
+  <text x="1586" y="680" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">varchar(80)</text>
+  <line x1="1261" y1="688.0" x2="1599" y2="688.0" stroke="#EAEEF2" stroke-width="1"/>
+  <text x="1332" y="704.5" font-size="13" font-weight="400" fill="#1f2328" text-anchor="start">EntityType</text>
+  <text x="1586" y="704" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">varchar(80)</text>
+  <line x1="1261" y1="712.0" x2="1599" y2="712.0" stroke="#EAEEF2" stroke-width="1"/>
+  <text x="1332" y="728.5" font-size="13" font-weight="400" fill="#1f2328" text-anchor="start">EntityId</text>
+  <text x="1586" y="728" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">int</text>
+  <line x1="1261" y1="736.0" x2="1599" y2="736.0" stroke="#EAEEF2" stroke-width="1"/>
+  <text x="1332" y="752.5" font-size="13" font-weight="400" fill="#1f2328" text-anchor="start">Details</text>
+  <text x="1586" y="752" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">varchar(1000)</text>
+  <line x1="1261" y1="760.0" x2="1599" y2="760.0" stroke="#EAEEF2" stroke-width="1"/>
+  <text x="1332" y="776.5" font-size="13" font-weight="400" fill="#1f2328" text-anchor="start">ActorName</text>
+  <text x="1586" y="776" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">varchar(80)</text>
+  <line x1="1261" y1="784.0" x2="1599" y2="784.0" stroke="#EAEEF2" stroke-width="1"/>
+  <text x="1332" y="800.5" font-size="13" font-weight="400" fill="#1f2328" text-anchor="start">CreatedAt</text>
+  <text x="1586" y="800" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">timestamptz</text>
+  <line x1="1260" y1="808" x2="1600" y2="808" stroke="#8C959F" stroke-width="1" stroke-dasharray="4 3"/>
+  <text x="1274" y="829" font-size="10.5" font-weight="400" fill="#1f2328" text-anchor="start" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">INDEX (EntityType, EntityId, CreatedAt)</text>
+  <text x="1274" y="845" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="start">EntityType + EntityId name a row in Users, Doctors,</text>
+  <text x="1274" y="861" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="start">Departments, Calendars or Appointments. ActorName</text>
+  <text x="1274" y="877" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="start">holds the acting user's Id as text.</text>
+  <rect x="1260" y="600" width="340" height="288" rx="8" fill="none" stroke="#8C959F" stroke-width="1.6"/>
+  <rect x="40" y="690" width="340" height="120" rx="8" fill="#ffffff"/>
+  <path d="M40,730 L40,698 Q40,690 48,690 L372,690 Q380,690 380,698 L380,730 Z" fill="#F6F8FA"/>
+  <line x1="40" y1="730" x2="380" y2="730" stroke="#8C959F" stroke-width="1.2"/>
+  <text x="54" y="716" font-size="15" font-weight="700" fill="#1f2328" text-anchor="start">__EFMigrationsHistory</text>
+  <text x="366" y="715" font-size="10.5" font-weight="600" fill="#57606a" text-anchor="end" font-style="italic">EF Core</text>
+  <rect x="52" y="735.0" width="24" height="14" rx="3" fill="#FFF4D6" stroke="#BF8700" stroke-width="1"/>
+  <text x="64" y="745.5" font-size="9" font-weight="700" fill="#7D4E00" text-anchor="middle">PK</text>
+  <text x="112" y="746.5" font-size="13" font-weight="600" fill="#1f2328" text-anchor="start">MigrationId</text>
+  <text x="366" y="746" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">varchar(150)</text>
+  <line x1="41" y1="754.0" x2="379" y2="754.0" stroke="#EAEEF2" stroke-width="1"/>
+  <text x="112" y="770.5" font-size="13" font-weight="400" fill="#1f2328" text-anchor="start">ProductVersion</text>
+  <text x="366" y="770" font-size="11.5" font-weight="400" fill="#57606a" text-anchor="end" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">varchar(32)</text>
+  <line x1="40" y1="778" x2="380" y2="778" stroke="#8C959F" stroke-width="1" stroke-dasharray="4 3"/>
+  <text x="54" y="799" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="start">One row per applied migration.</text>
+  <rect x="40" y="690" width="340" height="120" rx="8" fill="none" stroke="#8C959F" stroke-width="1.6"/>
+</svg>
