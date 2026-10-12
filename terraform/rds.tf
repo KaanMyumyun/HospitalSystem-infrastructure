@@ -12,6 +12,32 @@ resource "aws_db_subnet_group" "main" {
   }
 }
 
+# random_page_cost: PostgreSQL's default of 4 assumes spinning disks, so with
+# two years of data it read all 25,000 patients to name the 300 rows of an
+# appointment list (8.4 ms). 1.1, the usual value for SSD, makes it look them
+# up by key (1.5 ms) and keeps the cost tied to the rows returned.
+# rds.force_ssl is already 1 by default on PostgreSQL 15+; set here so the
+# requirement is in the code.
+resource "aws_db_parameter_group" "main" {
+  name        = local.db_identifier
+  family      = "postgres18"
+  description = "HospitalSystem PostgreSQL settings"
+
+  parameter {
+    name  = "random_page_cost"
+    value = "1.1"
+  }
+
+  parameter {
+    name  = "rds.force_ssl"
+    value = "1"
+  }
+
+  tags = {
+    Name = "${local.db_identifier}-Terraform"
+  }
+}
+
 resource "aws_db_instance" "main" {
   identifier = local.db_identifier
   engine     = "postgres"
@@ -33,6 +59,7 @@ resource "aws_db_instance" "main" {
   password_wo         = var.db_password
   password_wo_version = 1
 
+  parameter_group_name   = aws_db_parameter_group.main.name
   db_subnet_group_name   = aws_db_subnet_group.main.name
   vpc_security_group_ids = [aws_security_group.db.id]
   publicly_accessible    = false
