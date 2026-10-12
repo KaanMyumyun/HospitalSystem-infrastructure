@@ -112,7 +112,7 @@ Main AWS resources used by this deployment:
 | Routing | Internet gateway, public route table, private route tables, NAT gateways, Elastic IPs, and VPC endpoints for SSM, S3 and the ECR API | Public subnets route through the internet gateway. Private subnets route outbound traffic through NAT gateways, and S3 traffic through the free gateway endpoint. The ECR API endpoint serves only the deploy's image check from the ops instance. |
 | Compute | Amazon EKS cluster `eks-pr1`, managed node group `hospitalsystempr1`, Amazon Linux 2023 worker nodes | Runs the Kubernetes control plane and worker capacity for the app. The node group is sized for low-cost testing and can scale to zero. The Kubernetes API endpoint is private. |
 | Cluster access | EC2 instance `hospitalsystem-ops` in a private subnet, SSM document `hospitalsystem-deploy`, EKS access entry | Accepts no inbound connections and has no internet access. Operators reach the private API through an SSM port-forwarding session on it, and GitHub Actions deploys by sending it the SSM document. |
-| Database | RDS for PostgreSQL 18 instance `hospitalsystem-db` (`db.t4g.micro`, 20 GB gp2, Single-AZ), its DB subnet group and security group | Not public and encrypted with the project's KMS key. Accepts connections on 5432 only from the EKS cluster security group, which the nodes and pods use. Lives as long as the stack. |
+| Database | RDS for PostgreSQL 18 instance `hospitalsystem-db` (`db.t4g.micro`, 20 GB gp2, Single-AZ), its DB subnet group, parameter group and security group | Not public and encrypted with the project's KMS key. Accepts connections on 5432 only from the EKS cluster security group, which the nodes and pods use. Lives as long as the stack. |
 | Containers | Amazon ECR repositories for `hospital-backend` and `hospital-frontend` | Stores backend and frontend images built by GitHub Actions. |
 | Ingress | AWS Application Load Balancer, HTTP/HTTPS listeners, target groups, and AWS Load Balancer Controller | Exposes the app publicly and maps Kubernetes Ingress rules to AWS load-balancing resources. |
 | TLS | AWS Certificate Manager certificate | Provides HTTPS for `app.hospitalsyst.cc` using TLS 1.2/1.3; HTTP traffic redirects to HTTPS. |
@@ -243,8 +243,8 @@ Terraform manages the AWS infrastructure layer:
 - ECR repositories and their lifecycle policies
 - the ACM certificate and its Cloudflare validation record
 - the project KMS key and the backend's Secrets Manager secret (not its value)
-- the RDS PostgreSQL instance, its DB subnet group and its security group (not
-  the data, and not the password, which is write-only)
+- the RDS PostgreSQL instance, its DB subnet group, parameter group and
+  security group (not the data, and not the password, which is write-only)
 - the ops instance and the SSM deploy document
 - the SNS alert topic and the node group alarm
 - running the Ansible bootstrap after apply and the Kubernetes cleanup before
@@ -706,8 +706,12 @@ secret `hospitalsystem/backend` (`terraform/secrets.tf`), encrypted with the
 project's KMS key. Terraform creates the secret but never its value, so the
 value stays out of Terraform state. `backend-secret.yml` builds the connection
 string from the database endpoint Terraform reports and
-`HOSPITALSYSTEM_DB_PASSWORD`, with `SSL Mode=Require` (RDS requires TLS).
-External Secrets (installed by
+`HOSPITALSYSTEM_DB_PASSWORD`, with `SSL Mode=Require` (RDS requires TLS) and
+`Maximum Pool Size=20`. Each backend pod keeps its own pool, so pods × pool
+size has to stay under what the database allows: `max_connections` is 79 on a
+`db.t4g.micro`. With Npgsql's default of 100 per pod, the 2026-10-12 load test
+made the database swap and fail at 160 requests/s. Lower the pool size if the
+backend runs more pods. External Secrets (installed by
 `external-secrets.yml`, watching only the app namespace) copies it into the
 `hospital-backend-secrets` Secret every hour. It authenticates as the
 `backend-secrets-reader` service account, whose IAM role can read only this
@@ -1149,7 +1153,9 @@ The instance has no public address, and its security group accepts
 PostgreSQL (5432) only from the EKS cluster security group, which every node
 and pod uses. Nothing else can connect, not your machine and not the ops
 instance, so a leaked password is no use on its own. RDS for PostgreSQL 18
-also rejects connections without TLS (`rds.force_ssl` is on by default).
+also rejects connections without TLS (`rds.force_ssl = 1` in the parameter
+group). The same group sets `random_page_cost = 1.1`, the SSD value: with the
+default of 4, listing a doctor's appointments read every patient in the table.
 
 To query it, start a `psql` pod in the cluster. Use the `default` namespace:
 the app namespace's Pod Security level rejects this image, which runs as root.
