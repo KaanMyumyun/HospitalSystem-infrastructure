@@ -53,3 +53,25 @@ resource "aws_vpc_security_group_ingress_rule" "vpc_endpoints_https" {
   from_port         = 443
   to_port           = 443
 }
+
+resource "aws_security_group" "db" {
+  name        = local.db_identifier
+  description = "PostgreSQL: connections from the EKS nodes and pods only"
+  vpc_id      = aws_vpc.kubes.id
+
+  tags = {
+    Name = "${local.db_identifier}-Terraform"
+  }
+}
+
+# The nodes, and the pods on them, use the cluster security group. The group
+# has no egress rules: replies to an allowed connection need none, and the
+# database opens no connections of its own.
+resource "aws_vpc_security_group_ingress_rule" "db_from_eks" {
+  security_group_id            = aws_security_group.db.id
+  description                  = "PostgreSQL from the EKS cluster security group"
+  referenced_security_group_id = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
+  ip_protocol                  = "tcp"
+  from_port                    = 5432
+  to_port                      = 5432
+}

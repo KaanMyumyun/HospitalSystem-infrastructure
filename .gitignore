@@ -32,3 +32,5 @@ docs/
 commands/
 list.txt
 scripts/run.sh
+seed.sql
+loadtest-report-*.txt

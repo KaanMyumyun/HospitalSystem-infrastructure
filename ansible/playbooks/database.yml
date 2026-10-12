@@ -1,0 +1,186 @@
+---
+# Prepares the database before the backend starts. bootstrap.yml runs it after
+# backend-secret.yml has stored the connection string and before
+# apply-kubernetes.yml applies the Deployments.
+#
+# 1. A database without tables gets seed.sql from the repository root: a
+#    pg_dump of the data a new stack starts with, ignored by git because it
+#    holds user accounts and patient records. A short-lived psql pod loads it
+#    in one transaction. The password reaches the pod on stdin, so it's neither
+#    in the pod spec nor in the API server's audit log. A database that has
+#    tables is left alone, so a later bootstrap never loads it twice.
+# 2. The migration Job (tasks/migrate.yml) applies the migrations the backend's
+#    image has and the database doesn't: on a seeded database the ones newer
+#    than seed.sql, without seed.sql the whole schema, with no data.
+- name: Prepare the backend database
+  hosts: local
+  gather_facts: false
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+
+  vars:
+    db_password: "{{ lookup('ansible.builtin.env', 'HOSPITALSYSTEM_DB_PASSWORD') }}"
+    db_seed_path: "{{ playbook_dir }}/../../seed.sql"
+    db_seed_pod: hospital-db-seed
+    # The password is the first line of stdin, seed.sql the rest.
+    db_seed_script: |
+      set -eu
+      IFS= read -r PGPASSWORD
+      export PGPASSWORD
+      tables=$(psql -X -A -t -c "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'")
+      if [ "$tables" != 0 ]; then
+        echo "The database already has $tables tables, so seed.sql was not loaded."
+        exit 0
+      fi
+      psql -X -q -v ON_ERROR_STOP=1 --single-transaction -f -
+      echo "Loaded seed.sql."
+    # The namespace enforces the restricted Pod Security Standard. UID 70 is
+    # the Alpine image's postgres user.
+    db_seed_overrides:
+      spec:
+        automountServiceAccountToken: false
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 70
+          runAsGroup: 70
+          seccompProfile:
+            type: RuntimeDefault
+        containers:
+          - name: "{{ db_seed_pod }}"
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                cpu: 500m
+                memory: 128Mi
+
+  tasks:
+    - name: Require the database variables Terraform writes
+      ansible.builtin.assert:
+        that:
+          - db_host is defined
+          - db_port is defined
+          - db_name is defined
+          - db_username is defined
+        fail_msg: >-
+          ansible/group_vars/all/terraform.yml has no database settings. Run
+          ./scripts/tf.sh apply to generate it.
+        quiet: true
+
+    - name: Configure kubeconfig
+      ansible.builtin.import_tasks: ../tasks/kubeconfig.yml
+
+    - name: Look for seed.sql
+      ansible.builtin.stat:
+        path: "{{ db_seed_path }}"
+      register: db_seed
+
+    - name: Say that a new database stays empty
+      ansible.builtin.debug:
+        msg: >-
+          There's no seed.sql in the repository root, so a new database gets the
+          schema but no users, and nobody can sign in. Put a pg_dump there and
+          run this playbook again while the database is still empty.
+      when: not db_seed.stat.exists
+
+    - name: Load seed.sql into an empty database
+      when: db_seed.stat.exists
+      block:
+        - name: Require the database password
+          ansible.builtin.assert:
+            that: db_password | length > 0
+            fail_msg: >-
+              HOSPITALSYSTEM_DB_PASSWORD isn't set, so seed.sql can't be loaded.
+              Run this with .env.local loaded: (set -a; source .env.local;
+              ansible-playbook ansible/playbooks/database.yml)
+            quiet: true
+
+        # Left over from an interrupted run, it would make kubectl run fail.
+        - name: Delete an earlier seed pod
+          ansible.builtin.command:
+            argv:
+              - kubectl
+              - delete
+              - pod
+              - "{{ db_seed_pod }}"
+              - --namespace
+              - "{{ k8s_namespace }}"
+              - --ignore-not-found
+          register: db_seed_cleanup
+          changed_when: db_seed_cleanup.stdout | length > 0
+
+        - name: Run psql against the database
+          ansible.builtin.command:
+            argv:
+              - kubectl
+              - run
+              - "{{ db_seed_pod }}"
+              - --namespace={{ k8s_namespace }}
+              - --image={{ db_client_image }}
+              - --restart=Never
+              - --rm
+              - --stdin
+              - --quiet
+              - --pod-running-timeout=3m
+              - --override-type=strategic
+              - --overrides={{ db_seed_overrides | to_json }}
+              - --env=PGHOST={{ db_host }}
+              - --env=PGPORT={{ db_port }}
+              - --env=PGDATABASE={{ db_name }}
+              - --env=PGUSER={{ db_username }}
+              - --env=PGSSLMODE=require
+              - --command
+              - --
+              - sh
+              - -c
+              - "{{ db_seed_script }}"
+            stdin: "{{ db_password }}\n{{ lookup('ansible.builtin.file', db_seed_path) }}"
+          register: db_seed_load
+          changed_when: "'Loaded seed.sql.' in db_seed_load.stdout"
+          failed_when: false
+          # stdin holds the password and the dump.
+          no_log: true
+
+        - name: Show the psql output
+          ansible.builtin.debug:
+            msg: "{{ db_seed_load.stdout_lines + db_seed_load.stderr_lines }}"
+
+        - name: Require seed.sql to load or the database to have tables
+          ansible.builtin.assert:
+            that:
+              - db_seed_load.rc == 0
+              - "'Loaded seed.sql.' in db_seed_load.stdout or 'seed.sql was not loaded' in db_seed_load.stdout"
+            fail_msg: >-
+              Loading seed.sql failed; the psql output is above. It ran in one
+              transaction, so the database is unchanged.
+            quiet: true
+
+    - name: Read the image the backend runs
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - get
+          - deployment
+          - "{{ backend_deployment }}"
+          - --namespace
+          - "{{ k8s_namespace }}"
+          - --ignore-not-found
+          - -o
+          - 'jsonpath={.spec.template.spec.containers[?(@.name=="{{ backend_container }}")].image}'
+      register: backend_live_image
+      changed_when: false
+
+    # A new Deployment starts from the initial image, so that's the one to
+    # migrate with until CI deploys a release.
+    - name: Migrate with the backend's image
+      ansible.builtin.set_fact:
+        migration_image: "{{ backend_live_image.stdout | default(backend_image, true) }}"
+
+    - name: Run the migrations
+      ansible.builtin.import_tasks: ../tasks/migrate.yml

@@ -76,8 +76,9 @@ spec:
                 name: hospital-backend-config
             - secretRef:
                 name: hospital-backend-secrets
-          # Check Neon before initial readiness, then stop probing the database
-          # so the free compute can suspend when the application is idle.
+          # Check the database before initial readiness only. The later probes
+          # leave it out, so a database restart doesn't take every backend pod
+          # out of the ALB, or restart them, at once.
           startupProbe:
             httpGet:
               path: /health/ready

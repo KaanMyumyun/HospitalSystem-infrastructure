@@ -8,6 +8,9 @@
 - name: Configure backend runtime secret
   ansible.builtin.import_playbook: backend-secret.yml
 
+- name: Prepare the backend database
+  ansible.builtin.import_playbook: database.yml
+
 - name: Install AWS Load Balancer Controller
   ansible.builtin.import_playbook: load-balancer-controller.yml
 

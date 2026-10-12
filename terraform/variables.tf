@@ -117,3 +117,11 @@ variable "alert_email" {
     error_message = "alert_email must be an email address or empty."
   }
 }
+
+variable "db_password" {
+  description = "Master password of the PostgreSQL instance. scripts/tf.sh sets it from HOSPITALSYSTEM_DB_PASSWORD. It's write-only, so it never reaches the state or a plan; destroy doesn't need it."
+  type        = string
+  sensitive   = true
+  ephemeral   = true
+  default     = null
+}

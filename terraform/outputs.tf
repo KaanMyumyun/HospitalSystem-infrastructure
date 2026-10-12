@@ -123,6 +123,11 @@ output "private_subnet_ids" {
 }
 
 output "nat_public_ips" {
-  description = "Public IPs the cluster's outbound traffic comes from. Allow only these (plus your own) in Neon's IP Allow list."
+  description = "Public IPs the cluster's outbound internet traffic comes from."
   value       = [aws_eip.nat_a.public_ip, aws_eip.nat_b.public_ip]
+}
+
+output "db_endpoint" {
+  description = "Private DNS name of the PostgreSQL instance. Only the EKS nodes and pods can connect to it."
+  value       = aws_db_instance.main.address
 }

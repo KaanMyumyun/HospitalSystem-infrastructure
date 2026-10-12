@@ -1,0 +1,61 @@
+---
+# Applies a release's database migrations before it's deployed. The CI deploy
+# only changes images and can't run a Job, so for a release with new
+# migrations, run this with its tag first, then approve the deploy:
+#
+#   ansible-playbook ansible/playbooks/migrate.yml -e image_tag=<tag>
+#
+# For a release without new migrations it changes nothing. Migrations only go
+# forward: deploying an older image later doesn't undo them, so they have to
+# keep working with the image that runs now (see the application README).
+- name: Run a release's database migrations
+  hosts: local
+  gather_facts: false
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+
+  tasks:
+    - name: Require image_tag variable
+      ansible.builtin.fail:
+        msg: "Pass the release with -e image_tag=YYYY-MM-DD-shortsha-runnumber (the tag Docker Image CI pushed)"
+      when: image_tag is not defined or image_tag | length == 0
+
+    - name: Require Terraform-generated variables
+      ansible.builtin.assert:
+        that:
+          - aws_region is defined
+          - backend_repository_url is defined
+          - k8s_namespace is defined
+        fail_msg: >-
+          ansible/group_vars/all/terraform.yml is missing or out of date. Run
+          ./scripts/tf.sh apply to generate it.
+        quiet: true
+
+    # A missing tag would leave the Job pulling until its deadline.
+    - name: Check the release is in ECR
+      ansible.builtin.command:
+        argv:
+          - aws
+          - ecr
+          - describe-images
+          - --region
+          - "{{ aws_region }}"
+          - --repository-name
+          - "{{ backend_repository_url | regex_replace('^[^/]+/', '') }}"
+          - --image-ids
+          - imageTag={{ image_tag }}
+          - --query
+          - imageDetails[0].imageDigest
+          - --output
+          - text
+      changed_when: false
+
+    - name: Configure kubeconfig
+      ansible.builtin.import_tasks: ../tasks/kubeconfig.yml
+
+    - name: Migrate with the release's image
+      ansible.builtin.set_fact:
+        migration_image: "{{ backend_repository_url }}:{{ image_tag }}"
+
+    - name: Run the migrations
+      ansible.builtin.import_tasks: ../tasks/migrate.yml

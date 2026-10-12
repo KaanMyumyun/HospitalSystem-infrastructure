@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1640" height="920" viewBox="0 0 1640 920" role="img" aria-labelledby="t d" font-family="'Open Sans', 'Segoe UI', Helvetica, Arial, sans-serif">
   <title id="t">HospitalSystem database schema</title>
-  <desc id="d">The Neon PostgreSQL database neondb, schema public, as EF Core migrations built it. Departments have many Doctors; each Doctor is one User; Doctors have many Calendars and Appointments; Patients have many Appointments; each Appointment records the front-desk User who created it. Every foreign key is ON DELETE RESTRICT. A partial unique index stops two Scheduled appointments for the same doctor and time. AuditLogs and __EFMigrationsHistory have no foreign keys.</desc>
+  <desc id="d">The RDS PostgreSQL database hospital, schema public, as EF Core migrations built it. Departments have many Doctors; each Doctor is one User; Doctors have many Calendars and Appointments; Patients have many Appointments; each Appointment records the front-desk User who created it. Every foreign key is ON DELETE RESTRICT. A partial unique index stops two Scheduled appointments for the same doctor and time. AuditLogs and __EFMigrationsHistory have no foreign keys.</desc>
   <rect width="1640" height="920" fill="#ffffff"/>
   <text x="40" y="56" font-size="24" font-weight="700" fill="#1f2328" text-anchor="start">HospitalSystem database</text>
-  <text x="40" y="84" font-size="13.5" font-weight="600" fill="#57606a" text-anchor="start">Neon PostgreSQL 17 · database neondb · schema public</text>
-  <text x="40" y="104" font-size="12.5" font-weight="400" fill="#57606a" text-anchor="start">Built by the application's EF Core migrations · read from the live catalog on 2026-09-30</text>
+  <text x="40" y="84" font-size="13.5" font-weight="600" fill="#57606a" text-anchor="start">Amazon RDS for PostgreSQL 18 · database hospital · schema public</text>
+  <text x="40" y="104" font-size="12.5" font-weight="400" fill="#57606a" text-anchor="start">Built by the application's EF Core migrations · matches the RDS schema as of 2026-10-12</text>
   <rect x="900" y="26" width="700" height="94" rx="8" fill="#ffffff" stroke="#d0d7de" stroke-width="1.2"/>
   <rect x="916" y="45" width="24" height="14" rx="3" fill="#FFF4D6" stroke="#BF8700" stroke-width="1"/>
   <text x="928" y="55.5" font-size="9" font-weight="700" fill="#7D4E00" text-anchor="middle">PK</text>
@@ -164,7 +164,7 @@
   <text x="54" y="597" font-size="10.5" font-weight="400" fill="#1f2328" text-anchor="start" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">Pending · Admin · Doctor · FrontDesk</text>
   <text x="54" y="613" font-size="10.5" font-weight="400" fill="#1f2328" text-anchor="start" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">DemoAdmin · DemoFrontDesk</text>
   <rect x="40" y="400" width="340" height="224" rx="8" fill="none" stroke="#336791" stroke-width="1.6"/>
-  <rect x="620" y="400" width="400" height="368" rx="8" fill="#ffffff"/>
+  <rect x="620" y="400" width="400" height="384" rx="8" fill="#ffffff"/>
   <path d="M620,440 L620,408 Q620,400 628,400 L1012,400 Q1020,400 1020,408 L1020,440 Z" fill="#EAF1FB"/>
   <line x1="620" y1="440" x2="1020" y2="440" stroke="#336791" stroke-width="1.2"/>
   <text x="634" y="426" font-size="15" font-weight="700" fill="#1f2328" text-anchor="start">Appointments</text>
@@ -211,7 +211,8 @@
   <text x="634" y="725" font-size="10.5" font-weight="400" fill="#1f2328" text-anchor="start" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">  WHERE Status = 'Scheduled'</text>
   <text x="634" y="741" font-size="10.5" font-weight="400" fill="#57606a" text-anchor="start">↳ a doctor can't be double-booked</text>
   <text x="634" y="757" font-size="10.5" font-weight="400" fill="#1f2328" text-anchor="start" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">INDEX (DoctorId, Status, TimeOfAppointment)</text>
-  <rect x="620" y="400" width="400" height="368" rx="8" fill="none" stroke="#336791" stroke-width="1.6"/>
+  <text x="634" y="773" font-size="10.5" font-weight="400" fill="#1f2328" text-anchor="start" font-family="'DejaVu Sans Mono', Consolas, Menlo, monospace">INDEX (DoctorId, TimeOfAppointment)</text>
+  <rect x="620" y="400" width="400" height="384" rx="8" fill="none" stroke="#336791" stroke-width="1.6"/>
   <rect x="1260" y="400" width="340" height="136" rx="8" fill="#ffffff"/>
   <path d="M1260,440 L1260,408 Q1260,400 1268,400 L1592,400 Q1600,400 1600,408 L1600,440 Z" fill="#EAF1FB"/>
   <line x1="1260" y1="440" x2="1600" y2="440" stroke="#336791" stroke-width="1.2"/>

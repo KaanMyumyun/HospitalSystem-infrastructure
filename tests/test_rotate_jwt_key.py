@@ -26,14 +26,15 @@ SPEC.loader.exec_module(rotate)
 
 PLAYBOOK = "ansible/playbooks/backend-secret.yml"
 OLD_KEY = "old-key-0123456789abcdef0123456789abcdef"
-CONNECTION = "Host=db.example;Database=hospital;Username=app;Password=p a;ss"
+# Quoted in .env.local: spaces and ; must survive sourcing it.
+DB_PASSWORD = "p a;ss-word"
 ENV_LOCAL = f"""\
 # Local values; see .env.example.
 
 export CLOUDFLARE_ZONE_ID=zone123
 export CLOUDFLARE_API_TOKEN=token-abc
 
-export HOSPITALSYSTEM_CONNECTION_STRING='{CONNECTION}'
+export HOSPITALSYSTEM_DB_PASSWORD='{DB_PASSWORD}'
 export HOSPITALSYSTEM_JWT_SECRET={OLD_KEY}
 
 # Receives the alarm emails.
@@ -42,7 +43,7 @@ ALERT_EMAIL=ops@example.com
 VALUES = {
     "CLOUDFLARE_ZONE_ID": "zone123",
     "CLOUDFLARE_API_TOKEN": "token-abc",
-    "HOSPITALSYSTEM_CONNECTION_STRING": CONNECTION,
+    "HOSPITALSYSTEM_DB_PASSWORD": DB_PASSWORD,
     "ALERT_EMAIL": "ops@example.com",
 }
 
@@ -52,7 +53,7 @@ with open(os.environ["FAKE_LOG"], "a") as log:
     log.write(json.dumps({
         "tool": "ansible-playbook", "argv": sys.argv[1:], "cwd": os.getcwd(),
         "key": os.environ.get("HOSPITALSYSTEM_JWT_SECRET"),
-        "connection": os.environ.get("HOSPITALSYSTEM_CONNECTION_STRING"),
+        "db_password": os.environ.get("HOSPITALSYSTEM_DB_PASSWORD"),
     }) + "\n")
 sys.exit(int(os.environ["FAKE_PLAYBOOK_RC"]))
 '''
@@ -180,12 +181,12 @@ class RotateTests(TestCase):
         self.assertEqual(self.env_file.read_text(), ENV_LOCAL)
         self.assertEqual(stat.S_IMODE(self.env_file.stat().st_mode), 0o644)
 
-    def test_stack_up_without_connection_string_changes_nothing(self):
+    def test_stack_up_without_db_password_changes_nothing(self):
         self.stack_up()
-        self.env_file.write_text(ENV_LOCAL.replace(f"'{CONNECTION}'", ""))
+        self.env_file.write_text(ENV_LOCAL.replace(f"'{DB_PASSWORD}'", ""))
         result = self.run_script("--yes")
         self.assertEqual(result.returncode, 1)
-        self.assertIn("HOSPITALSYSTEM_CONNECTION_STRING isn't set", result.stderr)
+        self.assertIn("HOSPITALSYSTEM_DB_PASSWORD isn't set", result.stderr)
         self.assertEqual(self.saved_key(), OLD_KEY)
         self.assertEqual(self.calls(), [])
 
@@ -197,7 +198,7 @@ class RotateTests(TestCase):
         self.assertEqual(playbook["argv"], [PLAYBOOK])
         self.assertEqual(Path(playbook["cwd"]).resolve(), self.root)
         self.assertEqual(playbook["key"], self.saved_key())
-        self.assertEqual(playbook["connection"], CONNECTION)
+        self.assertEqual(playbook["db_password"], DB_PASSWORD)
         self.assertEqual([call["tool"] for call in kubectl_calls], ["kubectl", "kubectl"])
         for call in kubectl_calls:
             self.assertEqual(call["argv"][:2], ["--kubeconfig", str(self.root / ".generated/kubeconfig")])

@@ -19,6 +19,10 @@ load_balancer_controller_chart_version: "3.5.0"
 metrics_server_chart_version: "3.14.0"
 external_secrets_chart_version: "2.11.0"
 
+# psql for loading seed.sql (playbooks/database.yml): the Docker Official Image
+# through ECR Public, which has no Docker Hub pull limits.
+db_client_image: public.ecr.aws/docker/library/postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+
 cloudflare_record_name: "{{ app_domain_name }}"
 cloudflare_record_type: CNAME
 cloudflare_record_proxied: false

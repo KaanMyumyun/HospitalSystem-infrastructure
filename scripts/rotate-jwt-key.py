@@ -189,8 +189,8 @@ def rotate(root, assume_yes):
         if missing:
             raise RotationError(f"the stack is up, but {', '.join(missing)} isn't installed")
         # backend-secret.yml stores new values only when it gets both.
-        if not load_env(env_file).get("HOSPITALSYSTEM_CONNECTION_STRING"):
-            raise RotationError("the stack is up, but HOSPITALSYSTEM_CONNECTION_STRING "
+        if not load_env(env_file).get("HOSPITALSYSTEM_DB_PASSWORD"):
+            raise RotationError("the stack is up, but HOSPITALSYSTEM_DB_PASSWORD "
                                 f"isn't set in {env_file}")
 
     if not assume_yes and not confirm("Every signed-in user will be logged out. Continue? [y/N] "):
