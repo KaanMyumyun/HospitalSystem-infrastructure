@@ -1,0 +1,89 @@
+---
+# Runs the backend image's --migrate command in a Job and waits for it. The
+# command applies the migrations the image has and the database doesn't, and
+# does nothing when there are none. Set migration_image before importing this.
+#
+# Used by playbooks/database.yml during the bootstrap and by
+# playbooks/migrate.yml before a release is deployed. The deploy group can't
+# create Jobs or read the backend Secret, so CI never runs migrations.
+
+- name: Ensure the generated manifest directory exists
+  ansible.builtin.file:
+    path: "{{ playbook_dir }}/../../.generated/kubernetes/backend"
+    state: directory
+    mode: "0755"
+
+- name: Render the migration Job
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/../../kubernetes/backend/migrate-job.yaml.j2"
+    dest: "{{ playbook_dir }}/../../.generated/kubernetes/backend/migrate-job.yaml"
+    mode: "0644"
+
+- name: Start the migration Job with {{ migration_image }}
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - create
+      - -f
+      - "{{ playbook_dir }}/../../.generated/kubernetes/backend/migrate-job.yaml"
+      - -o
+      - name
+  register: migration_job
+  changed_when: true
+
+- name: Wait for the migration Job
+  block:
+    # Succeeded or failed, whichever comes first. The Job's
+    # activeDeadlineSeconds fails it after 300 seconds, for example when its
+    # image can't be pulled.
+    - name: Wait for the migration Job to finish
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - get
+          - "{{ migration_job.stdout }}"
+          - --namespace
+          - "{{ k8s_namespace }}"
+          - -o
+          - jsonpath={.status.succeeded}/{.status.failed}
+      register: migration_status
+      changed_when: false
+      until: migration_status.stdout is match('1/') or migration_status.stdout is search('/[1-9]')
+      retries: 66
+      delay: 5
+
+  always:
+    - name: Read the migration log
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - logs
+          - "{{ migration_job.stdout }}"
+          - --namespace
+          - "{{ k8s_namespace }}"
+      register: migration_log
+      changed_when: false
+      failed_when: false
+
+    - name: Show the migration log
+      ansible.builtin.debug:
+        msg: "{{ migration_log.stdout_lines + migration_log.stderr_lines }}"
+
+    - name: Delete the migration Job
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - delete
+          - "{{ migration_job.stdout }}"
+          - --namespace
+          - "{{ k8s_namespace }}"
+          - --wait=false
+      changed_when: true
+
+- name: Require the migrations to succeed
+  ansible.builtin.assert:
+    that: migration_status.stdout is match('1/')
+    fail_msg: >-
+      The migration Job failed or didn't finish; its log is above. Nothing was
+      deployed.
+    quiet: true

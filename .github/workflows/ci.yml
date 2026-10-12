@@ -184,12 +184,14 @@ jobs:
 
       # kubeconform's schema set has no Kubernetes 1.36 yet, so this checks
       # against the upstream master schemas. Every built-in kind used here is
-      # GA. External Secrets' kinds come from the community CRD catalog.
+      # GA. External Secrets' kinds come from the community CRD catalog, pinned
+      # to a commit: its 2026-10-08 update made the SecretStore schema one
+      # kubeconform can't load ("could not find schema for SecretStore").
       - name: Validate manifests
         run: |
           kubeconform -strict -summary \
             -schema-location default \
-            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/f3e4382095909ac60000da025f323ba44d4c738a/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
             "$RUNNER_TEMP/manifests"
 
   shell:

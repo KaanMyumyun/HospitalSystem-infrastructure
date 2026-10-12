@@ -54,7 +54,7 @@ class BootstrapHashesTests(TestCase):
     def test_operational_playbooks_do_not_retrigger_bootstrap(self):
         self.assert_changes(
             [f"ansible/playbooks/{name}.yml" for name in (
-                "deploy-image", "pause", "resume", "cleanup-kubernetes", "status",
+                "deploy-image", "pause", "resume", "cleanup-kubernetes", "status", "migrate",
             )],
             expected=False,
         )
@@ -72,8 +72,11 @@ class BootstrapHashesTests(TestCase):
                 "ansible/inventory.ini",
                 "ansible/group_vars/all/main.yml",
                 "ansible/playbooks/apply-kubernetes.yml",
+                "ansible/playbooks/database.yml",
                 "ansible/tasks/kubeconfig.yml",
+                "ansible/tasks/migrate.yml",
                 "kubernetes/backend/deployment.yaml.j2",
+                "kubernetes/backend/migrate-job.yaml.j2",
                 "scripts/apply-workload.py",
                 "scripts/backend-secret.py",
                 "config/alb-alarms.json",

@@ -20,6 +20,10 @@ locals {
   ops_name         = "${var.project_name}-ops"
   ecr_registry     = "${local.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com"
 
+  db_identifier = "${var.project_name}-db"
+  db_name       = "hospital"
+  db_username   = "postgres"
+
   github_oidc_provider_arn = var.github_oidc_provider_arn != "" ? var.github_oidc_provider_arn : aws_iam_openid_connect_provider.github_actions[0].arn
 
   ec2_arn_prefix  = "arn:aws:ec2:${var.aws_region}:${local.account_id}"
@@ -45,6 +49,10 @@ locals {
     load_balancer_controller_role_arn = aws_iam_role.load_balancer_controller.arn
     backend_secret_name               = aws_secretsmanager_secret.backend.name
     backend_secrets_reader_role_arn   = aws_iam_role.backend_secrets_reader.arn
+    db_host                           = aws_db_instance.main.address
+    db_port                           = aws_db_instance.main.port
+    db_name                           = aws_db_instance.main.db_name
+    db_username                       = aws_db_instance.main.username
     acm_certificate_arn               = aws_acm_certificate.app.arn
     app_domain_name                   = var.app_domain_name
     cloudflare_zone_name              = var.cloudflare_zone_name
@@ -69,6 +77,7 @@ locals {
       "ansible/playbooks/kubeconfig.yml",
       "ansible/playbooks/external-secrets.yml",
       "ansible/playbooks/backend-secret.yml",
+      "ansible/playbooks/database.yml",
       "ansible/playbooks/load-balancer-controller.yml",
       "ansible/playbooks/metrics-server.yml",
       "ansible/playbooks/apply-kubernetes.yml",

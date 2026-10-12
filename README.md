@@ -11,7 +11,7 @@ Current AWS deployment target:
 - Container registry: Amazon ECR
 - Ingress: AWS Application Load Balancer
 - HTTPS: AWS Certificate Manager
-- Database: Neon PostgreSQL
+- Database: Amazon RDS for PostgreSQL 18, in the private subnets
 - Frontend API base: `/api`
 
 ## Contents
@@ -21,7 +21,7 @@ Current AWS deployment target:
 - [Architecture](#architecture) ([Database schema](#database-schema)) and
   [AWS Resources](#aws-resources)
 - [Repository Contents](#repository-contents)
-- [CI/CD Workflow](#cicd-workflow)
+- [CI/CD Workflow](#cicd-workflow) and [Releases with migrations](#releases-with-migrations)
 - [Terraform Workflow](#terraform-workflow): [Local setup](#local-setup),
   [Remote state](#remote-state), [What an apply does](#what-an-apply-does)
 - [Ansible Operations](#ansible-operations): [Cluster access](#cluster-access),
@@ -49,7 +49,11 @@ python3 scripts/rotate-jwt-key.py       # writes the JWT key into .env.local
 ./scripts/teardown.sh                   # destroy it all when done
 ```
 
-The stack bills roughly $235 a month while it exists, about $200 of it even
+The database starts empty on every new stack. Put a `pg_dump` of the data to
+start from in `seed.sql` before the apply, or nobody can sign in (see
+[Database](#database)).
+
+The stack bills roughly $250 a month while it exists, about $215 of it even
 with the nodes paused (see [Operational Notes](#operational-notes)). After the
 apply, confirm the SNS subscription email, or no alarm email arrives.
 
@@ -84,15 +88,17 @@ Controller. The ALB terminates HTTPS with ACM and routes:
 - `/` to the frontend service
 
 Backend and frontend images are built in the application repository and pushed
-to Amazon ECR. The database is hosted separately on Neon PostgreSQL.
+to Amazon ECR. The backend's PostgreSQL database runs on Amazon RDS in the
+private subnets, and only the cluster can reach it.
 
 ### Database schema
 
 ![HospitalSystem database schema](assets/images/database-schema.png)
 
-The application's EF Core migrations create this schema; nothing in this
-repository changes it. Every foreign key is `ON DELETE RESTRICT`, so a row
-that others reference can't be deleted until those references are gone.
+The application's EF Core migrations create this schema. This repository only
+runs them (see [Database](#database)) and never changes the schema itself.
+Every foreign key is `ON DELETE RESTRICT`, so a row that others reference
+can't be deleted until those references are gone.
 
 ## AWS Resources
 
@@ -106,6 +112,7 @@ Main AWS resources used by this deployment:
 | Routing | Internet gateway, public route table, private route tables, NAT gateways, Elastic IPs, and VPC endpoints for SSM, S3 and the ECR API | Public subnets route through the internet gateway. Private subnets route outbound traffic through NAT gateways, and S3 traffic through the free gateway endpoint. The ECR API endpoint serves only the deploy's image check from the ops instance. |
 | Compute | Amazon EKS cluster `eks-pr1`, managed node group `hospitalsystempr1`, Amazon Linux 2023 worker nodes | Runs the Kubernetes control plane and worker capacity for the app. The node group is sized for low-cost testing and can scale to zero. The Kubernetes API endpoint is private. |
 | Cluster access | EC2 instance `hospitalsystem-ops` in a private subnet, SSM document `hospitalsystem-deploy`, EKS access entry | Accepts no inbound connections and has no internet access. Operators reach the private API through an SSM port-forwarding session on it, and GitHub Actions deploys by sending it the SSM document. |
+| Database | RDS for PostgreSQL 18 instance `hospitalsystem-db` (`db.t4g.micro`, 20 GB gp2, Single-AZ), its DB subnet group and security group | Not public and encrypted with the project's KMS key. Accepts connections on 5432 only from the EKS cluster security group, which the nodes and pods use. Lives as long as the stack. |
 | Containers | Amazon ECR repositories for `hospital-backend` and `hospital-frontend` | Stores backend and frontend images built by GitHub Actions. |
 | Ingress | AWS Application Load Balancer, HTTP/HTTPS listeners, target groups, and AWS Load Balancer Controller | Exposes the app publicly and maps Kubernetes Ingress rules to AWS load-balancing resources. |
 | TLS | AWS Certificate Manager certificate | Provides HTTPS for `app.hospitalsyst.cc` using TLS 1.2/1.3; HTTP traffic redirects to HTTPS. |
@@ -120,7 +127,7 @@ User
   -> Kubernetes Ingress managed by AWS Load Balancer Controller
   -> frontend service for /
   -> backend service for /api
-  -> backend connects to Neon PostgreSQL
+  -> backend connects to RDS PostgreSQL in the private subnets
 ```
 
 ## Repository Contents
@@ -136,6 +143,7 @@ ansible/
 ├── playbooks/
 └── tasks/
     ├── kubeconfig.yml  # shared kubeconfig and SSM tunnel setup
+    ├── migrate.yml     # the migration Job, used by database.yml and migrate.yml
     └── alb-alarm.yml   # one ALB alarm, used by monitoring.yml
 scripts/
 ├── tf.sh                       # Terraform wrapper: loads .env.local, manages the state bucket
@@ -172,6 +180,7 @@ kubernetes/             # Jinja templates rendered by apply-kubernetes.yml
 │   ├── configmap.yaml.j2
 │   ├── deployment.yaml.j2
 │   ├── external-secret.yaml.j2  # applied by backend-secret.yml
+│   ├── migrate-job.yaml.j2      # created by tasks/migrate.yml
 │   ├── hpa.yaml.j2
 │   ├── pdb.yaml.j2
 │   └── service.yaml.j2
@@ -200,6 +209,9 @@ The Kubernetes manifests define:
   enforces them; the node's own traffic, such as kubelet probes, is always
   allowed.
 - an ExternalSecret that copies the backend secret from AWS Secrets Manager
+- a Job that runs the backend image's database migrations, created by the
+  bootstrap and by `migrate.yml` (see [Database](#database)), never by a
+  deploy
 - namespace-scoped RBAC for the deploy group, used by the ops instance's
   deploy document
 - an admission policy that only lets the app Deployments run this account's
@@ -231,6 +243,8 @@ Terraform manages the AWS infrastructure layer:
 - ECR repositories and their lifecycle policies
 - the ACM certificate and its Cloudflare validation record
 - the project KMS key and the backend's Secrets Manager secret (not its value)
+- the RDS PostgreSQL instance, its DB subnet group and its security group (not
+  the data, and not the password, which is write-only)
 - the ops instance and the SSM deploy document
 - the SNS alert topic and the node group alarm
 - running the Ansible bootstrap after apply and the Kubernetes cleanup before
@@ -357,18 +371,17 @@ failed after `progressDeadlineSeconds: 300`, and the deploy rolls both apps
 back and fails.
 
 The backend first checks `/health/ready` with a startup probe, giving the app
-and the Neon database about two minutes to become reachable. Kubernetes holds
+and the database about two minutes to become reachable. Kubernetes holds
 container readiness until this succeeds, so each new pod must pass a database
 check before its rollout can complete. The Load Balancer Controller waits
 for container readiness before registering the pod as an ALB target.
 
 After that first successful check, the startup probe stops. Recurring readiness,
-liveness, and ALB checks use `/health`, which does not query the database.
-This allows the [Neon Free database to suspend after five idle minutes](https://neon.com/docs/introduction/scale-to-zero);
-continuous `/health/ready` checks would keep waking it. A later database outage
-does not automatically make an already-started pod unready. The first real
-request after suspension can incur a cold start; `./scripts/monitoring.sh app`
-can check the database on demand and will also wake it.
+liveness, and ALB checks use `/health`, which does not query the database, so
+a database restart, such as RDS installing a minor version, doesn't take every
+backend pod out of the ALB or restart them all at once. A later database
+outage therefore doesn't make an already-started pod unready;
+`./scripts/monitoring.sh app` checks the database on demand.
 
 The ops instance's IAM role gets Kubernetes access through a Terraform-managed
 EKS access entry in the `hospitalsystem:deployers` group. That group is bound
@@ -411,6 +424,25 @@ the `DEPLOY_SSM_DOCUMENT` and `DEPLOY_INSTANCE_NAME` repository variables (the
 `deploy_ssm_document_name` and `ops_instance_name` Terraform outputs); the
 application README lists all the variables the workflows need.
 
+### Releases with migrations
+
+A deploy only changes images; it never touches the database schema. The deploy
+group can't create Jobs or read the backend Secret, and the database accepts
+connections only from inside the cluster. When a release adds an EF Core
+migration, apply it before approving that release's `Deploy to EKS` run:
+
+```bash
+ansible-playbook ansible/playbooks/migrate.yml -e image_tag=2026-08-22-8f88481-57-1
+```
+
+The playbook checks that the tag is in ECR, runs the image's `--migrate`
+command as a Job in the cluster (`kubernetes/backend/migrate-job.yaml.j2`)
+with only the connection string from the backend Secret, prints the Job's log
+and deletes it. For a release without new migrations it changes nothing.
+Migrations only go forward, and the running release keeps serving while they
+apply, so each one has to work with both the running image and the new one;
+the application README describes how to write them that way.
+
 ## Terraform Workflow
 
 Terraform is the source of truth for the AWS layer. It creates the whole
@@ -430,11 +462,20 @@ Put these values in the ignored `.env.local` (start from `.env.example`), or
 export them before running Terraform:
 
 ```bash
-HOSPITALSYSTEM_CONNECTION_STRING='Host=...;Database=...;Username=...;Password=...'
+HOSPITALSYSTEM_DB_PASSWORD=...         # the database's master password
 HOSPITALSYSTEM_JWT_SECRET=...          # generated, see below
 CLOUDFLARE_API_TOKEN='your-cloudflare-api-token'
 ALERT_EMAIL=you@example.com            # receives the alarm emails
 CLOUDFLARE_ZONE_ID='your-zone-id'      # optional, skips the zone lookup
+```
+
+Terraform sets the database password on a new instance, and the bootstrap
+builds the backend's connection string from it and the endpoint Terraform
+reports, so there's no connection string to keep in sync. RDS accepts 8 to 128
+characters without `/`, `'`, `"`, `@` or spaces; this makes one:
+
+```bash
+python3 -c 'import secrets; print(secrets.token_urlsafe(24))'
 ```
 
 Don't make up the JWT key: `python3 scripts/rotate-jwt-key.py` generates it
@@ -445,15 +486,19 @@ The Cloudflare token needs `Zone:Read` and `DNS:Edit` permissions for
 record, and the bootstrap for the app's CNAME.
 
 Run Terraform through `./scripts/tf.sh`. It loads `.env.local`, exports
-`TF_VAR_cloudflare_api_token` and `TF_VAR_alert_email`, and checks only what
-the command needs:
+`TF_VAR_cloudflare_api_token`, `TF_VAR_alert_email` and `TF_VAR_db_password`,
+and checks only what the command needs:
 
 | Command | Requires |
 | ------- | -------- |
 | `apply` | all four required values above, a running Docker daemon and `session-manager-plugin` |
 | `destroy` | the Cloudflare token and `session-manager-plugin` |
-| `plan`, `refresh`, `import` | the Cloudflare token |
+| `plan`, `refresh`, `import` | the Cloudflare token and the database password |
 | `output`, `state` and other read-only commands | nothing |
+
+The password is a write-only argument (`password_wo` in `terraform/rds.tf`):
+Terraform sends it to RDS but never writes it to the state or a plan. A destroy
+doesn't need it.
 
 Every command except `fmt` and `validate` also needs an AWS login, since the
 state is in S3. The Ansible bootstrap sources `.env.local` itself, but the
@@ -521,10 +566,12 @@ Terraform runs the Ansible bootstrap (`ansible/playbooks/bootstrap.yml`)
 automatically after the EKS cluster, managed node group, and ops access entry
 are ready. The bootstrap configures kubeconfig, installs External Secrets,
 stores the backend secret from `.env.local` in Secrets Manager (see
-[Backend secret](#backend-secret)), installs the AWS Load Balancer Controller
-and metrics-server, applies the Kubernetes manifests, points the Cloudflare
-DNS record at the ALB hostname from the Kubernetes Ingress, and configures
-monitoring.
+[Backend secret](#backend-secret)), loads `seed.sql` into a new database and
+runs the migrations (see [Database](#database)), installs the AWS Load
+Balancer Controller and metrics-server, applies the Kubernetes manifests,
+points the Cloudflare DNS record at the ALB hostname from the Kubernetes
+Ingress, and configures monitoring. Terraform starts it only once the
+database is available.
 
 Bootstrap reruns when its generated variables or tracked inputs change:
 its playbooks, shared tasks and variables, Ansible configuration/inventory,
@@ -596,7 +643,8 @@ Configuration values live in one place each:
 
 - Terraform writes the values it owns (region, cluster name, namespace, deploy
   group, VPC ID, ECR repository URLs, IAM role ARNs, ACM certificate ARN,
-  domains, alarm prefix, ops instance ID) to the ignored
+  domains, alarm prefix, ops instance ID, database endpoint, name and user)
+  to the ignored
   `ansible/group_vars/all/terraform.yml` on every apply.
 - `ansible/group_vars/all/main.yml` holds the Ansible-owned settings: the
   Deployment, Ingress, and ALB names, the SSM tunnel port, Cloudflare and
@@ -656,7 +704,10 @@ deploy RBAC binding. There is no separate `aws-auth` playbook to run.
 The backend's connection string and JWT key live in the AWS Secrets Manager
 secret `hospitalsystem/backend` (`terraform/secrets.tf`), encrypted with the
 project's KMS key. Terraform creates the secret but never its value, so the
-value stays out of Terraform state. External Secrets (installed by
+value stays out of Terraform state. `backend-secret.yml` builds the connection
+string from the database endpoint Terraform reports and
+`HOSPITALSYSTEM_DB_PASSWORD`, with `SSL Mode=Require` (RDS requires TLS).
+External Secrets (installed by
 `external-secrets.yml`, watching only the app namespace) copies it into the
 `hospital-backend-secrets` Secret every hour. It authenticates as the
 `backend-secrets-reader` service account, whose IAM role can read only this
@@ -676,6 +727,13 @@ since its pods started (the Deployment records the Secret's hash). A
 Deployment scaled to 0 stays at 0 and reads the new Secret when it scales up.
 `./scripts/monitoring.sh workloads` warns when the pods run an older Secret.
 To change the JWT key, see [Rotate the JWT key](#rotate-the-jwt-key).
+
+To change the database password on a running stack, change it in
+`.env.local`, raise `password_wo_version` in `terraform/rds.tf` so Terraform
+sends it again, run `./scripts/tf.sh apply`, then push the new connection
+string with the command above. Between the apply and the push the backend's
+new connections fail. A new stack needs none of this: it takes whatever
+`.env.local` holds.
 
 ### Playbooks
 
@@ -750,6 +808,15 @@ ansible-playbook ansible/playbooks/deploy-image.yml \
 
 This sends the same SSM document as CI, so a manual deploy gets the same image
 check, smoke test and rollback. It doesn't need the SSM tunnel or `kubectl`.
+If the release adds a migration, run `migrate.yml` first (see
+[Releases with migrations](#releases-with-migrations)).
+
+Load `seed.sql` into an empty database and run the migrations, as the
+bootstrap does. Loading the seed needs the password from `.env.local`:
+
+```bash
+(set -a; source .env.local; ansible-playbook ansible/playbooks/database.yml)
+```
 
 ### Pause and scaling
 
@@ -764,7 +831,8 @@ ansible-playbook ansible/playbooks/resume.yml
 answers 503), scales both Deployments to 0 and the node group to 0, and waits
 for the nodes to leave. `resume.yml` scales the node group back to two, waits
 for both nodes, starts each app at its HPA minimum and turns the notifications
-back on once both are ready.
+back on once both are ready. The database keeps running and billing while the
+app is paused.
 
 Backend and frontend also have HorizontalPodAutoscalers, both fixed at two
 pods: one per node, so a drain or node failure leaves one serving. There is no
@@ -956,8 +1024,9 @@ and nothing billable is left. Each step's output is also saved under
 
 `./scripts/account-sweep.py` also runs on its own. It is read-only and lists
 what exists in every enabled region: `BILLABLE` for what costs money (for
-example instances, NAT gateways, Elastic IPs, interface endpoints, load
-balancers, EKS, enabled KMS keys, secrets, log groups holding data), `FREE`
+example instances, RDS databases and manual snapshots, NAT gateways, Elastic
+IPs, interface endpoints, load balancers, EKS, enabled KMS keys, secrets, log
+groups holding data), `FREE`
 for what doesn't (keys pending deletion, target groups, idle Lambda
 functions), and `IGNORED` for entries in `config/account-sweep-ignore.txt`,
 which says why each is kept. `--region` limits it to one region, and
@@ -1000,11 +1069,13 @@ During apply, Terraform recreates AWS resources and then runs
 - creates the EKS cluster and node group, and takes over the vpc-cni, coredns
   and kube-proxy add-ons as EKS managed add-ons
 - creates the ops role's EKS access entry
+- creates the RDS instance in the private subnets, alongside the cluster
 - requests the ACM certificate for `app.hospitalsyst.cc`
 - creates the Cloudflare ACM validation CNAME
 - waits for ACM to issue the certificate
 - installs External Secrets, stores the backend secret in Secrets Manager
   from local environment variables and waits for it to sync
+- loads `seed.sql` into the new, empty database and runs the migrations
 - installs the AWS Load Balancer Controller
 - applies rendered app Kubernetes manifests with current ECR URLs and ACM ARN
 - updates the Cloudflare app CNAME to the new ALB hostname
@@ -1019,10 +1090,6 @@ have none of its tags, so its push goes through; the deploy skips older
 commits), or push a commit to `main`. The `Deploy to EKS` run that follows
 moves the live Deployments to the new tag after the `production` approval.
 
-A recreate also gives the NAT gateways new public IPs. If Neon's IP Allow list
-is in use (see Database Access), replace the old addresses with the new ones or
-the backend loses its database connection.
-
 Post-recreate checks:
 
 ```bash
@@ -1034,66 +1101,68 @@ dig +short app.hospitalsyst.cc CNAME
 
 ### Database
 
-The database is in Neon, outside AWS, so a destroy and recreate leaves it
-untouched. The application's always-on demo on Render uses the same database,
-so a restore changes its data too.
+The database lives as long as the stack. A destroy deletes the RDS instance
+with its automated backups and takes no final snapshot, so nothing keeps
+billing, and every new stack starts with an empty database. The bootstrap
+fills it (`ansible/playbooks/database.yml`) after it has stored the connection
+string and before the backend starts:
 
-Neon keeps every change for the project's history window and can restore the
-branch to any moment inside it. The window is set in the Neon console under
-Settings, Postgres, History window:
+1. If the database has no tables and `seed.sql` is in the repository root, a
+   short-lived `psql` pod loads it in one transaction. The password reaches
+   the pod on stdin, so it's neither in the pod spec nor in the API server's
+   audit log. A database that has tables is left alone, so a later bootstrap
+   never loads it twice.
+2. The migration Job applies the migrations of the image the backend runs, or
+   is about to start from: on a seeded database the ones newer than the dump,
+   and without `seed.sql` the whole schema with no rows. The application
+   creates no first user, so without `seed.sql` nobody can sign in.
 
-| Neon plan | History window |
-| --------- | -------------- |
-| Free | 6 hours, capped at 1 GB of changes |
-| Launch | 1 day by default, up to 7 days |
-| Scale | 1 day by default, up to 30 days |
+`seed.sql` is a plain `pg_dump`. Git ignores it because it holds user accounts
+and patient records. To carry the data over to the next stack, dump the
+running one before the teardown. The database only accepts connections from
+the cluster (see [Database Access](#database-access)), so the dump runs in a
+pod and gets the password on stdin:
 
-Anything older than the window can only come back from a snapshot. Snapshots
-are on the Backup & Restore page. The Free plan allows one manual snapshot;
-paid plans allow 100 and can also take scheduled snapshots, kept for up to 35
-days. Nothing here takes one automatically.
+```bash
+export KUBECONFIG="$PWD/.generated/kubeconfig"
+kubectl run pg --image=public.ecr.aws/docker/library/postgres:18.6-alpine --restart=Never -- sleep 3600
+kubectl wait --for=condition=Ready pod/pg
+(set -a; source .env.local
+ kubectl exec -i pg -- sh -c 'IFS= read -r PGPASSWORD; export PGPASSWORD
+   pg_dump --no-owner --no-privileges "host=$0 dbname=hospital user=postgres sslmode=require"' \
+   "$(./scripts/tf.sh output -raw db_endpoint)" <<< "$HOSPITALSYSTEM_DB_PASSWORD") > seed.sql
+kubectl delete pod pg
+```
 
-To restore to a point in time:
+RDS keeps a day of automated backups while the stack is up, but a
+point-in-time restore creates a new instance outside Terraform. For this
+stack, start over from `seed.sql` instead: rebuild the stack, or scale the
+backend to 0, drop and recreate the `hospital` database, and run
+`database.yml` (see [Playbooks](#playbooks)).
 
-1. On the Backup & Restore page, pick the moment just before the damage. Time
-   Travel Assist there runs read-only queries against a past point, so you can
-   check the data before restoring.
-2. Restore the branch from its own history, either on that page (From history)
-   or with the Neon CLI:
-
-   ```bash
-   neon branches restore <branch> ^self@2026-09-23T10:00:00Z \
-     --preserve-under-name <branch>_before_restore
-   ```
-
-   This overwrites every database on the branch. The previous state is kept as
-   a backup branch (`<branch>_old_<timestamp>` unless you name it), so a wrong
-   restore can be reversed the same way.
-3. The compute moves to the restored branch, so the connection string and the
-   `hospital-backend-secrets` Secret stay the same. Connections drop briefly
-   during the restore. Check that the backend reconnected:
-
-   ```bash
-   ./scripts/monitoring.sh app
-   ```
-
-The EKS backend doesn't run migrations (`Database__RunMigrationsOnStartup` is
-`false`). If the restore point is older than a migration, apply the migrations
-again as described in the application README.
+The application's always-on demo on Render still uses its own Neon database,
+so it shares no data with this stack.
 
 ## Database Access
 
-The backend reaches Neon through the two NAT gateways, so all of its database
-traffic comes from two public IPs. Restricting Neon to those addresses means a
-leaked connection string is useless from anywhere else:
+The instance has no public address, and its security group accepts
+PostgreSQL (5432) only from the EKS cluster security group, which every node
+and pod uses. Nothing else can connect, not your machine and not the ops
+instance, so a leaked password is no use on its own. RDS for PostgreSQL 18
+also rejects connections without TLS (`rds.force_ssl` is on by default).
+
+To query it, start a `psql` pod in the cluster. Use the `default` namespace:
+the app namespace's Pod Security level rejects this image, which runs as root.
 
 ```bash
-./scripts/tf.sh output nat_public_ips
+export KUBECONFIG="$PWD/.generated/kubeconfig"
+kubectl run pg --image=public.ecr.aws/docker/library/postgres:18.6-alpine --restart=Never -- sleep 3600
+kubectl wait --for=condition=Ready pod/pg
+kubectl exec -it pg -- psql "host=$(./scripts/tf.sh output -raw db_endpoint) dbname=hospital user=postgres sslmode=require"
+kubectl delete pod pg
 ```
 
-Add both addresses to the Neon project's IP Allow list (a Neon plan feature),
-plus any address you connect from yourself. The addresses change on every full
-destroy and recreate, so update the list after a rebuild.
+`psql` asks for the password from `.env.local`.
 
 ## Operational Notes
 
@@ -1105,7 +1174,7 @@ roughly $30 a month):
   ignores the node group's desired size, so a later apply won't scale it back
   up.
 
-Everything else keeps billing while the environment exists, roughly $200 a
+Everything else keeps billing while the environment exists, roughly $215 a
 month before data transfer:
 
 | Resource | Approx. per month |
@@ -1115,7 +1184,11 @@ month before data transfer:
 | SSM interface endpoints | $25 |
 | ALB | $17 plus usage |
 | Public IPv4 addresses (NAT and ALB) | $15 |
+| RDS PostgreSQL (`db.t4g.micro`, 20 GB gp2) | $14 |
 | Ops instance (t3.micro) | $9 |
+
+The database's automated backups and its seven days of Performance Insights
+cost nothing extra at this size.
 
 To stop paying for it, destroy the environment and recreate it when needed
 (see [Disaster Recovery](#disaster-recovery)).
@@ -1138,7 +1211,7 @@ so nobody types or pastes one. The same command fills in the first key in a
   which stores the key in Secrets Manager and restarts the backend one pod at
   a time. It then checks that the Deployment recorded the new Secret and that
   all its pods are ready. This needs `ansible-playbook`, `kubectl`, `aws`,
-  `session-manager-plugin` and the connection string in `.env.local`.
+  `session-manager-plugin` and the database password in `.env.local`.
 
 Every signed-in user is logged out: the backend only accepts the current key,
 so older tokens get 401. The script asks first; `--yes` skips the question. If
@@ -1147,7 +1220,7 @@ the command that pushes it. Run that command rather than the script, which
 would generate yet another key.
 
 Rotation is manual, and nothing rotates the secret on a schedule, so Checkov's
-CKV2_AWS_57 stays flagged. The script doesn't touch the connection string.
+CKV2_AWS_57 stays flagged. The script doesn't touch the database password.
 
 ### Upgrading EKS
 

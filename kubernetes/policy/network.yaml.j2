@@ -1,6 +1,7 @@
 # Nothing may connect to pods in this namespace unless a policy below allows
 # it. The VPC CNI always lets a pod's own node in, so kubelet probes still work.
-# Egress stays open: the backend reaches Neon through the NAT gateways.
+# Egress stays open: the backend and the migration Job reach the RDS database
+# in the private subnets, whose security group admits only the cluster.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

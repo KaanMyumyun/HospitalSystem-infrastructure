@@ -38,6 +38,9 @@ args = [a for a in sys.argv[1:] if not a.startswith("-chdir=")]
 bootstrap = chdir.endswith("bootstrap")
 with open(os.environ["FAKE_LOG"], "a") as log:
     log.write("terraform " + ("bootstrap " if bootstrap else "") + " ".join(args) + "\n")
+if os.environ.get("FAKE_ENV_LOG"):  # what tf.sh passed on
+    with open(os.environ["FAKE_ENV_LOG"], "a") as env_log:
+        env_log.write(json.dumps({"db_password": os.environ.get("TF_VAR_db_password")}) + "\n")
 
 def save():
     json.dump(state, open(state_path, "w"))
@@ -122,7 +125,7 @@ echo $((seen + 1)) > "$counter"
 '''
 
 ENV_LOCAL = """CLOUDFLARE_API_TOKEN=fake-token
-HOSPITALSYSTEM_CONNECTION_STRING=Host=db
+HOSPITALSYSTEM_DB_PASSWORD=fake-password
 HOSPITALSYSTEM_JWT_SECRET=fake-key
 ALERT_EMAIL=ops@example.com
 """
@@ -130,7 +133,7 @@ ALERT_EMAIL=ops@example.com
 
 class FakeRepoTest(TestCase):
     def run_script(self, command, *, resources=RESOURCES, fail=None, stdin="", env=None,
-                   bucket=True, backend=BUCKET):
+                   bucket=True, backend=BUCKET, env_local=ENV_LOCAL):
         """Runs COMMAND (script path and arguments) in a fake repo.
 
         bucket: whether the state bucket exists. backend: the bucket the last
@@ -153,7 +156,7 @@ class FakeRepoTest(TestCase):
             (repo / "terraform/.terraform").mkdir()
             (repo / "terraform/.terraform/terraform.tfstate").write_text(
                 json.dumps({"backend": {"type": "s3", "config": {"bucket": backend}}}))
-        (repo / ".env.local").write_text(ENV_LOCAL)
+        (repo / ".env.local").write_text(env_local)
 
         bin_dir = tmp / "bin"
         bin_dir.mkdir()
@@ -401,6 +404,24 @@ class TfWrapperTests(FakeRepoTest):
         result = self.run_tf("validate", bucket=False, backend=None)
         self.assertExit(result, 0)
         self.assertEqual(self.log.read_text(), "terraform validate\n")
+
+    def test_the_database_password_reaches_terraform(self):
+        env_log = Path(self.enterContext(tempfile.TemporaryDirectory())) / "env.log"
+        result = self.run_tf("plan", env={"FAKE_ENV_LOG": str(env_log)})
+        self.assertExit(result, 0)
+        self.assertEqual(json.loads(env_log.read_text()), {"db_password": "fake-password"})
+
+    def test_plan_and_apply_need_the_database_password_but_destroy_does_not(self):
+        env_local = ENV_LOCAL.replace("HOSPITALSYSTEM_DB_PASSWORD=fake-password\n", "")
+        for command in ("plan", "apply"):
+            with self.subTest(command=command):
+                result = self.run_tf(command, env_local=env_local)
+                self.assertExit(result, 1)
+                self.assertIn("HOSPITALSYSTEM_DB_PASSWORD", result.stderr)
+                self.assertEqual(self.calls(), [])
+        result = self.run_tf("destroy", env_local=env_local)
+        self.assertExit(result, 0)
+        self.assertEqual(self.calls(), ["terraform destroy"])
 
 
 if __name__ == "__main__":

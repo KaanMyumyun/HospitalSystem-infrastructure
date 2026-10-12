@@ -20,16 +20,17 @@ needs_docker=false
 needs_ssm_plugin=false
 case "${1:-}" in
   apply)
-    required="CLOUDFLARE_API_TOKEN HOSPITALSYSTEM_CONNECTION_STRING HOSPITALSYSTEM_JWT_SECRET ALERT_EMAIL"
+    required="CLOUDFLARE_API_TOKEN HOSPITALSYSTEM_DB_PASSWORD HOSPITALSYSTEM_JWT_SECRET ALERT_EMAIL"
     needs_docker=true
     needs_ssm_plugin=true
     ;;
+  # The database password is write-only, so destroy doesn't need it.
   destroy)
     required="CLOUDFLARE_API_TOKEN"
     needs_ssm_plugin=true
     ;;
   plan | refresh | import)
-    required="CLOUDFLARE_API_TOKEN"
+    required="CLOUDFLARE_API_TOKEN HOSPITALSYSTEM_DB_PASSWORD"
     ;;
 esac
 
@@ -50,6 +51,10 @@ fi
 
 if [ -n "${ALERT_EMAIL:-}" ]; then
   export TF_VAR_alert_email="$ALERT_EMAIL"
+fi
+
+if [ -n "${HOSPITALSYSTEM_DB_PASSWORD:-}" ]; then
+  export TF_VAR_db_password="$HOSPITALSYSTEM_DB_PASSWORD"
 fi
 
 if [ "$needs_docker" = true ] && ! docker info >/dev/null 2>&1; then
