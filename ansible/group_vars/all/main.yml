@@ -19,9 +19,36 @@ load_balancer_controller_chart_version: "3.5.0"
 metrics_server_chart_version: "3.14.0"
 external_secrets_chart_version: "2.11.0"
 
-# psql for loading seed.sql (playbooks/database.yml): the Docker Official Image
-# through ECR Public, which has no Docker Hub pull limits.
+# psql and pg_dump for seed.sql: playbooks/database.yml loads it into a new
+# database, and playbooks/dump-database.yml saves the database into it. The
+# Docker Official Image through ECR Public, which has no Docker Hub pull limits.
 db_client_image: public.ecr.aws/docker/library/postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+# kubectl run --overrides for that pod; each playbook names it in
+# db_client_pod. The namespace enforces the restricted Pod Security Standard.
+# UID 70 is the Alpine image's postgres user.
+db_client_overrides:
+  spec:
+    automountServiceAccountToken: false
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 70
+      runAsGroup: 70
+      seccompProfile:
+        type: RuntimeDefault
+    containers:
+      - name: "{{ db_client_pod }}"
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 128Mi
 
 cloudflare_record_name: "{{ app_domain_name }}"
 cloudflare_record_type: CNAME

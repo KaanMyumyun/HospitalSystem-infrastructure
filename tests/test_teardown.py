@@ -1,8 +1,8 @@
 """Run scripts/teardown.sh and the real tf.sh in a copy of the repo with fakes.
 
-terraform, aws, and the cleanup, orphan and sweep scripts are fakes that log
-every call, so the tests check the order of the steps and where a failure
-stops the teardown. Nothing reaches AWS or a real Terraform state.
+terraform, aws, ansible-playbook, and the cleanup, orphan and sweep scripts are
+fakes that log every call, so the tests check the order of the steps and where
+a failure stops the teardown. Nothing reaches AWS or a real Terraform state.
 """
 
 from pathlib import Path
@@ -16,7 +16,7 @@ import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
-RESOURCES = ["aws_eks_cluster.main", "aws_vpc.kubes", "terraform_data.kubernetes_cleanup"]
+RESOURCES = ["aws_eks_cluster.main", "aws_vpc.kubes", "terraform_data.kubernetes_cleanup", "aws_db_instance.main"]
 OUTPUTS = {"account_id": "123456789012", "cluster_name": "eks-pr1", "vpc_id": "vpc-1",
            "ops_instance_id": "i-ops"}
 BUCKET = "hospitalsystem-tfstate-123456789012"
@@ -124,6 +124,18 @@ echo $((seen + 1)) > "$counter"
 [ "$seen" -ge "${!var:-0}" ]
 '''
 
+# Logs the playbook, the directory it ran in (ansible.cfg is read from there)
+# and the database password it got. FAKE_ANSIBLE_PLAYBOOK_FAILS: how many runs
+# fail before one succeeds.
+FAKE_ANSIBLE_PLAYBOOK = r'''#!/usr/bin/env bash
+printf 'ansible-playbook %s (in %s, password=%s)\n' "$*" "$(basename "$PWD")" \
+  "${HOSPITALSYSTEM_DB_PASSWORD:-}" >> "$FAKE_LOG"
+counter="$FAKE_LOG.ansible-playbook"
+seen="$(cat "$counter" 2>/dev/null || echo 0)"
+echo $((seen + 1)) > "$counter"
+[ "$seen" -ge "${FAKE_ANSIBLE_PLAYBOOK_FAILS:-0}" ]
+'''
+
 ENV_LOCAL = """CLOUDFLARE_API_TOKEN=fake-token
 HOSPITALSYSTEM_DB_PASSWORD=fake-password
 HOSPITALSYSTEM_JWT_SECRET=fake-key
@@ -162,6 +174,7 @@ class FakeRepoTest(TestCase):
         bin_dir.mkdir()
         for tool, body in (("terraform", FAKE_TERRAFORM), ("aws", FAKE_AWS)):
             (bin_dir / tool).write_text(f"#!{sys.executable}\n{body}")
+        (bin_dir / "ansible-playbook").write_text(FAKE_ANSIBLE_PLAYBOOK)
         for tool in ("session-manager-plugin", "docker"):
             (bin_dir / tool).write_text("#!/bin/sh\n")
         for tool in bin_dir.iterdir():
@@ -199,17 +212,22 @@ BUCKET_DELETE = [
     "terraform bootstrap init -input=false",
     f"terraform bootstrap destroy -auto-approve -input=false -var bucket_name={BUCKET}",
 ]
+# Run from the repository root, with the password from .env.local.
+SAVE = "ansible-playbook ansible/playbooks/dump-database.yml (in repo, password=fake-password)"
+CLEANUP = "terraform destroy -target=terraform_data.kubernetes_cleanup -auto-approve -input=false -no-color"
 
 
 class TeardownTests(FakeRepoTest):
-    def run_teardown(self, *args, stdin="eks-pr1\n", **kwargs):
-        return self.run_script(["scripts/teardown.sh", *args], stdin=stdin, **kwargs)
+    # stdin is empty, so a question would get no answer and stop the teardown.
+    def run_teardown(self, *args, **kwargs):
+        return self.run_script(["scripts/teardown.sh", *args], **kwargs)
 
     def test_full_teardown_runs_every_step_in_order(self):
         result = self.run_teardown()
         self.assertExit(result, 0)
         self.assertEqual(self.calls(), [
-            "terraform destroy -target=terraform_data.kubernetes_cleanup -auto-approve -input=false -no-color",
+            SAVE,
+            CLEANUP,
             "pre-destroy-cleanup.sh VPC_ID=vpc-1 CLUSTER_NAME= ALARM_PREFIX= --apply",
             "terraform destroy -auto-approve -input=false -no-color",
             # terraform.yml is gone after the destroy; these were read before it.
@@ -222,33 +240,24 @@ class TeardownTests(FakeRepoTest):
         self.assertIn(f"Deleted {BUCKET}.", result.stdout)
         self.assertIn("Clean: the stack is gone", result.stdout)
         logs = list((self.repo / ".generated/teardown").glob("*/*.log"))
-        self.assertEqual(len(logs), 6)
+        self.assertEqual(len(logs), 7)
 
-    def test_wrong_or_missing_confirmation_changes_nothing(self):
-        for stdin in ("eks-pr2\n", ""):
-            with self.subTest(stdin=stdin):
-                result = self.run_teardown(stdin=stdin)
-                self.assertExit(result, 1)
-                self.assertIn("Not confirmed. Nothing was changed.", result.stderr)
-                self.assertEqual(self.calls(), [])
-                self.assertEqual(self.remaining, RESOURCES)
-                self.assertTrue(self.bucket_exists)
-
-    def test_yes_skips_the_question(self):
-        result = self.run_teardown("--yes", stdin="")
+    def test_yes_from_older_commands_is_still_accepted(self):
+        result = self.run_teardown("--yes")
         self.assertExit(result, 0)
+        self.assertEqual(self.calls()[:2], [SAVE, CLEANUP])
         self.assertEqual(self.remaining, [])
         self.assertFalse(self.bucket_exists)
 
     def test_empty_state_deletes_the_bucket_and_sweeps(self):
-        result = self.run_teardown(resources=[], stdin="")
+        result = self.run_teardown(resources=[])
         self.assertExit(result, 0)
         self.assertEqual([call.split(" VPC_ID")[0] for call in self.calls()],
                          ["cleanup-orphans.sh", *BUCKET_DELETE, "account-sweep.py"])
         self.assertFalse(self.bucket_exists)
 
     def test_no_state_bucket_only_cleans_orphans_and_sweeps(self):
-        result = self.run_teardown(resources=[], bucket=False, stdin="")
+        result = self.run_teardown(resources=[], bucket=False)
         self.assertExit(result, 0)
         self.assertIn(f"No state bucket ({BUCKET}), so nothing is in Terraform state.", result.stdout)
         self.assertEqual([call.split()[0] for call in self.calls()], ["cleanup-orphans.sh", "account-sweep.py"])
@@ -292,6 +301,34 @@ class TeardownTests(FakeRepoTest):
         self.assertIn(f"Could not check the state lock in s3://{BUCKET}", result.stderr)
         self.assertEqual(self.calls(), [])
 
+    def test_failed_save_stops_before_anything_is_destroyed(self):
+        result = self.run_teardown(env={"FAKE_ANSIBLE_PLAYBOOK_FAILS": "1"})
+        self.assertExit(result, 1)
+        self.assertIn("The database couldn't be saved, and nothing was destroyed", result.stderr)
+        self.assertIn("--skip-dump", result.stderr)
+        self.assertEqual(self.calls(), [SAVE])
+        self.assertEqual(self.remaining, RESOURCES)
+        self.assertTrue(self.bucket_exists)
+
+    def test_skip_dump_destroys_the_database_without_saving_it(self):
+        result = self.run_teardown("--skip-dump")
+        self.assertExit(result, 0)
+        self.assertIn("Skipped (--skip-dump): seed.sql stays as it is.", result.stdout)
+        self.assertEqual(self.calls()[0], CLEANUP)
+        self.assertEqual(self.remaining, [])
+
+    def test_save_is_skipped_without_a_database_or_a_cluster(self):
+        for resources, message in (
+            (["aws_eks_cluster.main", "aws_vpc.kubes"], "No database in state"),
+            (["aws_db_instance.main", "aws_vpc.kubes"], "The cluster is gone, so nothing can reach the database"),
+        ):
+            with self.subTest(resources=resources):
+                result = self.run_teardown(resources=resources)
+                self.assertExit(result, 0)
+                self.assertIn(f"{message}; seed.sql stays as it is.", result.stdout)
+                self.assertNotIn(SAVE, self.calls())
+                self.assertEqual(self.remaining, [])
+
     def test_old_count_address_of_the_cleanup_is_targeted(self):
         result = self.run_teardown(resources=["aws_vpc.kubes", "terraform_data.kubernetes_cleanup[0]"])
         self.assertExit(result, 0)
@@ -302,7 +339,7 @@ class TeardownTests(FakeRepoTest):
         result = self.run_teardown(fail={"target": 1})
         self.assertExit(result, 1)
         self.assertIn("The Kubernetes cleanup failed, and the cluster is still up", result.stderr)
-        self.assertEqual(len(self.calls()), 1)
+        self.assertEqual(self.calls(), [SAVE, CLEANUP])
         self.assertEqual(self.remaining, RESOURCES)
         self.assertTrue(self.bucket_exists)
 
@@ -317,7 +354,7 @@ class TeardownTests(FakeRepoTest):
         self.assertExit(result, 1)
         self.assertIn("couldn't be deleted", result.stderr)
         self.assertNotIn("terraform destroy -auto-approve -input=false -no-color", self.calls())
-        self.assertEqual(self.remaining, ["aws_eks_cluster.main", "aws_vpc.kubes"])
+        self.assertEqual(self.remaining, ["aws_eks_cluster.main", "aws_vpc.kubes", "aws_db_instance.main"])
 
     def test_failed_destroy_cleans_up_deletes_the_cluster_group_and_retries(self):
         result = self.run_teardown(fail={"full": 1})

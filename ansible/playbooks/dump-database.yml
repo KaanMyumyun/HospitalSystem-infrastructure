@@ -1,0 +1,258 @@
+---
+# Saves the backend database into seed.sql in the repository root, so the next
+# stack starts with this one's data: scripts/teardown.sh runs it before it
+# destroys anything, and database.yml loads seed.sql into the next stack's
+# empty database. Git ignores seed.sql because it holds user accounts and
+# patient records.
+#
+# The database accepts connections only from the cluster, so pg_dump runs in
+# a short-lived pod and gets the password on stdin, like the seed in
+# database.yml. The dump replaces seed.sql only when pg_dump succeeded and the
+# file ends like a complete dump, and the old seed.sql is kept in
+# .generated/seed-backups/. A database without tables leaves seed.sql alone.
+- name: Save the backend database into seed.sql
+  hosts: local
+  gather_facts: false
+  environment:
+    KUBECONFIG: "{{ kubeconfig_path }}"
+
+  vars:
+    db_password: "{{ lookup('ansible.builtin.env', 'HOSPITALSYSTEM_DB_PASSWORD') }}"
+    db_seed_path: "{{ playbook_dir }}/../../seed.sql"
+    db_dump_path: "{{ playbook_dir }}/../../.generated/seed.sql.partial"
+    db_backup_dir: "{{ playbook_dir }}/../../.generated/seed-backups"
+    db_client_pod: hospital-db-dump
+    # The password is the first line of stdin.
+    db_tables_script: |
+      set -eu
+      IFS= read -r PGPASSWORD
+      export PGPASSWORD
+      psql -X -A -t -c "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'"
+    db_dump_script: |
+      set -eu
+      IFS= read -r PGPASSWORD
+      export PGPASSWORD
+      exec pg_dump --no-owner --no-privileges
+
+  tasks:
+    - name: Require the database variables Terraform writes
+      ansible.builtin.assert:
+        that:
+          - db_host is defined
+          - db_port is defined
+          - db_name is defined
+          - db_username is defined
+        fail_msg: >-
+          ansible/group_vars/all/terraform.yml has no database settings, so
+          there's no database to save. ./scripts/tf.sh apply writes the file,
+          and the destroy deletes it.
+        quiet: true
+
+    - name: Require the database password
+      ansible.builtin.assert:
+        that: db_password | length > 0
+        fail_msg: >-
+          HOSPITALSYSTEM_DB_PASSWORD isn't set, so the database can't be read.
+          Run this with .env.local loaded: (set -a; source .env.local;
+          ansible-playbook ansible/playbooks/dump-database.yml)
+        quiet: true
+
+    - name: Configure kubeconfig
+      ansible.builtin.import_tasks: ../tasks/kubeconfig.yml
+
+    - name: List the nodes
+      ansible.builtin.command:
+        argv: [kubectl, get, nodes, -o, name]
+      register: db_dump_nodes
+      changed_when: false
+
+    - name: Require a node for the pg_dump pod
+      ansible.builtin.assert:
+        that: db_dump_nodes.stdout | length > 0
+        fail_msg: >-
+          The cluster has no nodes, so no pod can run pg_dump. If pause.yml
+          scaled them to 0, start them again with
+          ansible-playbook ansible/playbooks/resume.yml.
+        quiet: true
+
+    # Left over from an interrupted run, it would make kubectl run fail.
+    - name: Delete an earlier dump pod
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - delete
+          - pod
+          - "{{ db_client_pod }}"
+          - --namespace
+          - "{{ k8s_namespace }}"
+          - --ignore-not-found
+      register: db_dump_cleanup
+      changed_when: db_dump_cleanup.stdout | length > 0
+
+    - name: Ensure the generated directory exists
+      ansible.builtin.file:
+        path: "{{ db_dump_path | dirname }}"
+        state: directory
+        mode: "0755"
+
+    - name: Save the database
+      block:
+        # It only sleeps: the commands below run in it, and the always
+        # section deletes it.
+        - name: Start a pod with pg_dump
+          ansible.builtin.command:
+            argv:
+              - kubectl
+              - run
+              - "{{ db_client_pod }}"
+              - --namespace={{ k8s_namespace }}
+              - --image={{ db_client_image }}
+              - --restart=Never
+              - --override-type=strategic
+              - --overrides={{ db_client_overrides | to_json }}
+              - --env=PGHOST={{ db_host }}
+              - --env=PGPORT={{ db_port }}
+              - --env=PGDATABASE={{ db_name }}
+              - --env=PGUSER={{ db_username }}
+              - --env=PGSSLMODE=require
+              - --command
+              - --
+              - sleep
+              - "3600"
+          changed_when: true
+
+        - name: Wait for the pod
+          ansible.builtin.command:
+            argv:
+              - kubectl
+              - wait
+              - pod/{{ db_client_pod }}
+              - --namespace={{ k8s_namespace }}
+              - --for=condition=Ready
+              - --timeout=180s
+          changed_when: false
+
+        - name: Count the tables
+          ansible.builtin.command:
+            argv:
+              - kubectl
+              - exec
+              - --stdin
+              - "{{ db_client_pod }}"
+              - --namespace={{ k8s_namespace }}
+              - --
+              - sh
+              - -c
+              - "{{ db_tables_script }}"
+            stdin: "{{ db_password }}"
+          register: db_tables
+          changed_when: false
+          failed_when: false
+          # stdin holds the password.
+          no_log: true
+
+        - name: Require the table count
+          ansible.builtin.assert:
+            that:
+              - db_tables.rc == 0
+              - db_tables.stdout | trim is match('[0-9]+$')
+            fail_msg: "Could not read the database: {{ db_tables.stderr or db_tables.stdout }}"
+            quiet: true
+
+        - name: Say that seed.sql stays as it is
+          ansible.builtin.debug:
+            msg: The database has no tables, so seed.sql was left as it is.
+          when: db_tables.stdout | int == 0
+
+        - name: Replace seed.sql with a complete dump
+          when: db_tables.stdout | int > 0
+          block:
+            # Straight into a file only you can read, so the dump never
+            # passes through Ansible.
+            - name: Run pg_dump
+              ansible.builtin.shell:
+                cmd: >-
+                  umask 077;
+                  kubectl exec --stdin {{ db_client_pod | quote }} --namespace={{ k8s_namespace | quote }}
+                  -- sh -c {{ db_dump_script | quote }} > {{ db_dump_path | quote }}
+                stdin: "{{ db_password }}"
+              register: db_dump
+              changed_when: false
+              failed_when: false
+              # stdin holds the password.
+              no_log: true
+
+            - name: Show the pg_dump errors
+              ansible.builtin.debug:
+                msg: "{{ db_dump.stderr_lines }}"
+              when: db_dump.stderr | length > 0
+
+            - name: Read the end of the dump
+              ansible.builtin.command:
+                argv: [tail, -n, "10", "{{ db_dump_path }}"]
+              register: db_dump_end
+              changed_when: false
+
+            # pg_dump writes this line at the very end, followed only by
+            # \unrestrict, so a dump that was cut off doesn't have it.
+            - name: Require a complete dump
+              ansible.builtin.assert:
+                that:
+                  - db_dump.rc == 0
+                  - "'-- PostgreSQL database dump complete' in db_dump_end.stdout_lines"
+                fail_msg: >-
+                  pg_dump failed or its output is incomplete (any errors are
+                  above), so seed.sql was left as it is.
+                quiet: true
+
+            - name: Look for the old seed.sql
+              ansible.builtin.stat:
+                path: "{{ db_seed_path }}"
+              register: db_old_seed
+
+            - name: Ensure the seed backup directory exists
+              ansible.builtin.file:
+                path: "{{ db_backup_dir }}"
+                state: directory
+                mode: "0700"
+              when: db_old_seed.stat.exists
+
+            - name: Keep the old seed.sql
+              ansible.builtin.copy:
+                src: "{{ db_seed_path }}"
+                dest: "{{ db_backup_dir }}/seed-{{ now(utc=true, fmt='%Y%m%dT%H%M%SZ') }}.sql"
+                remote_src: true
+                mode: "0600"
+              register: db_seed_backup
+              when: db_old_seed.stat.exists
+
+            - name: Replace seed.sql
+              ansible.builtin.copy:
+                src: "{{ db_dump_path }}"
+                dest: "{{ db_seed_path }}"
+                remote_src: true
+                mode: "0600"
+
+            - name: Say what was saved
+              ansible.builtin.debug:
+                msg: >-
+                  Saved the database into seed.sql.
+                  {{ 'The old one is .generated/seed-backups/' ~ (db_seed_backup.dest | basename) ~ '.' if db_old_seed.stat.exists else '' }}
+
+      always:
+        - name: Delete the partial dump
+          ansible.builtin.file:
+            path: "{{ db_dump_path }}"
+            state: absent
+
+        - name: Delete the dump pod
+          ansible.builtin.command:
+            argv:
+              - kubectl
+              - delete
+              - pod
+              - "{{ db_client_pod }}"
+              - --namespace={{ k8s_namespace }}
+              - --ignore-not-found
+              - --wait=false
+          changed_when: true

@@ -1,7 +1,8 @@
 # The backend's PostgreSQL database. It lives as long as the stack: destroy
-# deletes it with its automated backups and takes no final snapshot. Every new
-# instance starts empty, and the Ansible bootstrap loads seed.sql into it and
-# runs the migrations (ansible/playbooks/database.yml).
+# deletes it with its automated backups and takes no final snapshot, and
+# scripts/teardown.sh saves it into seed.sql first (dump-database.yml). Every
+# new instance starts empty, and the Ansible bootstrap loads seed.sql into it
+# and runs the migrations (ansible/playbooks/database.yml).
 resource "aws_db_subnet_group" "main" {
   name        = local.db_identifier
   description = "HospitalSystem PostgreSQL in the private subnets"

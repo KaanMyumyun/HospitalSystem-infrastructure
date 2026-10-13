@@ -49,9 +49,11 @@ python3 scripts/rotate-jwt-key.py       # writes the JWT key into .env.local
 ./scripts/teardown.sh                   # destroy it all when done
 ```
 
-The database starts empty on every new stack. Put a `pg_dump` of the data to
-start from in `seed.sql` before the apply, or nobody can sign in (see
-[Database](#database)).
+The database starts empty on every new stack, and the bootstrap loads
+`seed.sql` into it. The teardown saves the database back into `seed.sql`
+before it destroys anything, so the next stack starts with the data you left.
+Before the first apply, put a `pg_dump` of the data to start from in
+`seed.sql`, or nobody can sign in (see [Database](#database)).
 
 The stack bills roughly $250 a month while it exists, about $215 of it even
 with the nodes paused (see [Operational Notes](#operational-notes)). After the
@@ -525,7 +527,7 @@ So a full cycle is still two commands, with nothing to set up by hand:
 
 ```bash
 ./scripts/tf.sh apply
-./scripts/teardown.sh --yes
+./scripts/teardown.sh
 ```
 
 Terraform locks the state with a `.tflock` object next to it
@@ -824,6 +826,14 @@ bootstrap does. Loading the seed needs the password from `.env.local`:
 (set -a; source .env.local; ansible-playbook ansible/playbooks/database.yml)
 ```
 
+Save the database into `seed.sql`, as the teardown does before it destroys
+anything (see [Database](#database)). The old `seed.sql` goes to
+`.generated/seed-backups/`:
+
+```bash
+(set -a; source .env.local; ansible-playbook ansible/playbooks/dump-database.yml)
+```
+
 ### Pause and scaling
 
 Stop the app and scale the node group to 0, then bring both back:
@@ -1005,28 +1015,31 @@ Full recreate:
 ./scripts/tf.sh apply
 ```
 
-`./scripts/teardown.sh` runs every step of a clean destroy and asks you to
-type the cluster name first (`--yes` skips that):
+`./scripts/teardown.sh` runs every step of a clean destroy. It starts right
+away, without asking:
 
 1. checks the AWS login, finds the logged-in account's state bucket, and
    checks that no Terraform run holds the state lock (if one does, it shows
    who took the lock, when, and the `force-unlock` command for an interrupted
-   run). With no state bucket there is nothing in state, so it skips to step 5
-2. destroys `terraform_data.kubernetes_cleanup` alone, so the cleanup below
+   run). With no state bucket there is nothing in state, so it skips to step 6
+2. saves the database into `seed.sql` (`ansible/playbooks/dump-database.yml`),
+   so the next stack starts with this one's data (see [Database](#database)).
+   `--skip-dump` destroys the database without saving it
+3. destroys `terraform_data.kubernetes_cleanup` alone, so the cleanup below
    runs while the cluster can still delete its ALB
-3. runs `scripts/pre-destroy-cleanup.sh --apply` for anything left, retried
+4. runs `scripts/pre-destroy-cleanup.sh --apply` for anything left, retried
    once
-4. runs `./scripts/tf.sh destroy`; if it fails, it runs step 3 again,
+5. runs `./scripts/tf.sh destroy`; if it fails, it runs step 4 again,
    deletes the EKS cluster security group EKS sometimes leaves in the VPC,
    and retries once
-5. checks the state is empty and runs `scripts/cleanup-orphans.sh --apply`
-6. deletes the state bucket, only if the state is empty and unlocked
-7. runs `scripts/account-sweep.py` over every region, which lists a state
+6. checks the state is empty and runs `scripts/cleanup-orphans.sh --apply`
+7. deletes the state bucket, only if the state is empty and unlocked
+8. runs `scripts/account-sweep.py` over every region, which lists a state
    bucket still there as `BILLABLE`
 
-It stops at the first step that fails and exits 1 unless the stack is gone
-and nothing billable is left. Each step's output is also saved under
-`.generated/teardown/`.
+It stops at the first step that fails, so nothing is destroyed until the
+database is saved, and exits 1 unless the stack is gone and nothing billable
+is left. Each step's output is also saved under `.generated/teardown/`.
 
 `./scripts/account-sweep.py` also runs on its own. It is read-only and lists
 what exists in every enabled region: `BILLABLE` for what costs money (for
@@ -1124,21 +1137,22 @@ string and before the backend starts:
    creates no first user, so without `seed.sql` nobody can sign in.
 
 `seed.sql` is a plain `pg_dump`. Git ignores it because it holds user accounts
-and patient records. To carry the data over to the next stack, dump the
-running one before the teardown. The database only accepts connections from
-the cluster (see [Database Access](#database-access)), so the dump runs in a
-pod and gets the password on stdin:
+and patient records. The teardown writes it from the running database before
+it destroys anything (`ansible/playbooks/dump-database.yml`, also runnable on
+its own, see [Playbooks](#playbooks)), so the data carries over to the next
+stack:
 
-```bash
-export KUBECONFIG="$PWD/.generated/kubeconfig"
-kubectl run pg --image=public.ecr.aws/docker/library/postgres:18.6-alpine --restart=Never -- sleep 3600
-kubectl wait --for=condition=Ready pod/pg
-(set -a; source .env.local
- kubectl exec -i pg -- sh -c 'IFS= read -r PGPASSWORD; export PGPASSWORD
-   pg_dump --no-owner --no-privileges "host=$0 dbname=hospital user=postgres sslmode=require"' \
-   "$(./scripts/tf.sh output -raw db_endpoint)" <<< "$HOSPITALSYSTEM_DB_PASSWORD") > seed.sql
-kubectl delete pod pg
-```
+- The database only accepts connections from the cluster (see
+  [Database Access](#database-access)), so `pg_dump` runs in a short-lived pod
+  with the same settings as the seed pod and gets the password on stdin.
+- The dump replaces `seed.sql` only if `pg_dump` succeeded and the file ends
+  like a complete dump. The old `seed.sql` is kept in the ignored
+  `.generated/seed-backups/`, one timestamped file per save.
+- A database without tables, from a bootstrap that failed before the seed,
+  leaves `seed.sql` alone.
+- If the dump fails, the teardown stops before it destroys anything. The dump
+  needs the nodes: on a paused stack run `resume.yml` first. To destroy the
+  database without saving it, run `./scripts/teardown.sh --skip-dump`.
 
 RDS keeps a day of automated backups while the stack is up, but a
 point-in-time restore creates a new instance outside Terraform. For this
