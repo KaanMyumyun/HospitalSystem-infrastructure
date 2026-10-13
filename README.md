@@ -292,9 +292,11 @@ success:
      scheduled run
    - checks out the exact commit that passed CI
    - builds backend and frontend Docker images once each with Buildx, reusing
-     layers from the GitHub Actions cache; the weekly run skips the cache. The
-     frontend is built with `VITE_API_URL=/api`, so it calls the backend on
-     whatever host serves it and the same image works under any domain.
+     build-stage layers from the GitHub Actions cache. The runtime stage is
+     always rebuilt, so its `apk upgrade` picks up Alpine security fixes on
+     every build; the weekly run skips the cache altogether. The frontend is
+     built with `VITE_API_URL=/api`, so it calls the backend on whatever host
+     serves it and the same image works under any domain.
    - scans those images with Trivy; a fixable `HIGH` or `CRITICAL`
      vulnerability stops the run before anything is pushed, so the pushed
      images are the scanned ones
