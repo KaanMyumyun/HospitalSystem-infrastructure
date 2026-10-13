@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-#./scripts/teardown.sh         # destroys the stack once you type the cluster name
-#./scripts/teardown.sh --yes   # without asking
-# Runs every step around ./scripts/tf.sh destroy, then sweeps every region.
+#./scripts/teardown.sh              # destroys the stack; it doesn't ask first
+#./scripts/teardown.sh --skip-dump  # without saving the database into seed.sql
+# Saves the database into seed.sql, runs every step around
+# ./scripts/tf.sh destroy, then sweeps every region.
 
 set -Eeuo pipefail
 
@@ -21,37 +22,43 @@ K8S_NAMESPACE="${K8S_NAMESPACE:-$(group_var k8s_namespace)}"
 INGRESS_NAME="${INGRESS_NAME:-$(group_var ingress_name)}"
 TF_DIR="$REPO_ROOT/terraform"
 LOG_DIR="$REPO_ROOT/.generated/teardown/$(date -u +%Y%m%dT%H%M%SZ)"
-ASSUME_YES=false
+SKIP_DUMP=false
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/teardown.sh [--yes]
+Usage: scripts/teardown.sh [--skip-dump]
 
-Destroys everything in Terraform state, then the S3 bucket that held the
-state, and checks that nothing billable is left anywhere in the account:
+Saves the database into seed.sql, destroys everything in Terraform state,
+then the S3 bucket that held the state, and checks that nothing billable is
+left anywhere in the account. It starts right away, without asking:
 
   1. checks: AWS login, the logged-in account's state bucket, no Terraform
-     run holds the state lock; then asks you to type the cluster name
-  2. destroys terraform_data.kubernetes_cleanup alone, which runs
+     run holds the state lock
+  2. ansible/playbooks/dump-database.yml saves the database into seed.sql,
+     which the next stack starts from (the old seed.sql goes to
+     .generated/seed-backups/)
+  3. destroys terraform_data.kubernetes_cleanup alone, which runs
      cleanup-kubernetes.yml while the cluster can still delete its ALB
-  3. scripts/pre-destroy-cleanup.sh --apply for anything step 2 left
+  4. scripts/pre-destroy-cleanup.sh --apply for anything step 3 left
      (retried once: AWS can report a just-freed target group as in use)
-  4. ./scripts/tf.sh destroy; if it fails, runs step 3 again, deletes the
+  5. ./scripts/tf.sh destroy; if it fails, runs step 4 again, deletes the
      EKS cluster security group EKS sometimes leaves in the VPC, and
      retries once
-  5. checks the state is empty, then scripts/cleanup-orphans.sh --apply
+  6. checks the state is empty, then scripts/cleanup-orphans.sh --apply
      for this stack's target groups and ALB alarms
-  6. deletes the state bucket (terraform/bootstrap), only when the state is
+  7. deletes the state bucket (terraform/bootstrap), only when the state is
      empty and unlocked
-  7. scripts/account-sweep.py: everything billable in every region
+  8. scripts/account-sweep.py: everything billable in every region
 
-Stops at the first step that fails, so a destroy never starts while an ALB
-it would stall on is still up. With nothing in state it runs only 5 to 7,
-and with no state bucket only 5 and 7.
+Stops at the first step that fails, so nothing is destroyed before the
+database is saved, and a destroy never starts while an ALB it would stall on
+is still up. With nothing in state it runs only 6 to 8, and with no state
+bucket only 6 and 8.
 Each step's output is also saved under .generated/teardown/.
 
-  --yes     don't ask for the cluster name
-  -h        show this help
+  --skip-dump  destroy the database without saving it; seed.sql stays as
+               it is
+  -h           show this help
 
 Exits 1 when a step fails or the sweep finds something billable.
 USAGE
@@ -59,7 +66,10 @@ USAGE
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --yes) ASSUME_YES=true ;;
+    # It used to skip a question that's no longer asked. Still accepted, so
+    # older commands keep working.
+    --yes) ;;
+    --skip-dump) SKIP_DUMP=true ;;
     -h | --help) usage; exit 0 ;;
     *) printf 'Unknown option: %s\n\n' "$1" >&2; usage >&2; exit 1 ;;
   esac
@@ -108,6 +118,20 @@ output() {
   python3 -c 'import json, sys; print(json.load(sys.stdin).get(sys.argv[1], {}).get("value", ""))' "$1" <<<"$OUTPUTS"
 }
 
+# ansible.cfg is read from the working directory, and the playbook takes the
+# database password from .env.local, like the bootstrap.
+save_database() {
+  (
+    cd "$REPO_ROOT" || exit 1
+    if [ -f .env.local ]; then
+      set -a
+      source .env.local
+      set +a
+    fi
+    ansible-playbook ansible/playbooks/dump-database.yml
+  )
+}
+
 # Retried once: AWS can report a target group of a just-deleted ALB in use.
 pre_destroy_cleanup() {
   if [ -z "$VPC_ID" ]; then
@@ -147,7 +171,7 @@ show_what_is_left() {
 
 mkdir -p "$LOG_DIR"
 
-step "1/7 Checks"
+step "1/8 Checks"
 if ! identity="$(aws sts get-caller-identity --query Account --output text 2>&1)"; then
   stop "No usable AWS credentials ($identity). Run: aws login"
 fi
@@ -190,39 +214,46 @@ printf 'Account:   %s\nRegion:    %s\nCluster:   %s\nVPC:       %s\nIn state:  %
   "$identity" "$AWS_REGION" "${CLUSTER_NAME:-none}" "${VPC_ID:-none}" "$count"
 
 if [ "$count" -gt 0 ]; then
-  if [ "$ASSUME_YES" = false ]; then
-    word="${CLUSTER_NAME:-destroy}"
-    printf '\nThis destroys all %s resources and cannot be undone.\n' "$count"
-    read -r -p "Type $word to continue: " answer || answer=""
-    [ "$answer" = "$word" ] || stop "Not confirmed. Nothing was changed."
+  step "2/8 Save the database into seed.sql"
+  if [ "$SKIP_DUMP" = true ]; then
+    printf 'Skipped (--skip-dump): seed.sql stays as it is.\n'
+  elif ! grep -qx 'aws_db_instance\.main' <<<"$resources"; then
+    printf 'No database in state; seed.sql stays as it is.\n'
+  elif ! grep -qx 'aws_eks_cluster\.main' <<<"$resources"; then
+    # The database accepts connections only from the cluster. A teardown
+    # that got as far as destroying the cluster saved it first, unless it
+    # ran with --skip-dump.
+    printf 'The cluster is gone, so nothing can reach the database; seed.sql stays as it is.\n'
+  elif ! run_logged 2-dump-database save_database; then
+    stop "The database couldn't be saved, and nothing was destroyed. Fix the cause shown above and run this again, or run with --skip-dump to destroy the database without saving it."
   fi
 
-  step "2/7 Kubernetes cleanup while the cluster is up"
+  step "3/8 Kubernetes cleanup while the cluster is up"
   cleanup_address="$(grep -xE 'terraform_data\.kubernetes_cleanup(\[0\])?' <<<"$resources" || true)"
   if [ -z "$cleanup_address" ]; then
     printf 'terraform_data.kubernetes_cleanup is not in state; skipping.\n'
-  elif ! run_logged 2-kubernetes-cleanup "$SCRIPT_DIR/tf.sh" destroy -target="$cleanup_address" \
+  elif ! run_logged 3-kubernetes-cleanup "$SCRIPT_DIR/tf.sh" destroy -target="$cleanup_address" \
     -auto-approve -input=false -no-color; then
     stop "The Kubernetes cleanup failed, and the cluster is still up. Fix the cause shown above and run this again."
   fi
 
-  step "3/7 Pre-destroy cleanup"
-  pre_destroy_cleanup 3-pre-destroy-cleanup \
+  step "4/8 Pre-destroy cleanup"
+  pre_destroy_cleanup 4-pre-destroy-cleanup \
     || stop "Something blocking the destroy couldn't be deleted (see above). Fix it and run this again."
 
-  step "4/7 terraform destroy"
-  if ! run_logged 4-destroy "$SCRIPT_DIR/tf.sh" destroy -auto-approve -input=false -no-color; then
+  step "5/8 terraform destroy"
+  if ! run_logged 5-destroy "$SCRIPT_DIR/tf.sh" destroy -auto-approve -input=false -no-color; then
     printf '\nThe destroy failed. Cleaning up what usually blocks it, then retrying once.\n'
-    pre_destroy_cleanup 4-pre-destroy-cleanup-again || true
+    pre_destroy_cleanup 5-pre-destroy-cleanup-again || true
     delete_cluster_security_group || printf 'Could not delete the EKS cluster security group.\n'
-    if ! run_logged 4-destroy-retry "$SCRIPT_DIR/tf.sh" destroy -auto-approve -input=false -no-color; then
+    if ! run_logged 5-destroy-retry "$SCRIPT_DIR/tf.sh" destroy -auto-approve -input=false -no-color; then
       show_what_is_left
       stop "The destroy failed twice. The log above says what blocked it."
     fi
   fi
 fi
 
-step "5/7 Leftovers"
+step "6/8 Leftovers"
 problems=0
 state_clean=true
 if [ "$HAVE_BUCKET" = true ]; then
@@ -242,7 +273,7 @@ if [ "$HAVE_BUCKET" = true ]; then
   fi
   [ "$state_clean" = true ] || problems=$((problems + 1))
 fi
-if ! run_logged 5-cleanup-orphans env ${CLUSTER_NAME:+CLUSTER_NAME="$CLUSTER_NAME"} \
+if ! run_logged 6-cleanup-orphans env ${CLUSTER_NAME:+CLUSTER_NAME="$CLUSTER_NAME"} \
   ${ALARM_PREFIX:+ALARM_PREFIX="$ALARM_PREFIX"} ${K8S_NAMESPACE:+K8S_NAMESPACE="$K8S_NAMESPACE"} \
   ${INGRESS_NAME:+INGRESS_NAME="$INGRESS_NAME"} AWS_REGION="$AWS_REGION" \
   "$SCRIPT_DIR/cleanup-orphans.sh" --apply; then
@@ -253,14 +284,14 @@ if [ -n "${OPS_INSTANCE_ID:-}" ] && tunnels="$(pgrep -f "ssm start-session.*$OPS
     "$(tr '\n' ' ' <<<"$tunnels")"
 fi
 
-step "6/7 State bucket"
+step "7/8 State bucket"
 if [ "$HAVE_BUCKET" = false ]; then
   printf 'Already gone.\n'
 elif [ "$state_clean" = false ]; then
   # Deleting it would lose track of what the state still holds.
-  printf 'Kept %s: the state still has resources or a lock (see 5/7).\n' "$STATE_BUCKET"
+  printf 'Kept %s: the state still has resources or a lock (see 6/8).\n' "$STATE_BUCKET"
 else
-  run_logged 6-state-bucket delete_state_bucket "$STATE_BUCKET" || true
+  run_logged 7-state-bucket delete_state_bucket "$STATE_BUCKET" || true
   bucket_status=0
   state_bucket_exists "$STATE_BUCKET" || bucket_status=$?
   if [ "$bucket_status" = 1 ]; then
@@ -276,8 +307,8 @@ else
   fi
 fi
 
-step "7/7 Account sweep"
-if ! run_logged 7-account-sweep "$SCRIPT_DIR/account-sweep.py"; then
+step "8/8 Account sweep"
+if ! run_logged 8-account-sweep "$SCRIPT_DIR/account-sweep.py"; then
   problems=$((problems + 1))
 fi
 

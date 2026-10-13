@@ -253,10 +253,12 @@ jobs:
           terraform_wrapper: false
 
       # The fake aws in the cleanup tests evaluates --query with jmespath, the
-      # library the AWS CLI uses. The bootstrap workload tests run kubectl.
-      - name: Install jmespath and test kubectl
+      # library the AWS CLI uses. The bootstrap workload tests run kubectl, and
+      # the database dump tests run ansible-playbook (same version as the
+      # Ansible job).
+      - name: Install jmespath, Ansible and test kubectl
         run: |
-          pip install jmespath==1.0.1 PyYAML==6.0.3
+          pip install jmespath==1.0.1 PyYAML==6.0.3 ansible-core==2.20.7
           curl -sSfL -o "$RUNNER_TEMP/kubectl" \
             "https://dl.k8s.io/release/$KUBECTL_VERSION/bin/linux/amd64/kubectl"
           echo "$KUBECTL_SHA256  $RUNNER_TEMP/kubectl" | sha256sum -c -

@@ -55,6 +55,7 @@ class BootstrapHashesTests(TestCase):
         self.assert_changes(
             [f"ansible/playbooks/{name}.yml" for name in (
                 "deploy-image", "pause", "resume", "cleanup-kubernetes", "status", "migrate",
+                "dump-database",
             )],
             expected=False,
         )
