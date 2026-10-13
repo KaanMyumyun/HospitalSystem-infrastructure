@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1920" height="772" viewBox="0 0 1920 772" role="img" aria-labelledby="t d" font-family="'Open Sans', 'Segoe UI', Helvetica, Arial, sans-serif">
   <title id="t">HospitalSystem CI/CD pipeline</title>
-  <desc id="d">A push to main runs CI (build, test, npm audit), then Docker Image CI builds both images, scans them with Trivy, tags them latest and date-SHA-run-attempt, and pushes them to Amazon ECR and Docker Hub. Deploy to EKS waits for a reviewer, assumes an AWS role with OIDC and sends an SSM command to the ops instance, which checks the images in ECR, sets both Deployments through the private EKS API, smoke tests them and rolls both back on failure. The AWS Load Balancer Controller serves the app at https://app.hospitalsyst.cc.</desc>
+  <desc id="d">A push to main runs CI (build, test, npm audit), then Docker Image CI builds both images, scans them with Trivy, tags them latest and date-SHA-run-attempt, and pushes them to Amazon ECR and Docker Hub. Deploy to EKS waits for a reviewer, who first applies any new database migrations with migrate.yml, then assumes an AWS role with OIDC and sends an SSM command to the ops instance, which checks the images in ECR, sets both Deployments through the private EKS API, smoke tests them and rolls both back on failure. The AWS Load Balancer Controller serves the app at https://app.hospitalsyst.cc.</desc>
   <defs>
     <marker id="ah1f2328" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1f2328"/></marker>
     <symbol id="user" viewBox="0 0 100 100"><image width="100" height="100" preserveAspectRatio="xMidYMid meet" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0OCA0OCI+PHRpdGxlPkljb24tUmVzb3VyY2UvR2VuZXJhbC1SZXNvdXJjZS9SZXNfVXNlcl80OF9MaWdodDwvdGl0bGU+PHBhdGggZmlsbD0iIzI0MmYzZSIgZmlsbC1ydWxlPSJldmVub2RkIiBkPSJNNi4wMjUgNDRjLjQ5OS05LjkxNSA4LjM3LTE3LjgyMiAxNy45NzUtMTcuODIyIDMuMjQ4IDAgNi40My45MTQgOS4yMDUgMi42NDQgNS4xNDkgMy4yMTEgOC40NDggOC45NjEgOC43NjkgMTUuMTc4em04LjE2Ny0zMC4xMjJjMC01LjQ0NiA0LjQtOS44NzggOS44MDktOS44NzggNS40MDcgMCA5LjgwNiA0LjQzMiA5LjgwNiA5Ljg3OCAwIDUuNDQ3LTQuMzk5IDkuODc5LTkuODA2IDkuODc5LTUuNDA5IDAtOS44MDktNC40MzItOS44MDktOS44NzltMjAuMDcxIDEzLjI0N2ExOS40IDE5LjQgMCAwIDAtNS41NjUtMi4zNTQgMTEuODkgMTEuODkgMCAwIDAgNy4xMDktMTAuODkzQzM1LjgwNyA3LjMyOSAzMC41MSAyIDI0LjAwMSAyYy02LjUxMiAwLTExLjgwOSA1LjMyOS0xMS44MDkgMTEuODc4IDAgNC44NzcgMi45MzggOS4wNzIgNy4xMjUgMTAuOUMxMC41NDUgMjYuOTgxIDQgMzUuMiA0IDQ1YTEgMSAwIDAgMCAxIDFoMzhhMSAxIDAgMCAwIDEtMWMwLTcuMjgxLTMuNzMxLTE0LjEzLTkuNzM3LTE3Ljg3NSIvPjwvc3ZnPg=="/></symbol>
@@ -177,9 +177,10 @@
   <rect x="672.0" y="504" width="208" height="54" rx="4" fill="#ffffff" stroke="#1f2328" stroke-width="1.3" stroke-dasharray="5 4"/>
   <text x="776.0" y="524" font-size="12.5" font-weight="400" fill="#1f2328" text-anchor="middle">Deploy reads the release</text>
   <text x="776.0" y="541" font-size="12.5" font-weight="400" fill="#1f2328" text-anchor="middle">tag from the run&#x27;s artifact</text>
-  <rect x="1022.5" y="504" width="240" height="54" rx="4" fill="#ffffff" stroke="#1f2328" stroke-width="1.3" stroke-dasharray="5 4"/>
-  <text x="1142.5" y="524" font-size="12.5" font-weight="400" fill="#1f2328" text-anchor="middle">Skipped if the commit is no</text>
-  <text x="1142.5" y="541" font-size="12.5" font-weight="400" fill="#1f2328" text-anchor="middle">longer the tip of main</text>
+  <rect x="1022.5" y="504" width="240" height="71" rx="4" fill="#ffffff" stroke="#1f2328" stroke-width="1.3" stroke-dasharray="5 4"/>
+  <text x="1142.5" y="524" font-size="12.5" font-weight="400" fill="#1f2328" text-anchor="middle">Skipped if the commit is no longer</text>
+  <text x="1142.5" y="541" font-size="12.5" font-weight="400" fill="#1f2328" text-anchor="middle">the tip of main. New migrations?</text>
+  <text x="1142.5" y="558" font-size="12.5" font-weight="400" fill="#1f2328" text-anchor="middle">Run migrate.yml before approving</text>
   <rect x="1319.0" y="504" width="340" height="71" rx="4" fill="#ffffff" stroke="#1f2328" stroke-width="1.3" stroke-dasharray="5 4"/>
   <text x="1489.0" y="524" font-size="12.5" font-weight="400" fill="#1f2328" text-anchor="middle">Rolling update: the old pod keeps serving</text>
   <text x="1489.0" y="541" font-size="12.5" font-weight="400" fill="#1f2328" text-anchor="middle">until the new one passes ALB health checks</text>
@@ -189,17 +190,17 @@
   <rect x="216" y="648" width="480" height="128" rx="8" fill="#ffffff" stroke="#7B42BC" stroke-width="1.8"/>
   <use href="#si-terraform" x="383.3" y="664" width="38" height="38"/>
   <text x="433.3" y="690" font-size="19" font-weight="700" fill="#6A2DB5" text-anchor="start">Terraform</text>
-  <text x="456" y="728" font-size="14" font-weight="400" fill="#1f2328" text-anchor="middle">VPC, EKS, IAM + OIDC roles, ECR, ACM, KMS,</text>
-  <text x="456" y="748" font-size="14" font-weight="400" fill="#1f2328" text-anchor="middle">Secrets Manager, ops instance, SSM document</text>
+  <text x="456" y="728" font-size="14" font-weight="400" fill="#1f2328" text-anchor="middle">VPC, EKS, RDS, IAM + OIDC roles, ECR, ACM, KMS,</text>
+  <text x="456" y="748" font-size="14" font-weight="400" fill="#1f2328" text-anchor="middle">Secrets Manager, SNS, ops instance, SSM document</text>
   <rect x="720" y="648" width="480" height="128" rx="8" fill="#ffffff" stroke="#326CE5" stroke-width="1.8"/>
   <use href="#si-kubernetes" x="829.0" y="664" width="38" height="38"/>
   <text x="879.0" y="690" font-size="19" font-weight="700" fill="#1F4FB5" text-anchor="start">Kubernetes manifests</text>
-  <text x="960" y="728" font-size="14" font-weight="400" fill="#1f2328" text-anchor="middle">Deployments, Services, Ingress, HPAs, PDBs,</text>
-  <text x="960" y="748" font-size="14" font-weight="400" fill="#1f2328" text-anchor="middle">NetworkPolicies, deploy RBAC, admission policies</text>
+  <text x="960" y="728" font-size="14" font-weight="400" fill="#1f2328" text-anchor="middle">Deployments, Services, Ingress, HPAs, PDBs, NetworkPolicies,</text>
+  <text x="960" y="748" font-size="14" font-weight="400" fill="#1f2328" text-anchor="middle">ExternalSecret, migration Job, deploy RBAC, admission policies</text>
   <rect x="1224" y="648" width="480" height="128" rx="8" fill="#ffffff" stroke="#CC0000" stroke-width="1.8"/>
   <use href="#si-ansible" x="1401.9" y="664" width="38" height="38"/>
   <text x="1451.9" y="690" font-size="19" font-weight="700" fill="#A30000" text-anchor="start">Ansible</text>
-  <text x="1464" y="728" font-size="14" font-weight="400" fill="#1f2328" text-anchor="middle">bootstrap: LB controller, External Secrets,</text>
-  <text x="1464" y="748" font-size="14" font-weight="400" fill="#1f2328" text-anchor="middle">manifests, Cloudflare DNS record, alarms</text>
+  <text x="1464" y="728" font-size="14" font-weight="400" fill="#1f2328" text-anchor="middle">bootstrap: LB controller, External Secrets, manifests,</text>
+  <text x="1464" y="748" font-size="14" font-weight="400" fill="#1f2328" text-anchor="middle">DB seed + migrations, Cloudflare DNS record, alarms</text>
   </g>
 </svg>
