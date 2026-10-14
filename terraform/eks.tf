@@ -38,7 +38,7 @@ resource "aws_eks_cluster" "main" {
   vpc_config {
     endpoint_private_access = true
     endpoint_public_access  = false
-    subnet_ids              = [aws_subnet.private_a.id, aws_subnet.private_b.id]
+    subnet_ids              = module.network.private_subnet_ids
   }
 
   tags = {
@@ -56,7 +56,7 @@ resource "aws_eks_node_group" "hospitalsystempr1" {
   cluster_name    = aws_eks_cluster.main.name
   node_group_name = "hospitalsystempr1"
   node_role_arn   = aws_iam_role.eks_node.arn
-  subnet_ids      = [aws_subnet.private_a.id, aws_subnet.private_b.id]
+  subnet_ids      = module.network.private_subnet_ids
 
   ami_type       = "AL2023_x86_64_STANDARD"
   capacity_type  = "ON_DEMAND"

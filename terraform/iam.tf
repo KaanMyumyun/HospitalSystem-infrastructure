@@ -75,24 +75,6 @@ data "aws_iam_policy_document" "load_balancer_controller_assume_role" {
   }
 }
 
-data "aws_iam_policy_document" "vpc_flow_logs_assume_role" {
-  statement {
-    effect  = "Allow"
-    actions = ["sts:AssumeRole"]
-
-    principals {
-      type        = "Service"
-      identifiers = ["vpc-flow-logs.amazonaws.com"]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "aws:SourceAccount"
-      values   = [local.account_id]
-    }
-  }
-}
-
 resource "aws_iam_openid_connect_provider" "eks" {
   url             = aws_eks_cluster.main.identity[0].oidc[0].issuer
   client_id_list  = ["sts.amazonaws.com"]
@@ -215,7 +197,7 @@ resource "aws_iam_role_policy" "load_balancer_controller" {
       {
         Effect   = "Allow"
         Action   = ["ec2:CreateSecurityGroup"]
-        Resource = ["${local.ec2_arn_prefix}:security-group/*", aws_vpc.kubes.arn]
+        Resource = ["${local.ec2_arn_prefix}:security-group/*", module.network.vpc_arn]
       },
       {
         Effect   = "Allow"
@@ -334,34 +316,6 @@ resource "aws_iam_role" "load_balancer_controller" {
   name               = "${local.cluster_name}-load-balancer-controller"
   path               = "/"
   assume_role_policy = data.aws_iam_policy_document.load_balancer_controller_assume_role.json
-}
-
-resource "aws_iam_role" "vpc_flow_logs" {
-  name                 = "${local.vpc_name}-vpc-flow-logs"
-  path                 = "/"
-  max_session_duration = 3600
-  assume_role_policy   = data.aws_iam_policy_document.vpc_flow_logs_assume_role.json
-}
-
-resource "aws_iam_role_policy" "vpc_flow_logs" {
-  name = "${local.vpc_name}-vpc-flow-logs-write"
-  role = aws_iam_role.vpc_flow_logs.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid    = "WriteFlowLogs"
-        Effect = "Allow"
-        Action = [
-          "logs:CreateLogStream",
-          "logs:DescribeLogStreams",
-          "logs:PutLogEvents"
-        ]
-        Resource = "${aws_cloudwatch_log_group.vpc_flow_logs.arn}:*"
-      }
-    ]
-  })
 }
 
 resource "aws_iam_role" "ecr_push_hospitalsystem" {

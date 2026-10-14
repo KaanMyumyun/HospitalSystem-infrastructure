@@ -10,7 +10,7 @@ locals {
     EKS_SERVER          = aws_eks_cluster.main.endpoint
     EKS_CA              = aws_eks_cluster.main.certificate_authority[0].data
     K8S_NAMESPACE       = local.k8s_namespace
-    ECR_ENDPOINT        = "https://${aws_vpc_endpoint.ecr_api.dns_entry[0].dns_name}"
+    ECR_ENDPOINT        = "https://${module.network.ecr_api_endpoint_dns_name}"
     BACKEND_REPOSITORY  = aws_ecr_repository.backend.repository_url
     FRONTEND_REPOSITORY = aws_ecr_repository.frontend.repository_url
   }
@@ -29,7 +29,7 @@ locals {
 resource "aws_instance" "ops" {
   ami                         = data.aws_ssm_parameter.al2023_ami.insecure_value
   instance_type               = "t3.micro"
-  subnet_id                   = aws_subnet.private_a.id
+  subnet_id                   = module.network.private_subnet_ids[0]
   vpc_security_group_ids      = [aws_security_group.ops.id]
   iam_instance_profile        = aws_iam_instance_profile.ops.name
   associate_public_ip_address = false
@@ -57,7 +57,8 @@ resource "aws_instance" "ops" {
     ignore_changes = [ami]
   }
 
-  depends_on = [aws_vpc_endpoint.ssm]
+  # The SSM agent registers through the network's SSM endpoints.
+  depends_on = [module.network]
 }
 
 resource "aws_eks_access_entry" "ops" {

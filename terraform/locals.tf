@@ -37,8 +37,8 @@ locals {
     eks_cluster_name                  = local.cluster_name
     eks_node_group_name               = aws_eks_node_group.hospitalsystempr1.node_group_name
     eks_node_desired_size             = var.node_desired_size
-    vpc_id                            = aws_vpc.kubes.id
-    public_subnet_cidrs               = [aws_subnet.public_a.cidr_block, aws_subnet.public_b.cidr_block]
+    vpc_id                            = module.network.vpc_id
+    public_subnet_cidrs               = module.network.public_subnet_cidrs
     backend_repository_url            = aws_ecr_repository.backend.repository_url
     frontend_repository_url           = aws_ecr_repository.frontend.repository_url
     initial_image_tag                 = var.initial_image_tag

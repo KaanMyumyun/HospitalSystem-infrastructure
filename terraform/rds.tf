@@ -6,7 +6,7 @@
 resource "aws_db_subnet_group" "main" {
   name        = local.db_identifier
   description = "HospitalSystem PostgreSQL in the private subnets"
-  subnet_ids  = [aws_subnet.private_a.id, aws_subnet.private_b.id]
+  subnet_ids  = module.network.private_subnet_ids
 
   tags = {
     Name = "${local.db_identifier}-Terraform"

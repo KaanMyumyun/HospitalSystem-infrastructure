@@ -109,22 +109,22 @@ output "acm_validation_record_value" {
 
 output "vpc_id" {
   description = "VPC ID."
-  value       = aws_vpc.kubes.id
+  value       = module.network.vpc_id
 }
 
 output "public_subnet_ids" {
   description = "Public subnet IDs used by internet-facing load balancers."
-  value       = [aws_subnet.public_a.id, aws_subnet.public_b.id]
+  value       = module.network.public_subnet_ids
 }
 
 output "private_subnet_ids" {
   description = "Private subnet IDs used by EKS workloads."
-  value       = [aws_subnet.private_a.id, aws_subnet.private_b.id]
+  value       = module.network.private_subnet_ids
 }
 
 output "nat_public_ips" {
   description = "Public IPs the cluster's outbound internet traffic comes from."
-  value       = [aws_eip.nat_a.public_ip, aws_eip.nat_b.public_ip]
+  value       = module.network.nat_public_ips
 }
 
 output "db_endpoint" {

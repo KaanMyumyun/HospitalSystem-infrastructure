@@ -31,6 +31,7 @@ resource "terraform_data" "ansible_bootstrap" {
   }
 
   depends_on = [
+    module.network,
     aws_eks_cluster.main,
     aws_eks_node_group.hospitalsystempr1,
     aws_eks_addon.core,
@@ -42,10 +43,8 @@ resource "terraform_data" "ansible_bootstrap" {
     aws_iam_role_policy.backend_secrets_reader,
     aws_instance.ops,
     aws_iam_role_policy_attachment.ops_ssm,
-    aws_vpc_endpoint.ssm,
     aws_vpc_security_group_egress_rule.ops_vpc_https,
-    aws_vpc_security_group_ingress_rule.eks_api_from_ops,
-    aws_vpc_security_group_ingress_rule.vpc_endpoints_https
+    aws_vpc_security_group_ingress_rule.eks_api_from_ops
   ]
 }
 
@@ -55,7 +54,7 @@ resource "terraform_data" "kubernetes_cleanup" {
   input = {
     eks_cluster_name        = aws_eks_cluster.main.name
     aws_region              = var.aws_region
-    vpc_id                  = aws_vpc.kubes.id
+    vpc_id                  = module.network.vpc_id
     k8s_namespace           = local.k8s_namespace
     ops_instance_id         = aws_instance.ops.id
     monitoring_alarm_prefix = var.project_name
@@ -76,8 +75,10 @@ resource "terraform_data" "kubernetes_cleanup" {
   # Everything the cleanup needs is destroyed only after it has run: the
   # cluster and the ops instance's tunnel into it, and the Load Balancer
   # Controller's way to the AWS APIs (its IAM role through the cluster's OIDC
-  # provider, and the NAT gateways and routes out of the private subnets).
+  # provider, and the network's NAT gateways and routes out of the private
+  # subnets).
   depends_on = [
+    module.network,
     aws_eks_cluster.main,
     aws_eks_node_group.hospitalsystempr1,
     aws_eks_addon.core,
@@ -85,20 +86,8 @@ resource "terraform_data" "kubernetes_cleanup" {
     aws_iam_role_policy.load_balancer_controller,
     aws_instance.ops,
     aws_iam_role_policy_attachment.ops_ssm,
-    aws_vpc_endpoint.ssm,
     aws_vpc_security_group_egress_rule.ops_vpc_https,
-    aws_vpc_security_group_ingress_rule.eks_api_from_ops,
-    aws_vpc_security_group_ingress_rule.vpc_endpoints_https,
-    aws_internet_gateway.main,
-    aws_nat_gateway.nat_a,
-    aws_nat_gateway.nat_b,
-    aws_route_table.public,
-    aws_route_table.private_a,
-    aws_route_table.private_b,
-    aws_route_table_association.public_a,
-    aws_route_table_association.public_b,
-    aws_route_table_association.private_a,
-    aws_route_table_association.private_b
+    aws_vpc_security_group_ingress_rule.eks_api_from_ops
   ]
 }
 

@@ -4,6 +4,27 @@ variable "aws_region" {
   default     = "eu-north-1"
 }
 
+variable "availability_zones" {
+  description = "Letters of the availability zones in aws_region the VPC spans. Each gets a public and a private subnet and, unless single_nat_gateway is set, a NAT gateway."
+  type        = list(string)
+  default     = ["a", "b"]
+
+  validation {
+    condition = (
+      length(var.availability_zones) >= 2 && length(var.availability_zones) <= 8
+      && length(distinct(var.availability_zones)) == length(var.availability_zones)
+      && alltrue([for zone in var.availability_zones : can(regex("^[a-z]$", zone))])
+    )
+    error_message = "availability_zones must be 2 to 8 different letters, such as [\"a\", \"b\"]. EKS and RDS need subnets in at least two zones."
+  }
+}
+
+variable "single_nat_gateway" {
+  description = "Route every private subnet through one NAT gateway instead of one per availability zone. Cheaper, but an outage in that zone cuts outbound traffic from all of them."
+  type        = bool
+  default     = false
+}
+
 variable "environment" {
   description = "Deployment environment name."
   type        = string
