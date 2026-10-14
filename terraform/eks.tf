@@ -61,11 +61,11 @@ resource "aws_eks_node_group" "hospitalsystempr1" {
   ami_type       = "AL2023_x86_64_STANDARD"
   capacity_type  = "ON_DEMAND"
   disk_size      = 20
-  instance_types = ["t3.small"]
+  instance_types = var.node_instance_types
 
   scaling_config {
-    desired_size = local.node_desired_size
-    max_size     = 2
+    desired_size = var.node_desired_size
+    max_size     = var.node_max_size
     min_size     = 0
   }
 

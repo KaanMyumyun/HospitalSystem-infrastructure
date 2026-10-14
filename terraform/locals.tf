@@ -11,10 +11,6 @@ locals {
 
   eks_cluster_tag_key = "kubernetes.io/cluster/${local.cluster_name}"
 
-  # Node count when the app is running. ansible/playbooks/resume.yml scales
-  # back to it after pause.yml scaled the node group to 0.
-  node_desired_size = 2
-
   k8s_namespace    = "hospitalsystem"
   k8s_deploy_group = "${local.k8s_namespace}:deployers"
   ops_name         = "${var.project_name}-ops"
@@ -40,7 +36,7 @@ locals {
     aws_region                        = var.aws_region
     eks_cluster_name                  = local.cluster_name
     eks_node_group_name               = aws_eks_node_group.hospitalsystempr1.node_group_name
-    eks_node_desired_size             = local.node_desired_size
+    eks_node_desired_size             = var.node_desired_size
     vpc_id                            = aws_vpc.kubes.id
     public_subnet_cidrs               = [aws_subnet.public_a.cidr_block, aws_subnet.public_b.cidr_block]
     backend_repository_url            = aws_ecr_repository.backend.repository_url
