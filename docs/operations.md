@@ -1,190 +1,178 @@
 # Operations
 
-Day-to-day work on a running stack: reaching the cluster, the backend secret,
-the playbooks, pausing, the database, costs, rotating the JWT key and
-upgrading EKS.
+Running the stack day to day. Everything runs from your machine: Ansible
+playbooks wrap `aws`, `kubectl` and `helm`, reach the private EKS API through
+an SSM tunnel, and never need SSH access to the nodes.
 
-## Ansible Operations
+## Before you start
 
-Ansible is used here as an operational wrapper around `aws eks` and `kubectl`.
-It runs locally against the current AWS account and does not require SSH access
-to the EKS nodes.
+You need `ansible-playbook`, `aws`, `kubectl`, `helm` and
+`session-manager-plugin` (the EKS API endpoint is private; see
+[Cluster access](#cluster-access)), and AWS credentials that can access the
+`eks-pr1` cluster and start SSM sessions.
 
-Requirements:
+Run `./scripts/tf.sh apply` once on a machine before running playbooks by
+hand: they read the values Terraform writes, and without them they stop with a
+message saying so. Each setting lives in one place:
 
-- `ansible-playbook`
-- `aws`
-- `kubectl`
-- `helm`
-- `session-manager-plugin`, because the EKS API endpoint is private (see
-  [Cluster access](#cluster-access))
-- AWS credentials that can access the `eks-pr1` cluster and start SSM sessions
+| File | Holds |
+| ---- | ----- |
+| `ansible/group_vars/all/terraform.yml` | What Terraform owns, written on every apply and ignored by git: the region, cluster name, namespace, deploy group, VPC ID, ECR repository URLs, IAM role ARNs, ACM certificate ARN, domains, alarm prefix, ops instance ID, and the database endpoint, name and user. |
+| `ansible/group_vars/all/main.yml` | What Ansible owns: the Deployment, Ingress and ALB names, the SSM tunnel port, Cloudflare and monitoring options, and the manifest list. The Kubernetes templates and `scripts/monitoring.sh` read these same values. |
 
-Configuration values live in one place each:
+## Cluster access
 
-- Terraform writes the values it owns (region, cluster name, namespace, deploy
-  group, VPC ID, ECR repository URLs, IAM role ARNs, ACM certificate ARN,
-  domains, alarm prefix, ops instance ID, database endpoint, name and user)
-  to the ignored
-  `ansible/group_vars/all/terraform.yml` on every apply.
-- `ansible/group_vars/all/main.yml` holds the Ansible-owned settings: the
-  Deployment, Ingress, and ALB names, the SSM tunnel port, Cloudflare and
-  monitoring options, and the manifest list. The Kubernetes templates and
-  `scripts/monitoring.sh` read these same values.
+The EKS API has no public endpoint. Playbooks and scripts reach it through an
+SSM port-forwarding tunnel via the ops instance, at `https://127.0.0.1:8443`.
 
-Run `./scripts/tf.sh apply` once on a machine before running playbooks by hand;
-without the generated file they stop with a message saying so.
-
-### Cluster access
-
-The EKS API endpoint is private. Every playbook that talks to the cluster, and
-`scripts/monitoring.sh`, goes through `ansible/tasks/kubeconfig.yml`. It opens
-an SSM port-forwarding session through the ops instance to the endpoint and
-points the kubeconfig cluster at `https://127.0.0.1:8443`
-(`eks_tunnel_local_port`).
-
-To set up the kubeconfig and open the tunnel without running anything else:
+To run `kubectl` yourself:
 
 ```bash
-ansible-playbook ansible/playbooks/kubeconfig.yml
-```
-
-The playbooks write that kubeconfig to the ignored `.generated/kubeconfig`
-(`kubeconfig_path`) and run `kubectl` and `helm` with `KUBECONFIG` pointing at
-it, so `~/.kube/config` and your current context are never changed.
-`scripts/monitoring.sh`, `scripts/rollout-check.sh` and
-`scripts/pre-destroy-cleanup.sh` use the same file. For plain `kubectl` commands,
-such as the ones in these docs, point your shell at it first:
-
-```bash
+ansible-playbook ansible/playbooks/kubeconfig.yml   # writes the kubeconfig, opens the tunnel
 export KUBECONFIG="$PWD/.generated/kubeconfig"
+kubectl get nodes
 ```
 
-The session stays open for plain `kubectl` commands and closes after 12 hours.
-Close it sooner, and always after rebuilding the cluster, since an open session
-still points at the old endpoint:
+Your `~/.kube/config` and current context are never changed. The tunnel closes
+after 12 hours; close it sooner after a rebuild, since it still points at the
+old endpoint:
 
 ```bash
 pkill -f AWS-StartPortForwardingSessionToRemoteHost
 ```
 
-The ops instance has no internet access: its security group only allows HTTPS
-inside the VPC and to S3. It reaches Systems Manager through the `ssm`,
-`ssmmessages` and `ec2messages` interface endpoints (in one AZ, roughly $25 a
-month), and the Amazon Linux package repositories through the S3 gateway
-endpoint. Without kubectl on the instance, the deploy document calls the
-Kubernetes API with Python's standard library, using the cluster endpoint and CA
-that Terraform writes into the document.
+**How it works**
 
-The ops instance's Kubernetes access is an EKS access entry in Terraform
-(`aws_eks_access_entry.ops`). Bootstrap waits for it before applying the
-deploy RBAC binding. There is no separate `aws-auth` playbook to run.
+| Piece | What it does |
+| ----- | ------------ |
+| `ansible/tasks/kubeconfig.yml` | Opens the tunnel on `eks_tunnel_local_port` and writes the kubeconfig to `kubeconfig_path`. Every playbook that talks to the cluster uses it, and so do `scripts/monitoring.sh`, `scripts/rollout-check.sh` and `scripts/pre-destroy-cleanup.sh`. |
+| Ops instance | Accepts no inbound connections and has no internet access: its security group allows HTTPS only inside the VPC and to S3. |
+| VPC endpoints | `ssm`, `ssmmessages` and `ec2messages` for Systems Manager (one AZ, roughly $25 a month); the S3 gateway endpoint for the Amazon Linux package repositories. |
+| EKS access entry | `aws_eks_access_entry.ops` gives the ops instance's role its Kubernetes group; bootstrap waits for it before applying the deploy RBAC binding. There's no `aws-auth` playbook to run. |
 
-### Backend secret
+The deploy document runs on the ops instance without `kubectl`: it calls the
+Kubernetes API with Python's standard library, using the cluster endpoint and
+CA that Terraform writes into the document.
+
+## Backend secret
 
 The backend's connection string and JWT key live in the AWS Secrets Manager
 secret `hospitalsystem/backend` (`terraform/secrets.tf`), encrypted with the
 project's KMS key. Terraform creates the secret but never its value, so the
-value stays out of Terraform state. `backend-secret.yml` builds the connection
-string from the database endpoint Terraform reports and
-`HOSPITALSYSTEM_DB_PASSWORD`, with `SSL Mode=Require` (RDS requires TLS) and
-`Maximum Pool Size=20`. Each backend pod keeps its own pool, so pods × pool
-size has to stay under what the database allows: `max_connections` is 79 on a
-`db.t4g.micro`. With Npgsql's default of 100 per pod, the 2026-10-12 load test
-made the database swap and fail at 160 requests/s. Lower the pool size if the
-backend runs more pods. External Secrets (installed by
-`external-secrets.yml`, watching only the app namespace) copies it into the
-`hospital-backend-secrets` Secret every hour. It authenticates as the
-`backend-secrets-reader` service account, whose IAM role can read only this
-secret; no pod runs as it.
+value stays out of Terraform state.
 
-Change these values in `.env.local`, not in Secrets Manager. Every bootstrap,
-including every rebuild, stores `.env.local`'s values again, so a value changed
-only in Secrets Manager is lost. Push the file's values to a running stack:
+**Change these values in `.env.local`, not in Secrets Manager.** Every
+bootstrap, including every rebuild, stores `.env.local`'s values again, so a
+value changed only in Secrets Manager is lost. To push the file's values to a
+running stack:
 
 ```bash
 (set -a; source .env.local; ansible-playbook ansible/playbooks/backend-secret.yml)
 ```
 
 The playbook stores both values if they differ from the stored ones, makes
-External Secrets sync at once and restarts the backend if the Secret changed
-since its pods started (the Deployment records the Secret's hash). A
-Deployment scaled to 0 stays at 0 and reads the new Secret when it scales up.
+External Secrets sync at once, and restarts the backend if the Secret changed
+since its pods started (the Deployment records the Secret's hash). A Deployment
+scaled to 0 stays at 0 and reads the new Secret when it scales up.
 `./scripts/monitoring.sh workloads` warns when the pods run an older Secret.
 To change the JWT key, see [Rotate the JWT key](#rotate-the-jwt-key).
 
-To change the database password on a running stack, change it in
-`.env.local`, raise `password_wo_version` in `terraform/rds.tf` so Terraform
-sends it again, run `./scripts/tf.sh apply`, then push the new connection
-string with the command above. Between the apply and the push the backend's
-new connections fail. A new stack needs none of this: it takes whatever
-`.env.local` holds.
+To change the database password on a running stack:
 
-### Playbooks
+1. Change it in `.env.local`.
+2. Raise `password_wo_version` in `terraform/rds.tf`, so Terraform sends it
+   again, and run `./scripts/tf.sh apply`.
+3. Push the new connection string with the command above. Until you do, the
+   backend's new connections fail.
 
-Apply the Kubernetes manifests:
+A new stack needs none of this: it takes whatever `.env.local` holds.
+
+**How it works**
+
+- `backend-secret.yml` builds the connection string from the database endpoint
+  Terraform reports and `HOSPITALSYSTEM_DB_PASSWORD`, with `SSL Mode=Require`
+  (RDS requires TLS) and `Maximum Pool Size=20`.
+- External Secrets, installed by `external-secrets.yml` and watching only the
+  app namespace, copies the secret into the `hospital-backend-secrets` Secret
+  every hour. It authenticates as the `backend-secrets-reader` service account,
+  whose IAM role can read only this secret; no pod runs as it.
+- **Pool size.** Each backend pod keeps its own pool, so pods × pool size has
+  to stay under what the database allows: `max_connections` is 79 on a
+  `db.t4g.micro`. With Npgsql's default of 100 per pod, a load test made the
+  database swap and fail at 160 requests/s. Lower the pool size if the backend
+  runs more pods.
+
+## Playbooks
+
+| Playbook | Use it to |
+| -------- | --------- |
+| `bootstrap.yml` | Run the whole Kubernetes bootstrap by hand; Terraform runs it on apply |
+| `apply-kubernetes.yml` | Apply the Kubernetes manifests |
+| `load-balancer-controller.yml` | Install or update the AWS Load Balancer Controller |
+| `cloudflare-dns.yml` | Point the `app.hospitalsyst.cc` CNAME at the current ALB |
+| `deploy-image.yml` | Deploy an image tag by hand |
+| `migrate.yml` | Apply a release's migrations before deploying it (see [Releases with migrations](cicd.md#releases-with-migrations)) |
+| `backend-secret.yml` | Push `.env.local`'s values to the backend secret (see [Backend secret](#backend-secret)) |
+| `database.yml` | Load `seed.sql` into an empty database and run the migrations |
+| `dump-database.yml` | Save the database into `seed.sql` |
+| `status.yml` | Show the Deployment images and pods |
+| `pause.yml`, `resume.yml` | Stop the app and its nodes, and bring them back (see [Pause and scaling](#pause-and-scaling)) |
+| `monitoring.yml` | Create or refresh the ALB alarms (see [Monitoring](monitoring.md#monitoring)) |
+| `cleanup-kubernetes.yml` | Run the Kubernetes cleanup Terraform runs before a destroy |
+| `kubeconfig.yml` | Only write the kubeconfig and open the tunnel |
+
+Run them from the repository root. The simple ones:
+
+```bash
+ansible-playbook ansible/playbooks/bootstrap.yml
+ansible-playbook ansible/playbooks/load-balancer-controller.yml
+ansible-playbook ansible/playbooks/cleanup-kubernetes.yml
+ansible-playbook ansible/playbooks/status.yml
+```
+
+`status.yml` shows only the Deployment images and pods. For rollout history,
+HPAs, pod usage, the Ingress, alarms or logs, run the matching sections of
+`scripts/monitoring.sh` (see [Monitoring](monitoring.md#monitoring)). The rest
+need a word of explanation.
+
+### Applying the manifests
 
 ```bash
 ansible-playbook ansible/playbooks/apply-kubernetes.yml
 ```
 
-This applies the namespace, ConfigMap, Services, HPAs, deploy RBAC,
-admission policies and Ingress first (`kubernetes_manifests`). It then waits
-for the Load Balancer Controller to create a TargetGroupBinding for each Service
-behind the Ingress and for the ALB to become active, and only then applies the
-Deployments (`kubernetes_workload_manifests`). The controller adds the ALB
-readiness gate only to pods created after their Service's TargetGroupBinding
-exists, so this order gives every pod the gate on a fresh cluster. After the
-rollouts finish, the playbook restarts any Deployment that still has a pod
-without the gate and fails if the new pods don't get it either.
+The order matters on a fresh cluster:
+
+1. The namespace, ConfigMap, Services, HPAs, deploy RBAC, admission policies
+   and Ingress (`kubernetes_manifests`).
+2. A wait for the Load Balancer Controller to create a TargetGroupBinding for
+   each Service behind the Ingress, and for the ALB to become active.
+3. The Deployments (`kubernetes_workload_manifests`).
+
+The controller adds the ALB readiness gate only to pods created after their
+Service's TargetGroupBinding exists, so this order gives every pod the gate.
+After the rollouts finish, the playbook restarts any Deployment that still has
+a pod without the gate, and fails if the new pods don't get it either.
 
 The Ingress explicitly selects `ELBSecurityPolicy-TLS13-1-2-2021-06` and enables
-`routing.http.drop_invalid_header_fields.enabled=true`. The ALB accepts TLS
-1.2/1.3 and drops invalid HTTP header fields; the annotations are documented
-in the [AWS Load Balancer Controller guide](https://kubernetes-sigs.github.io/aws-load-balancer-controller/latest/guide/ingress/annotations/).
+`routing.http.drop_invalid_header_fields.enabled=true`, so the ALB accepts TLS
+1.2/1.3 and drops invalid HTTP header fields; the annotations are documented in
+the [AWS Load Balancer Controller guide](https://kubernetes-sigs.github.io/aws-load-balancer-controller/latest/guide/ingress/annotations/).
 
-Install or update the AWS Load Balancer Controller:
-
-```bash
-ansible-playbook ansible/playbooks/load-balancer-controller.yml
-```
-
-Point the Cloudflare `app.hospitalsyst.cc` CNAME at the current ALB hostname
-from the Kubernetes Ingress:
+### Pointing DNS at the ALB
 
 ```bash
 export CLOUDFLARE_API_TOKEN='your-cloudflare-api-token'
 ansible-playbook ansible/playbooks/cloudflare-dns.yml
 ```
 
-The playbook looks up every record with that name. It updates an existing CNAME,
-and replaces a single A or AAAA record with the CNAME, since a CNAME can't share
+The playbook takes the ALB hostname from the Kubernetes Ingress and looks up
+every record named `app.hospitalsyst.cc`. It updates an existing CNAME, and
+replaces a single A or AAAA record with the CNAME, since a CNAME can't share
 its name with other records. If there are several records, or one of any other
 type, it stops and names them instead of deleting anything.
 
-Run the Kubernetes cleanup that Terraform uses before destroy:
-
-```bash
-ansible-playbook ansible/playbooks/cleanup-kubernetes.yml
-```
-
-Run the full Kubernetes bootstrap manually:
-
-```bash
-ansible-playbook ansible/playbooks/bootstrap.yml
-```
-
-Show current Deployment images and Pods:
-
-```bash
-ansible-playbook ansible/playbooks/status.yml
-```
-
-This is the standalone status playbook. For anything
-more (rollout history, HPAs, pod usage, the Ingress, alarms, logs), run the
-matching sections of `scripts/monitoring.sh` (see [Monitoring](monitoring.md#monitoring)).
-
-Deploy a specific image tag manually:
+### Deploying by hand
 
 ```bash
 ansible-playbook ansible/playbooks/deploy-image.yml \
@@ -192,26 +180,22 @@ ansible-playbook ansible/playbooks/deploy-image.yml \
 ```
 
 This sends the same SSM document as CI, so a manual deploy gets the same image
-check, smoke test and rollback. It doesn't need the SSM tunnel or `kubectl`.
-If the release adds a migration, run `migrate.yml` first (see
-[Releases with migrations](cicd.md#releases-with-migrations)).
+check, smoke test and rollback. It doesn't need the SSM tunnel or `kubectl`. If
+the release adds a migration, run `migrate.yml` first.
 
-Load `seed.sql` into an empty database and run the migrations, as the
-bootstrap does. Loading the seed needs the password from `.env.local`:
+### Loading and saving the database
 
-```bash
-(set -a; source .env.local; ansible-playbook ansible/playbooks/database.yml)
-```
-
-Save the database into `seed.sql`, as the teardown does before it destroys
-anything (see [Database](disaster-recovery.md#database)). The old `seed.sql` goes to
-`.generated/seed-backups/`:
+Both need the database password from `.env.local`:
 
 ```bash
-(set -a; source .env.local; ansible-playbook ansible/playbooks/dump-database.yml)
+(set -a; source .env.local; ansible-playbook ansible/playbooks/database.yml)       # load seed.sql, as the bootstrap does
+(set -a; source .env.local; ansible-playbook ansible/playbooks/dump-database.yml)  # save into seed.sql, as the teardown does
 ```
 
-### Pause and scaling
+The dump keeps the old `seed.sql` in `.generated/seed-backups/`. How the data
+carries over between stacks is in [Database](disaster-recovery.md#database).
+
+## Pause and scaling
 
 Stop the app and scale the node group to 0, then bring both back:
 
@@ -220,35 +204,34 @@ ansible-playbook ansible/playbooks/pause.yml
 ansible-playbook ansible/playbooks/resume.yml
 ```
 
-`pause.yml` turns off the alarm notifications first (with no targets the ALB
-answers 503), scales both Deployments to 0 and the node group to 0, and waits
-for the nodes to leave. `resume.yml` scales the node group back to two, waits
-for both nodes, starts each app at its HPA minimum and turns the notifications
-back on once both are ready. The database keeps running and billing while the
-app is paused.
+- `pause.yml` turns off the alarm notifications first (with no targets the ALB
+  answers 503), scales both Deployments and the node group to 0, and waits for
+  the nodes to leave.
+- `resume.yml` scales the node group back to two, waits for both nodes, starts
+  each app at its HPA minimum, and turns the notifications back on once both
+  are ready.
+- The database keeps running, and billing, while the app is paused. Terraform
+  ignores the node group's desired size, so a later apply won't scale it back
+  up.
 
-Backend and frontend also have HorizontalPodAutoscalers, both fixed at two
-pods: one per node, so a drain or node failure leaves one serving. There is no
-cluster autoscaler, so the cap matches the two t3.small nodes: memory requests
-equal the limits (backend 512Mi, frontend 128Mi), and two pods of each app plus
-a rollout surge fit in the nodes' memory. With one node drained, the second
-backend pod doesn't fit on the remaining node and waits until the node comes
-back, while the PodDisruptionBudget keeps one of each app serving. The HPAs
-put any other replica count straight back to two. Scaling to 0 by hand does
-stay, but it leaves the alarms on, so stop the app with `pause.yml` instead.
+Both apps also have HorizontalPodAutoscalers fixed at two pods, one per node,
+so a drain or node failure leaves one serving:
+
+- There's no cluster autoscaler, so the cap matches the two t3.small nodes:
+  memory requests equal the limits (backend 512Mi, frontend 128Mi), and two
+  pods of each app plus a rollout surge fit in the nodes' memory.
+- With one node drained, the second backend pod doesn't fit on the remaining
+  node and waits until the node comes back, while the PodDisruptionBudget keeps
+  one of each app serving.
+- The HPAs put any other replica count straight back to two. A manual scale to
+  0 does stay, but it leaves the alarms on, so stop the app with `pause.yml`
+  instead.
 
 ## Database Access
 
-The instance has no public address, and its security group accepts
-PostgreSQL (5432) only from the EKS cluster security group, which every node
-and pod uses. Nothing else can connect, not your machine and not the ops
-instance, so a leaked password is no use on its own. RDS for PostgreSQL 18
-also rejects connections without TLS (`rds.force_ssl = 1` in the parameter
-group). The same group sets `random_page_cost = 1.1`, the SSD value: with the
-default of 4, listing a doctor's appointments read every patient in the table.
-
-To query it, start a `psql` pod in the cluster. Use the `default` namespace:
-the app namespace's Pod Security level rejects this image, which runs as root.
+To query the database, start a `psql` pod in the cluster. Use the `default`
+namespace: the app namespace's Pod Security level rejects this image, which
+runs as root.
 
 ```bash
 export KUBECONFIG="$PWD/.generated/kubeconfig"
@@ -260,18 +243,22 @@ kubectl delete pod pg
 
 `psql` asks for the password from `.env.local`.
 
-## Operational Notes
+Nothing outside the cluster can connect, not your machine and not the ops
+instance, so a leaked password is no use on its own:
 
-Scaling down while not testing only saves the worker nodes (two t3.small,
-roughly $30 a month):
+- The instance has no public address, and its security group accepts
+  PostgreSQL (5432) only from the EKS cluster security group, which every node
+  and pod uses.
+- RDS for PostgreSQL 18 rejects connections without TLS
+  (`rds.force_ssl = 1` in the parameter group).
 
-- `pause.yml` scales the app and the node group to 0, and `resume.yml`
-  brings them back (see [Pause and scaling](#pause-and-scaling)). Terraform
-  ignores the node group's desired size, so a later apply won't scale it back
-  up.
+The same parameter group sets `random_page_cost = 1.1`, the SSD value: with the
+default of 4, listing a doctor's appointments read every patient in the table.
 
-Everything else keeps billing while the environment exists, roughly $215 a
-month before data transfer:
+## Costs
+
+The stack bills roughly $215 a month before data transfer whether the app runs
+or not:
 
 | Resource | Approx. per month |
 | -------- | ----------------- |
@@ -286,39 +273,44 @@ month before data transfer:
 The database's automated backups and its seven days of Performance Insights
 cost nothing extra at this size.
 
-To stop paying for it, destroy the environment and recreate it when needed
-(see [Disaster Recovery](disaster-recovery.md#disaster-recovery)).
+Pausing saves only the worker nodes, two t3.small at roughly $30 a month (see
+[Pause and scaling](#pause-and-scaling)). To stop paying for the rest, destroy
+the environment and recreate it when needed (see
+[Disaster Recovery](disaster-recovery.md#disaster-recovery)).
 
-### Rotate the JWT key
+## Rotate the JWT key
 
 ```bash
 python3 scripts/rotate-jwt-key.py
 ```
 
-The script generates a random 86-character key and saves it to `.env.local`
-before anything else. Only the `HOSPITALSYSTEM_JWT_SECRET` line changes, and
-the file ends up readable only by you (mode 0600). The key is never printed,
-so nobody types or pastes one. The same command fills in the first key in a
-`.env.local` copied from `.env.example`.
+**Every signed-in user is logged out:** the backend only accepts the current
+key, so older tokens get 401. The script asks first; `--yes` skips the
+question.
 
-- With the stack down (no `ansible/group_vars/all/terraform.yml`), it stops
-  there, and the next `./scripts/tf.sh apply` stores the key.
-- With the stack up, it runs `backend-secret.yml` with `.env.local`'s values,
-  which stores the key in Secrets Manager and restarts the backend one pod at
-  a time. It then checks that the Deployment recorded the new Secret and that
-  all its pods are ready. This needs `ansible-playbook`, `kubectl`, `aws`,
-  `session-manager-plugin` and the database password in `.env.local`.
+What it does:
 
-Every signed-in user is logged out: the backend only accepts the current key,
-so older tokens get 401. The script asks first; `--yes` skips the question. If
-the playbook fails, the new key is still in `.env.local` and the script prints
-the command that pushes it. Run that command rather than the script, which
-would generate yet another key.
+1. Generates a random 86-character key and saves it to `.env.local` before
+   anything else. Only the `HOSPITALSYSTEM_JWT_SECRET` line changes, the file
+   ends up readable only by you (mode 0600), and the key is never printed, so
+   nobody types or pastes one. The same command fills in the first key in a
+   `.env.local` copied from `.env.example`.
+2. With the stack down (no `ansible/group_vars/all/terraform.yml`), stops
+   there; the next `./scripts/tf.sh apply` stores the key.
+3. With the stack up, runs `backend-secret.yml` with `.env.local`'s values,
+   which stores the key in Secrets Manager and restarts the backend one pod at
+   a time, then checks that the Deployment recorded the new Secret and that all
+   its pods are ready. This needs `ansible-playbook`, `kubectl`, `aws`,
+   `session-manager-plugin` and the database password in `.env.local`.
+
+If the playbook fails, the new key is still in `.env.local` and the script
+prints the command that pushes it. Run that command rather than the script,
+which would generate yet another key.
 
 Rotation is manual, and nothing rotates the secret on a schedule, so Checkov's
 CKV2_AWS_57 stays flagged. The script doesn't touch the database password.
 
-### Upgrading EKS
+## Upgrading EKS
 
 The Kubernetes version is the `eks_version` Terraform variable. EKS upgrades one
 minor version at a time, in this order:
@@ -328,18 +320,14 @@ minor version at a time, in this order:
    (`aws_eks_addon.core` in `terraform/modules/eks/main.tf`) to EKS's default
    version for the new Kubernetes version.
 2. Run `ansible-playbook ansible/playbooks/apply-kubernetes.yml`, then
-   `scripts/monitoring.sh workloads`. The NetworkPolicy lets the control
-   plane's network interfaces reach the pods, and `apply-kubernetes.yml` looks
-   up their IPs only when it runs. The upgrade doesn't re-run the bootstrap,
-   but EKS can replace those interfaces during it. With the old IPs, every
-   deploy's smoke test times out through the Service proxy and the deploy
-   rolls back. The `workloads` section fails if the policy misses a current
-   interface.
+   `scripts/monitoring.sh workloads`. The NetworkPolicy lets the control plane's
+   network interfaces reach the pods, and `apply-kubernetes.yml` looks up their
+   IPs only when it runs. EKS can replace those interfaces during the upgrade,
+   which doesn't re-run the bootstrap; with the old IPs, every deploy's smoke
+   test times out through the Service proxy and the deploy rolls back. The
+   `workloads` section fails if the policy misses a current interface.
 3. Update the node group AMI (`aws eks update-nodegroup-version`).
 4. Update the Helm charts pinned in `load-balancer-controller.yml` and
    `metrics-server.yml` if their releases require it, and keep the Load
    Balancer Controller IAM policy in `terraform/modules/eks/iam.tf` in step
    with its chart version.
-
-The Kubernetes manifests keep `latest` as the bootstrap/default image tag, but
-the CI/CD deployment updates the live Deployments to the tags CI builds.

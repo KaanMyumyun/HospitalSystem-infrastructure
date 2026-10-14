@@ -96,7 +96,7 @@ Before the first apply, put a `pg_dump` of the data to start from in
 `seed.sql`, or nobody can sign in (see [Database](docs/disaster-recovery.md#database)).
 
 The stack bills roughly $250 a month while it exists, about $215 of it even
-with the nodes paused (see [Operational Notes](docs/operations.md#operational-notes)). After the
+with the nodes paused (see [Costs](docs/operations.md#costs)). After the
 apply, confirm the SNS subscription email, or no alarm email arrives.
 
 ## Repository Layout
