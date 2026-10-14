@@ -27,7 +27,7 @@ resource "aws_vpc_security_group_egress_rule" "ops_s3_https" {
 }
 
 resource "aws_vpc_security_group_ingress_rule" "eks_api_from_ops" {
-  security_group_id            = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
+  security_group_id            = module.eks.cluster_security_group_id
   description                  = "Kubernetes API from the ops instance"
   referenced_security_group_id = aws_security_group.ops.id
   ip_protocol                  = "tcp"
@@ -51,7 +51,7 @@ resource "aws_security_group" "db" {
 resource "aws_vpc_security_group_ingress_rule" "db_from_eks" {
   security_group_id            = aws_security_group.db.id
   description                  = "PostgreSQL from the EKS cluster security group"
-  referenced_security_group_id = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
+  referenced_security_group_id = module.eks.cluster_security_group_id
   ip_protocol                  = "tcp"
   from_port                    = 5432
   to_port                      = 5432

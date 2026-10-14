@@ -6,9 +6,9 @@ locals {
   # scripts/deploy-release.py reads these on the ops instance.
   deploy_settings = {
     AWS_REGION          = var.aws_region
-    EKS_CLUSTER         = aws_eks_cluster.main.name
-    EKS_SERVER          = aws_eks_cluster.main.endpoint
-    EKS_CA              = aws_eks_cluster.main.certificate_authority[0].data
+    EKS_CLUSTER         = module.eks.cluster_name
+    EKS_SERVER          = module.eks.endpoint
+    EKS_CA              = module.eks.certificate_authority_data
     K8S_NAMESPACE       = local.k8s_namespace
     ECR_ENDPOINT        = "https://${module.network.ecr_api_endpoint_dns_name}"
     BACKEND_REPOSITORY  = aws_ecr_repository.backend.repository_url
@@ -62,7 +62,7 @@ resource "aws_instance" "ops" {
 }
 
 resource "aws_eks_access_entry" "ops" {
-  cluster_name      = aws_eks_cluster.main.name
+  cluster_name      = module.eks.cluster_name
   principal_arn     = aws_iam_role.ops.arn
   kubernetes_groups = [local.k8s_deploy_group]
   type              = "STANDARD"

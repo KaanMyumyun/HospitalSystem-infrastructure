@@ -24,7 +24,7 @@ output "github_actions_variables" {
 
 output "cluster_name" {
   description = "EKS cluster name."
-  value       = aws_eks_cluster.main.name
+  value       = module.eks.cluster_name
 }
 
 output "account_id" {
@@ -79,12 +79,12 @@ output "ops_instance_id" {
 
 output "load_balancer_controller_role_arn" {
   description = "AWS Load Balancer Controller IAM role ARN."
-  value       = aws_iam_role.load_balancer_controller.arn
+  value       = module.eks.load_balancer_controller_role_arn
 }
 
 output "eks_node_role_arn" {
   description = "EKS node group IAM role ARN."
-  value       = aws_iam_role.eks_node.arn
+  value       = module.eks.node_role_arn
 }
 
 output "acm_certificate_arn" {

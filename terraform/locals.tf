@@ -9,8 +9,6 @@ locals {
     ManagedBy   = "terraform"
   }
 
-  eks_cluster_tag_key = "kubernetes.io/cluster/${local.cluster_name}"
-
   k8s_namespace    = "hospitalsystem"
   k8s_deploy_group = "${local.k8s_namespace}:deployers"
   ops_name         = "${var.project_name}-ops"
@@ -22,27 +20,20 @@ locals {
 
   github_oidc_provider_arn = var.github_oidc_provider_arn != "" ? var.github_oidc_provider_arn : aws_iam_openid_connect_provider.github_actions[0].arn
 
-  ec2_arn_prefix  = "arn:aws:ec2:${var.aws_region}:${local.account_id}"
-  elb_arn_prefix  = "arn:aws:elasticloadbalancing:${var.aws_region}:${local.account_id}"
-  elb_arns        = ["${local.elb_arn_prefix}:loadbalancer/app/*/*", "${local.elb_arn_prefix}:loadbalancer/net/*/*"]
-  listener_arns   = ["${local.elb_arn_prefix}:listener/app/*/*/*", "${local.elb_arn_prefix}:listener/net/*/*/*"]
-  rule_arns       = ["${local.elb_arn_prefix}:listener-rule/app/*/*/*/*", "${local.elb_arn_prefix}:listener-rule/net/*/*/*/*"]
-  target_grp_arns = ["${local.elb_arn_prefix}:targetgroup/*/*"]
-
   backend_source_dir  = var.backend_source_dir != "" ? var.backend_source_dir : abspath("${path.module}/../../HospitalSystem")
   frontend_source_dir = var.frontend_source_dir != "" ? var.frontend_source_dir : "${local.backend_source_dir}/hospital-frontend"
 
   ansible_vars = {
     aws_region                        = var.aws_region
     eks_cluster_name                  = local.cluster_name
-    eks_node_group_name               = aws_eks_node_group.hospitalsystempr1.node_group_name
+    eks_node_group_name               = module.eks.node_group_name
     eks_node_desired_size             = var.node_desired_size
     vpc_id                            = module.network.vpc_id
     public_subnet_cidrs               = module.network.public_subnet_cidrs
     backend_repository_url            = aws_ecr_repository.backend.repository_url
     frontend_repository_url           = aws_ecr_repository.frontend.repository_url
     initial_image_tag                 = var.initial_image_tag
-    load_balancer_controller_role_arn = aws_iam_role.load_balancer_controller.arn
+    load_balancer_controller_role_arn = module.eks.load_balancer_controller_role_arn
     backend_secret_name               = aws_secretsmanager_secret.backend.name
     backend_secrets_reader_role_arn   = aws_iam_role.backend_secrets_reader.arn
     db_host                           = aws_db_instance.main.address

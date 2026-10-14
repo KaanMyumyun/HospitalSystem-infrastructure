@@ -219,7 +219,9 @@ if [ "$count" -gt 0 ]; then
     printf 'Skipped (--skip-dump): seed.sql stays as it is.\n'
   elif ! grep -qx 'aws_db_instance\.main' <<<"$resources"; then
     printf 'No database in state; seed.sql stays as it is.\n'
-  elif ! grep -qx 'aws_eks_cluster\.main' <<<"$resources"; then
+  # The cluster's address before and after it moved into terraform/modules/eks.
+  # Missing it here would destroy the database without saving it.
+  elif ! grep -qxE '(module\.eks\.)?aws_eks_cluster\.main' <<<"$resources"; then
     # The database accepts connections only from the cluster. A teardown
     # that got as far as destroying the cluster saved it first, unless it
     # ran with --skip-dump.

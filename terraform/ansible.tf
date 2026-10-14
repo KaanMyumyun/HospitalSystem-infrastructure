@@ -10,7 +10,7 @@ resource "terraform_data" "ansible_bootstrap" {
   triggers_replace = {
     bootstrap_vars_hash = sha256(jsonencode(local.ansible_vars))
     files_hash          = local.ansible_bootstrap_files_hash
-    cluster_name        = aws_eks_cluster.main.name
+    cluster_name        = module.eks.cluster_name
     region              = var.aws_region
   }
 
@@ -32,14 +32,11 @@ resource "terraform_data" "ansible_bootstrap" {
 
   depends_on = [
     module.network,
-    aws_eks_cluster.main,
-    aws_eks_node_group.hospitalsystempr1,
-    aws_eks_addon.core,
+    module.eks,
     aws_eks_access_entry.ops,
     aws_acm_certificate_validation.app,
     terraform_data.initial_ecr_image_push,
     local_file.ansible_vars,
-    aws_iam_role_policy.load_balancer_controller,
     aws_iam_role_policy.backend_secrets_reader,
     aws_instance.ops,
     aws_iam_role_policy_attachment.ops_ssm,
@@ -52,7 +49,7 @@ resource "terraform_data" "ansible_bootstrap" {
 # resource, and its destroy step deletes the live Ingress and ALB.
 resource "terraform_data" "kubernetes_cleanup" {
   input = {
-    eks_cluster_name        = aws_eks_cluster.main.name
+    eks_cluster_name        = module.eks.cluster_name
     aws_region              = var.aws_region
     vpc_id                  = module.network.vpc_id
     k8s_namespace           = local.k8s_namespace
@@ -79,11 +76,7 @@ resource "terraform_data" "kubernetes_cleanup" {
   # subnets).
   depends_on = [
     module.network,
-    aws_eks_cluster.main,
-    aws_eks_node_group.hospitalsystempr1,
-    aws_eks_addon.core,
-    aws_iam_openid_connect_provider.eks,
-    aws_iam_role_policy.load_balancer_controller,
+    module.eks,
     aws_instance.ops,
     aws_iam_role_policy_attachment.ops_ssm,
     aws_vpc_security_group_egress_rule.ops_vpc_https,

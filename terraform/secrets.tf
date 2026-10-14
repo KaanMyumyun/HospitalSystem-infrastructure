@@ -24,18 +24,18 @@ data "aws_iam_policy_document" "backend_secrets_reader_assume_role" {
 
     principals {
       type        = "Federated"
-      identifiers = [aws_iam_openid_connect_provider.eks.arn]
+      identifiers = [module.eks.oidc_provider_arn]
     }
 
     condition {
       test     = "StringEquals"
-      variable = "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:aud"
+      variable = "${module.eks.oidc_provider_host}:aud"
       values   = ["sts.amazonaws.com"]
     }
 
     condition {
       test     = "StringEquals"
-      variable = "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:sub"
+      variable = "${module.eks.oidc_provider_host}:sub"
       values   = ["system:serviceaccount:${local.k8s_namespace}:${local.backend_secrets_reader_service_account}"]
     }
   }
