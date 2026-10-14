@@ -1,164 +1,170 @@
 # CI/CD Workflow
 
+Three chained GitHub Actions workflows in the application repository test,
+build and deploy every release. Nothing reaches the cluster until the tests
+pass, the images pass a Trivy scan and a reviewer approves; a failed rollout or
+smoke test puts both apps back on the previous release.
+
 ![CI/CD pipeline](../assets/images/cicd-pipeline.png)
 
-The CI/CD pipeline lives in the `.github/workflows` directory of the application
-repository:
+## The pipeline
 
-[KaanMyumyun/HospitalSystem](https://github.com/KaanMyumyun/HospitalSystem)
+The workflows live in the `.github/workflows` directory of
+[KaanMyumyun/HospitalSystem](https://github.com/KaanMyumyun/HospitalSystem).
+`CICD/.github/workflows/` in this repository is a copy kept for review; it
+isn't at the repository root, so it never runs here.
 
-A copy is also kept in this repository under `CICD/.github/workflows/` for
-documentation and review. Because it is not at the repository root
-`.github/workflows/`, it does not run from this infrastructure repository.
+| Workflow | Runs | What it does |
+| -------- | ---- | ------------ |
+| `CI` | On pull requests, pushes to `main`, and weekly on Mondays at 03:00 UTC, so published images pick up base image security fixes | Restores, builds and tests the backend. Audits npm dependencies (fails on `high` or worse), then lints, tests and builds the frontend. |
+| `Docker Image CI` | After `CI` succeeds on a push to `main` or on the weekly run | Builds both images from the exact commit that passed CI, scans them, pushes them to Docker Hub and Amazon ECR, and saves the tag and commit as a `release` artifact. |
+| `Deploy to EKS` | After `Docker Image CI` succeeds | Waits for approval, then deploys the `release` artifact's tag through the ops instance. See [How a deploy runs](#how-a-deploy-runs). |
 
-The workflows are chained so deployment only happens after build and test
-success:
+Every action is pinned to a commit SHA, and Dependabot keeps the pins current.
 
-1. `CI`
-   - runs on pull requests, pushes to `main`, and weekly (Mondays 03:00 UTC)
-     so published images pick up base image security fixes
-   - restores, builds and tests the backend
-   - audits npm dependencies (fails on `high` or worse), then lints, tests and
-     builds the frontend
+### Building the images
 
-2. `Docker Image CI`
-   - runs after the `CI` workflow succeeds on a push to `main` or on the weekly
-     scheduled run
-   - checks out the exact commit that passed CI
-   - builds backend and frontend Docker images once each with Buildx, reusing
-     build-stage layers from the GitHub Actions cache. The runtime stage is
-     always rebuilt, so its `apk upgrade` picks up Alpine security fixes on
-     every build; the weekly run skips the cache altogether. The frontend is
-     built with `VITE_API_URL=/api`, so it calls the backend on whatever host
-     serves it and the same image works under any domain.
-   - scans those images with Trivy; a fixable `HIGH` or `CRITICAL`
-     vulnerability stops the run before anything is pushed, so the pushed
-     images are the scanned ones
-   - uses GitHub Actions OIDC to assume the AWS ECR push role
-   - pushes each image to both Docker Hub and Amazon ECR
-   - saves the pushed tag and commit as a `release` artifact for the deploy
+- Buildx builds each image once and reuses the build-stage layers from the
+  GitHub Actions cache. The runtime stage is always rebuilt, so its
+  `apk upgrade` picks up Alpine security fixes; the weekly run skips the cache
+  altogether.
+- The frontend is built with `VITE_API_URL=/api`: it calls the backend on
+  whatever host serves it, so the same image works under any domain.
+- Trivy scans both images before anything is pushed. A fixable `HIGH` or
+  `CRITICAL` vulnerability stops the run, so every pushed image is a scanned
+  one.
+- The push to ECR assumes the ECR push role through GitHub Actions OIDC.
 
-Images are tagged two ways:
+### Image tags
 
 | Tag | Example | Why it exists |
 | --- | ------- | ------------- |
 | `latest` | `hospital-backend:latest` | Convenience tag for manual testing and simple local references. |
-| date + short SHA + run number + attempt | `2026-08-21-a1b2c3d-57-1` | The tag the EKS deploy workflow uses. It is unique to the build, so the weekly rebuild of an unchanged commit gets a new tag instead of overwriting the image Kubernetes runs. Tags from before the attempt was added end at the run number. |
+| date + short SHA + run number + attempt | `2026-08-21-a1b2c3d-57-1` | The tag deploys use. It's unique to the build, so the weekly rebuild of an unchanged commit gets a new tag instead of overwriting the image Kubernetes runs. Tags from before the attempt was added end at the run number. |
 
-In ECR every tag except `latest` is immutable (`terraform/ecr.tf`): a push
-that reuses a tag fails instead of replacing the image, so the tag a deploy
-checked and the tag a rollback returns to always name the same image. A
-re-run of a `Docker Image CI` run keeps its run number but not its attempt,
-so it pushes under a new tag instead of failing on the one the first attempt
-pushed.
+In ECR every tag except `latest` is immutable (`terraform/ecr.tf`). A push that
+reuses a tag fails instead of replacing the image, so the tag a deploy checked
+and the tag a rollback returns to always name the same image. Re-running a
+`Docker Image CI` run keeps its run number but not its attempt, so it pushes
+under a new tag instead of failing.
 
-3. `Deploy to EKS`
-   - runs after the Docker image workflow succeeds
-   - waits for a reviewer to approve it in the `production` GitHub environment
-   - reads the tag and commit from the Docker run's `release` artifact
-     instead of working the tag out again, and skips the deploy if that commit
-     is no longer the tip of `main`
-   - assumes the AWS EKS deployment role through OIDC
-   - finds the running ops instance and sends it the deploy SSM document with
-     that tag
-   - on the instance, the document runs `scripts/deploy-release.py`: it checks
-     that both images exist in ECR, sets the backend and frontend Deployment
-     images, waits for both rollouts, and smoke tests both apps. If a rollout
-     or the smoke test fails, it puts both Deployments back on their previous
-     images
-   - fails unless the SSM command succeeded, and prints its output
+## How a deploy runs
 
-The Kubernetes API endpoint is private, so GitHub-hosted runners can't reach
-it. The deploy role may only send the `hospitalsystem-deploy` document to the
-ops instance. The document's only input is the image tag: it builds the image
-URLs from the ECR repositories itself, and the admission policy still rejects
-any other image. A self-hosted runner inside the VPC was ruled out because the
-application repository is public, and pull requests from forks could run
+1. `Deploy to EKS` waits for a reviewer to approve it in the `production`
+   GitHub environment.
+2. It reads the tag and commit from the Docker run's `release` artifact,
+   rather than working the tag out again, and skips the deploy if that commit
+   is no longer the tip of `main`.
+3. It assumes the EKS deploy role through OIDC, finds the running ops instance
+   and sends it the `hospitalsystem-deploy` SSM document with the tag.
+4. On the instance, the document runs `scripts/deploy-release.py`:
+   - It checks that both images exist in ECR, through an ECR API VPC endpoint
+     because the instance has no internet access. A missing image fails the
+     deploy with both apps untouched.
+   - It sets the backend and frontend Deployment images and waits for both
+     rollouts.
+   - It smoke tests the backend's `/health/ready`, which also checks the
+     database, and the frontend's index page, up to three tries each.
+5. The workflow fails unless the SSM command succeeded, and prints its output.
+   Rollout, smoke test and rollback fit within the document's 600-second
+   timeout.
+
+**Rollback.** If a rollout fails or times out, or a smoke request still fails
+after three tries, the script puts both Deployments back on the images they
+had before and waits for that rollout. Both apps go back even when only one
+failed, so they never run different releases. The deploy still fails, and its
+output says whether the rollback finished or which images to restore by hand.
+
+**Why through SSM.** The Kubernetes API endpoint is private, so GitHub-hosted
+runners can't reach it. A self-hosted runner inside the VPC was ruled out: the
+application repository is public, so pull requests from forks could run
 workflows on it.
 
-If the app is scaled down to `0`, the deploy still updates the Deployment image
-fields to the new tag. It skips waiting for a rollout because
-no pods are running. The next manual scale-up starts pods from that exact image
-tag.
+**Limits of the smoke test.** The smoke requests go through the Kubernetes API
+server's Service proxy, not the ALB, so they don't test the Ingress, the ALB or
+DNS.
 
-Before it changes anything, the script looks up both tags in ECR, through an
-ECR API VPC endpoint because the ops instance has no internet access. A
-missing image fails the deploy with both apps untouched. After both rollouts
-finish, it requests the backend's `/health/ready`, which also checks the
-database, and the frontend's index page. These requests go through the
-Kubernetes API server's Service proxy, not the ALB, so they don't test the
-Ingress, ALB or DNS. If a rollout fails or times out, or a smoke request
-still fails after three tries, the script sets both Deployments back to the
-images they had before the deploy and waits for that rollout. Both apps go
-back even when only one failed, so they never run different releases. The
-deploy still fails, and its output says whether the rollback finished or
-which images to restore by hand. Rollout, smoke test and rollback fit within
-the document's 600-second timeout.
+**A scaled-down app.** If the app is scaled to `0`, the deploy still sets the
+new image tag on both Deployments but doesn't wait for a rollout, since no pods
+are running. The next scale-up starts pods from that tag.
 
-Both Deployments roll out with `RollingUpdate` (`maxSurge: 1`,
-`maxUnavailable: 0`): a new pod starts next to the old one, and the old pod is
-removed only once the new one is available. The namespace has the
-`elbv2.k8s.aws/pod-readiness-gate-inject: enabled` label, so the AWS Load
-Balancer Controller holds a new pod's readiness until its ALB target passes
-health checks. A terminating pod waits 15 seconds in a `preStop` hook while the
-ALB deregisters it, and the target groups drain for 30 seconds. If the new pod
-never becomes healthy, the old pod keeps serving, the Deployment is marked
-failed after `progressDeadlineSeconds: 300`, and the deploy rolls both apps
-back and fails.
+### Rollouts without downtime
 
-The backend first checks `/health/ready` with a startup probe, giving the app
-and the database about two minutes to become reachable. Kubernetes holds
-container readiness until this succeeds, so each new pod must pass a database
-check before its rollout can complete. The Load Balancer Controller waits
-for container readiness before registering the pod as an ALB target.
+- Both Deployments use `RollingUpdate` with `maxSurge: 1` and
+  `maxUnavailable: 0`: a new pod starts next to the old one, and the old pod
+  goes only once the new one is available.
+- The namespace has the `elbv2.k8s.aws/pod-readiness-gate-inject: enabled`
+  label, so the AWS Load Balancer Controller holds a new pod's readiness until
+  its ALB target passes health checks.
+- A terminating pod waits 15 seconds in a `preStop` hook while the ALB
+  deregisters it, and the target groups drain for 30 seconds.
+- A new pod that never becomes healthy leaves the old pod serving. The
+  Deployment is marked failed after `progressDeadlineSeconds: 300`, and the
+  deploy rolls both apps back.
 
-After that first successful check, the startup probe stops. Recurring readiness,
-liveness, and ALB checks use `/health`, which does not query the database, so
-a database restart, such as RDS installing a minor version, doesn't take every
-backend pod out of the ALB or restart them all at once. A later database
-outage therefore doesn't make an already-started pod unready;
-`./scripts/monitoring.sh app` checks the database on demand.
+The backend's health checks are split so a database restart can't take the
+whole backend down:
 
-The ops instance's IAM role gets Kubernetes access through a Terraform-managed
-EKS access entry in the `hospitalsystem:deployers` group. That group is bound
-by `kubernetes/rbac/github-actions-deploy.yaml.j2` to read and patch only the
-`hospital-backend` and `hospital-frontend` Deployments, and to send GET
-requests to the two app Services for the deploy's smoke test.
-`kubernetes/policy/deploy-image-only.yaml.j2` then rejects any change by the
-group other than container images. The GitHub Actions deploy role has no
-Kubernetes access: it only sends the SSM deploy document to the ops instance.
+| Check | Endpoint | Checks the database |
+| ----- | -------- | ------------------- |
+| Startup probe, until it first passes (about two minutes allowed) | `/health/ready` | Yes |
+| Readiness, liveness and the ALB, from then on | `/health` | No |
 
-The cluster keeps `API_AND_CONFIG_MAP` authentication so existing node and
-other `aws-auth` mappings remain valid. Bootstrap no longer creates or patches
-that ConfigMap. Leave the ConfigMap and its node mappings in place:
-existing managed node groups can still depend on them. EKS manages access for
-new managed node groups. See the AWS guidance on
-[migrating access entries](https://docs.aws.amazon.com/eks/latest/userguide/migrating-access-entries.html)
-and [managed node group access](https://docs.aws.amazon.com/eks/latest/userguide/creating-access-entries.html).
+So every new pod reaches the database before its rollout completes, but a later
+database restart, such as RDS installing a minor version, doesn't make running
+pods unready or restart them all at once. `./scripts/monitoring.sh app` checks
+the database on demand.
+
+## Who can deploy what
+
+| Identity | What it can do |
+| -------- | -------------- |
+| GitHub Actions deploy role | Send the `hospitalsystem-deploy` document to the ops instance, and nothing in Kubernetes. The document's only input is the image tag: it builds the image URLs from the ECR repositories itself. |
+| Ops instance role | Join the `hospitalsystem:deployers` Kubernetes group, through a Terraform-managed EKS access entry. |
+| `hospitalsystem:deployers` | Read and patch only the `hospital-backend` and `hospital-frontend` Deployments, and send GET requests to the two app Services for the smoke test (`kubernetes/rbac/github-actions-deploy.yaml.j2`). |
+
+Two admission policies back this up.
+`kubernetes/policy/deploy-image-only.yaml.j2` rejects any change by the group
+other than container images, and `kubernetes/policy/trusted-workloads.yaml.j2`
+lets every Deployment in the namespace run only this account's backend and
+frontend ECR images, with their own entrypoint.
+
+### OIDC trust
 
 The GitHub Actions roles trust only `KaanMyumyun/HospitalSystem`, each with one
 OIDC subject:
 
-- The ECR push role trusts workflows running on `main` (`github_deploy_branch`
-  in Terraform). Docker Image CI qualifies because `workflow_run` jobs run on
-  the default branch. Protect `main` in GitHub: require pull requests and
-  block force pushes and deletion.
-- The EKS deploy role trusts jobs that use the `production` environment
-  (`github_deploy_environment`). A job with an environment gets a token whose
-  subject is the environment, not the branch, so GitHub has to enforce the
-  branch. In Settings, Environments, `production`, set Deployment branches to
-  `main` only and add required reviewers, so every deploy waits for approval.
+- **ECR push role:** workflows running on `main` (`github_deploy_branch` in
+  Terraform). Docker Image CI qualifies because `workflow_run` jobs run on the
+  default branch. Protect `main` in GitHub: require pull requests, and block
+  force pushes and deletion.
+- **EKS deploy role:** jobs that use the `production` environment
+  (`github_deploy_environment`). Their token's subject is the environment, not
+  the branch, so GitHub has to enforce the branch: in Settings, Environments,
+  `production`, set Deployment branches to `main` only and add required
+  reviewers, so every deploy waits for approval.
 
 An AWS account can hold only one `token.actions.githubusercontent.com` OIDC
-provider. Terraform creates it unless `github_oidc_provider_arn` is set; set it
-to the existing provider's ARN when another project in the account already has
-one.
+provider. Terraform creates it unless `github_oidc_provider_arn` is set; set
+that to the existing provider's ARN when another project in the account
+already has one.
 
-The workflows pin every action to a commit SHA, and Dependabot keeps the pins
-current. The deploy workflow reads the SSM document and ops instance name from
-the `DEPLOY_SSM_DOCUMENT` and `DEPLOY_INSTANCE_NAME` repository variables (the
-`deploy_ssm_document_name` and `ops_instance_name` Terraform outputs); the
-application README lists all the variables the workflows need.
+### Repository variables
+
+The deploy workflow reads the SSM document and ops instance name from the
+`DEPLOY_SSM_DOCUMENT` and `DEPLOY_INSTANCE_NAME` repository variables, which are
+the `deploy_ssm_document_name` and `ops_instance_name` Terraform outputs. The
+application README lists every variable the workflows need.
+
+### The aws-auth ConfigMap
+
+The cluster keeps `API_AND_CONFIG_MAP` authentication, so existing node and
+other `aws-auth` mappings stay valid. Bootstrap no longer creates or patches
+that ConfigMap. Leave it and its node mappings in place: existing managed node
+groups can still depend on them, while EKS manages access for new ones. See the
+AWS guidance on
+[migrating access entries](https://docs.aws.amazon.com/eks/latest/userguide/migrating-access-entries.html)
+and [managed node group access](https://docs.aws.amazon.com/eks/latest/userguide/creating-access-entries.html).
 
 ## Releases with migrations
 
@@ -172,9 +178,10 @@ ansible-playbook ansible/playbooks/migrate.yml -e image_tag=2026-08-22-8f88481-5
 ```
 
 The playbook checks that the tag is in ECR, runs the image's `--migrate`
-command as a Job in the cluster (`kubernetes/backend/migrate-job.yaml.j2`)
-with only the connection string from the backend Secret, prints the Job's log
-and deletes it. For a release without new migrations it changes nothing.
+command as a Job in the cluster (`kubernetes/backend/migrate-job.yaml.j2`) with
+only the connection string from the backend Secret, then prints the Job's log
+and deletes it. A release without new migrations changes nothing.
+
 Migrations only go forward, and the running release keeps serving while they
-apply, so each one has to work with both the running image and the new one;
-the application README describes how to write them that way.
+apply, so each one has to work with both the running image and the new one.
+The application README describes how to write them that way.
