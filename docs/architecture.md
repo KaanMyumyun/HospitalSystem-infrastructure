@@ -150,6 +150,7 @@ assets/images/          # README diagrams: each .png is rendered from its .svg
 CICD/                   # copy of the app repository's workflows, not run here
 .github/                # this repository's CI and Dependabot
 docs/                   # the documentation the README links to
+coursework/             # university coursework describing this project, in Bulgarian
 kubernetes/             # Jinja templates rendered by apply-kubernetes.yml
 ├── namespace.yaml.j2
 ├── rbac/

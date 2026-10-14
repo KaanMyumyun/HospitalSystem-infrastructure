@@ -112,6 +112,7 @@ apply, confirm the SNS subscription email, or no alarm email arrives.
 | `docs/` | The documentation below |
 | `assets/images/` | The diagrams; each `.png` is rendered from its `.svg` |
 | `CICD/` | A copy of the application repository's workflows, not run here |
+| `coursework/` | University coursework (Information Systems) describing this project, in Bulgarian |
 
 The full tree is in [docs/architecture.md](docs/architecture.md#repository-contents).
 
