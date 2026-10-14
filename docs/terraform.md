@@ -124,24 +124,32 @@ nothing is still running, remove it with `./scripts/tf.sh force-unlock <ID>`.
 
 On a fresh AWS account, `./scripts/tf.sh apply`:
 
-1. Detects the active account ID and creates the AWS resources.
+1. Detects the active account ID and creates the AWS resources, among them:
+   - the ECR repositories for the backend and frontend images
+   - the GitHub Actions OIDC provider and IAM roles
+   - the EKS cluster and node group, taking over the vpc-cni, coredns and
+     kube-proxy add-ons as EKS managed add-ons
+   - the ops role's EKS access entry
+   - the RDS instance in the private subnets, alongside the cluster
 2. Builds and pushes the first backend and frontend images from the local
    application checkout. It skips any image whose `latest` tag is already in
    ECR, so a later apply doesn't replace what CI pushed.
-3. Requests the ACM certificate and validates it through Cloudflare DNS.
+3. Requests the ACM certificate for `app.hospitalsyst.cc`, creates the
+   Cloudflare validation CNAME, and waits for ACM to issue the certificate.
 4. Runs the Ansible bootstrap (`ansible/playbooks/bootstrap.yml`) once the EKS
    cluster, managed node group, ops access entry and database are ready. The
    bootstrap:
    - configures kubeconfig and installs External Secrets
-   - stores the backend secret from `.env.local` in Secrets Manager (see
-     [Backend secret](operations.md#backend-secret))
-   - loads `seed.sql` into a new database and runs the migrations (see
-     [Database](disaster-recovery.md#database))
+   - stores the backend secret from `.env.local` in Secrets Manager and waits
+     for it to sync (see [Backend secret](operations.md#backend-secret))
+   - loads `seed.sql` into the new, empty database and runs the migrations
+     (see [Database](disaster-recovery.md#database))
    - installs the AWS Load Balancer Controller and metrics-server
-   - applies the Kubernetes manifests
-   - points the Cloudflare DNS record at the ALB hostname from the Kubernetes
+   - applies the Kubernetes manifests, rendered with the current ECR URLs and
+     ACM certificate ARN
+   - points the Cloudflare app CNAME at the ALB hostname from the Kubernetes
      Ingress
-   - configures monitoring
+   - waits for the Deployment rollouts and configures monitoring
 
 The bootstrap is intentionally local: it uses the `aws`, `docker`, `kubectl`,
 `helm` and `ansible-playbook` binaries on the machine running Terraform.
