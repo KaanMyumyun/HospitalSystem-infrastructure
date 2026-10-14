@@ -28,7 +28,6 @@ ansible/group_vars/all/terraform.yml
 instructions.txt
 OWN_PROJECT.local.txt
 ownership.local/
-docs/
 commands/
 list.txt
 scripts/run.sh

@@ -38,7 +38,7 @@ variable "project_name" {
 }
 
 variable "eks_version" {
-  description = "Kubernetes version of the EKS control plane. EKS upgrades one minor version at a time; see the README for the order."
+  description = "Kubernetes version of the EKS control plane. EKS upgrades one minor version at a time; see docs/operations.md for the order."
   type        = string
   default     = "1.36"
 }
