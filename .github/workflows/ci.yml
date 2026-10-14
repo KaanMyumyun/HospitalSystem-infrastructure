@@ -93,17 +93,18 @@ jobs:
       - name: Validate
         run: terraform validate
 
+      # --recursive lints every directory under terraform/: the root, the
+      # modules and bootstrap. Without it TFLint skips the files in modules/.
       - name: TFLint
-        run: tflint --format compact
+        run: tflint --recursive --format compact
 
-      # The state bucket's config is a separate root module; Format already
-      # covers it.
-      - name: Bootstrap init, validate and TFLint
+      # The state bucket's config is a separate root module; Format and TFLint
+      # already cover it.
+      - name: Bootstrap init and validate
         working-directory: terraform/bootstrap
         run: |
           terraform init -backend=false -input=false -lockfile=readonly
           terraform validate
-          tflint --format compact
 
   ansible:
     name: Ansible

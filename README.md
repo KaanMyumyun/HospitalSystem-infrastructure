@@ -22,8 +22,9 @@ Current AWS deployment target:
   [AWS Resources](#aws-resources)
 - [Repository Contents](#repository-contents)
 - [CI/CD Workflow](#cicd-workflow) and [Releases with migrations](#releases-with-migrations)
-- [Terraform Workflow](#terraform-workflow): [Local setup](#local-setup),
-  [Remote state](#remote-state), [What an apply does](#what-an-apply-does)
+- [Terraform Workflow](#terraform-workflow): [Layout and sizing](#layout-and-sizing),
+  [Local setup](#local-setup), [Remote state](#remote-state),
+  [What an apply does](#what-an-apply-does)
 - [Ansible Operations](#ansible-operations): [Cluster access](#cluster-access),
   [Backend secret](#backend-secret), [Playbooks](#playbooks),
   [Pause and scaling](#pause-and-scaling)
@@ -66,7 +67,9 @@ flow until the application was serving real traffic on EKS. Once it worked, I
 imported the live resources with
 [Terracognita](https://github.com/cycloidio/terracognita) and rewrote the
 generated output into the Terraform under `terraform/`, split by concern into
-network, EKS, IAM, ECR, ACM, and monitoring files.
+network, EKS, IAM, ECR, ACM, and monitoring files. The network and the EKS
+cluster later moved into local modules, which replaced the imported
+one-resource-per-subnet layout with one per availability zone.
 
 That order was deliberate. Building it in the console first meant I understood
 what each resource did and how the pieces connected before codifying any of it,
@@ -136,7 +139,10 @@ User
 
 ```text
 terraform/
-├── *.tf
+├── *.tf            # the root module (see Layout and sizing)
+├── modules/
+│   ├── network/    # VPC, subnets, NAT gateways, VPC endpoints, flow logs
+│   └── eks/        # cluster, node group, add-ons and their IAM roles
 └── bootstrap/      # the S3 state bucket, created and deleted by the scripts
 ansible/
 ├── group_vars/all/
@@ -459,6 +465,35 @@ it:
 ./scripts/tf.sh plan    # validates too; the first run creates the state bucket
 ./scripts/tf.sh apply
 ```
+
+### Layout and sizing
+
+The root module in `terraform/` calls two local modules and holds the rest of
+the stack:
+
+| Where | What |
+| ----- | ---- |
+| `terraform/modules/network` | VPC, a public and a private subnet per availability zone, NAT gateways, route tables, VPC endpoints and flow logs |
+| `terraform/modules/eks` | Cluster, node group, add-ons, the cluster's OIDC provider, and the cluster, node and Load Balancer Controller IAM roles |
+| `terraform/*.tf` | The database, KMS key, ECR, ACM, Secrets Manager, the ops instance, the GitHub Actions roles, monitoring and the Ansible bootstrap |
+
+The sizes are variables in `terraform/variables.tf`. The defaults are the sizes
+the stack has always run with:
+
+| Variable | Default |
+| -------- | ------- |
+| `availability_zones` | `["a", "b"]` |
+| `single_nat_gateway` | `false`: a NAT gateway per zone |
+| `node_instance_types` | `["t3.small"]` |
+| `node_desired_size`, `node_max_size` | `2`, `2` |
+| `db_instance_class` | `db.t4g.micro` |
+| `db_multi_az` | `false` |
+| `db_backup_retention_days` | `1` |
+
+The database class sets `max_connections`, which the backend pods' pools have
+to fit under (see [Backend secret](#backend-secret)). The private subnets'
+CIDRs follow the number of zones, so changing `availability_zones` replaces
+them and everything in them; change it with the stack torn down.
 
 ### Local setup
 
@@ -998,7 +1033,8 @@ two. The test didn't measure maximum throughput, or size workloads that write
 appointments or hash passwords. Draining pods can use capacity
 [beyond the replica count plus surge](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#updating-a-deployment),
 so account for per-node placement and system pods before raising replica caps
-or resource limits.
+or resource limits. The node and database sizes are Terraform variables (see
+[Layout and sizing](#layout-and-sizing)).
 
 ## Disaster Recovery
 
@@ -1251,8 +1287,8 @@ minor version at a time, in this order:
 
 1. Raise `eks_version` by one minor version and apply. This upgrades the
    control plane, then moves the vpc-cni, coredns and kube-proxy add-ons
-   (`aws_eks_addon.core` in `terraform/eks.tf`) to EKS's default version for the
-   new Kubernetes version.
+   (`aws_eks_addon.core` in `terraform/modules/eks/main.tf`) to EKS's default
+   version for the new Kubernetes version.
 2. Run `ansible-playbook ansible/playbooks/apply-kubernetes.yml`, then
    `scripts/monitoring.sh workloads`. The NetworkPolicy lets the control
    plane's network interfaces reach the pods, and `apply-kubernetes.yml` looks
@@ -1264,8 +1300,8 @@ minor version at a time, in this order:
 3. Update the node group AMI (`aws eks update-nodegroup-version`).
 4. Update the Helm charts pinned in `load-balancer-controller.yml` and
    `metrics-server.yml` if their releases require it, and keep the Load
-   Balancer Controller IAM policy in `terraform/iam.tf` in step with its
-   chart version.
+   Balancer Controller IAM policy in `terraform/modules/eks/iam.tf` in step
+   with its chart version.
 
 The Kubernetes manifests keep `latest` as the bootstrap/default image tag, but
 the CI/CD deployment updates the live Deployments to the tags CI builds.
