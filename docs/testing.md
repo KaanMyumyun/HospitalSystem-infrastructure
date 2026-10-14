@@ -23,6 +23,10 @@ A full run takes about two minutes. Some suites need `terraform`, `kubectl`,
 and the Python packages `jmespath` and `PyYAML`. Without them that suite skips
 itself; CI treats a skip as a failure.
 
+`tests/test_docs_links.py` also checks every relative link, image and
+`#anchor` in the README and `docs/`, so renaming a heading or moving a file
+can't leave a dead link.
+
 The other checks locally (the workflow pins each tool's version):
 
 ```bash
