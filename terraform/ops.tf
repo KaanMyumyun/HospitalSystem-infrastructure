@@ -6,11 +6,11 @@ locals {
   # scripts/deploy-release.py reads these on the ops instance.
   deploy_settings = {
     AWS_REGION          = var.aws_region
-    EKS_CLUSTER         = aws_eks_cluster.main.name
-    EKS_SERVER          = aws_eks_cluster.main.endpoint
-    EKS_CA              = aws_eks_cluster.main.certificate_authority[0].data
+    EKS_CLUSTER         = module.eks.cluster_name
+    EKS_SERVER          = module.eks.endpoint
+    EKS_CA              = module.eks.certificate_authority_data
     K8S_NAMESPACE       = local.k8s_namespace
-    ECR_ENDPOINT        = "https://${aws_vpc_endpoint.ecr_api.dns_entry[0].dns_name}"
+    ECR_ENDPOINT        = "https://${module.network.ecr_api_endpoint_dns_name}"
     BACKEND_REPOSITORY  = aws_ecr_repository.backend.repository_url
     FRONTEND_REPOSITORY = aws_ecr_repository.frontend.repository_url
   }
@@ -29,7 +29,7 @@ locals {
 resource "aws_instance" "ops" {
   ami                         = data.aws_ssm_parameter.al2023_ami.insecure_value
   instance_type               = "t3.micro"
-  subnet_id                   = aws_subnet.private_a.id
+  subnet_id                   = module.network.private_subnet_ids[0]
   vpc_security_group_ids      = [aws_security_group.ops.id]
   iam_instance_profile        = aws_iam_instance_profile.ops.name
   associate_public_ip_address = false
@@ -57,11 +57,12 @@ resource "aws_instance" "ops" {
     ignore_changes = [ami]
   }
 
-  depends_on = [aws_vpc_endpoint.ssm]
+  # The SSM agent registers through the network's SSM endpoints.
+  depends_on = [module.network]
 }
 
 resource "aws_eks_access_entry" "ops" {
-  cluster_name      = aws_eks_cluster.main.name
+  cluster_name      = module.eks.cluster_name
   principal_arn     = aws_iam_role.ops.arn
   kubernetes_groups = [local.k8s_deploy_group]
   type              = "STANDARD"

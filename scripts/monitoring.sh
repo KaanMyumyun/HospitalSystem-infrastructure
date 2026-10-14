@@ -781,7 +781,7 @@ section_eks() {
   if ! addons="$(awsr eks list-addons --cluster-name "$EKS_CLUSTER_NAME" --query 'addons' --output text 2>&1)"; then
     fail "Could not list the EKS add-ons: $(last_line "$addons")"
   elif [ -z "$addons" ]; then
-    warn "No managed add-ons; terraform/eks.tf manages vpc-cni, coredns and kube-proxy, so run ./scripts/tf.sh apply"
+    warn "No managed add-ons; terraform/modules/eks manages vpc-cni, coredns and kube-proxy, so run ./scripts/tf.sh apply"
   else
     for addon in $addons; do
       if ! row="$(

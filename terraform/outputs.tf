@@ -24,7 +24,7 @@ output "github_actions_variables" {
 
 output "cluster_name" {
   description = "EKS cluster name."
-  value       = aws_eks_cluster.main.name
+  value       = module.eks.cluster_name
 }
 
 output "account_id" {
@@ -79,12 +79,12 @@ output "ops_instance_id" {
 
 output "load_balancer_controller_role_arn" {
   description = "AWS Load Balancer Controller IAM role ARN."
-  value       = aws_iam_role.load_balancer_controller.arn
+  value       = module.eks.load_balancer_controller_role_arn
 }
 
 output "eks_node_role_arn" {
   description = "EKS node group IAM role ARN."
-  value       = aws_iam_role.eks_node.arn
+  value       = module.eks.node_role_arn
 }
 
 output "acm_certificate_arn" {
@@ -109,22 +109,22 @@ output "acm_validation_record_value" {
 
 output "vpc_id" {
   description = "VPC ID."
-  value       = aws_vpc.kubes.id
+  value       = module.network.vpc_id
 }
 
 output "public_subnet_ids" {
   description = "Public subnet IDs used by internet-facing load balancers."
-  value       = [aws_subnet.public_a.id, aws_subnet.public_b.id]
+  value       = module.network.public_subnet_ids
 }
 
 output "private_subnet_ids" {
   description = "Private subnet IDs used by EKS workloads."
-  value       = [aws_subnet.private_a.id, aws_subnet.private_b.id]
+  value       = module.network.private_subnet_ids
 }
 
 output "nat_public_ips" {
   description = "Public IPs the cluster's outbound internet traffic comes from."
-  value       = [aws_eip.nat_a.public_ip, aws_eip.nat_b.public_ip]
+  value       = module.network.nat_public_ips
 }
 
 output "db_endpoint" {

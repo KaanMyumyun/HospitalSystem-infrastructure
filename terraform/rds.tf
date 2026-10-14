@@ -6,7 +6,7 @@
 resource "aws_db_subnet_group" "main" {
   name        = local.db_identifier
   description = "HospitalSystem PostgreSQL in the private subnets"
-  subnet_ids  = [aws_subnet.private_a.id, aws_subnet.private_b.id]
+  subnet_ids  = module.network.private_subnet_ids
 
   tags = {
     Name = "${local.db_identifier}-Terraform"
@@ -45,7 +45,7 @@ resource "aws_db_instance" "main" {
   # Major version only: RDS installs minor versions itself
   # (auto_minor_version_upgrade), and Terraform doesn't plan them back.
   engine_version = "18"
-  instance_class = "db.t4g.micro"
+  instance_class = var.db_instance_class
 
   allocated_storage = 20
   storage_type      = "gp2"
@@ -64,11 +64,11 @@ resource "aws_db_instance" "main" {
   db_subnet_group_name   = aws_db_subnet_group.main.name
   vpc_security_group_ids = [aws_security_group.db.id]
   publicly_accessible    = false
-  multi_az               = false
+  multi_az               = var.db_multi_az
 
   # Point-in-time restore while the stack is up. Nothing outlives the
   # instance, so a teardown leaves nothing billing.
-  backup_retention_period  = 1
+  backup_retention_period  = var.db_backup_retention_days
   delete_automated_backups = true
   copy_tags_to_snapshot    = true
   skip_final_snapshot      = true

@@ -4,6 +4,27 @@ variable "aws_region" {
   default     = "eu-north-1"
 }
 
+variable "availability_zones" {
+  description = "Letters of the availability zones in aws_region the VPC spans. Each gets a public and a private subnet and, unless single_nat_gateway is set, a NAT gateway."
+  type        = list(string)
+  default     = ["a", "b"]
+
+  validation {
+    condition = (
+      length(var.availability_zones) >= 2 && length(var.availability_zones) <= 8
+      && length(distinct(var.availability_zones)) == length(var.availability_zones)
+      && alltrue([for zone in var.availability_zones : can(regex("^[a-z]$", zone))])
+    )
+    error_message = "availability_zones must be 2 to 8 different letters, such as [\"a\", \"b\"]. EKS and RDS need subnets in at least two zones."
+  }
+}
+
+variable "single_nat_gateway" {
+  description = "Route every private subnet through one NAT gateway instead of one per availability zone. Cheaper, but an outage in that zone cuts outbound traffic from all of them."
+  type        = bool
+  default     = false
+}
+
 variable "environment" {
   description = "Deployment environment name."
   type        = string
@@ -20,6 +41,52 @@ variable "eks_version" {
   description = "Kubernetes version of the EKS control plane. EKS upgrades one minor version at a time; see the README for the order."
   type        = string
   default     = "1.36"
+}
+
+variable "node_instance_types" {
+  description = "EC2 instance types of the EKS node group."
+  type        = list(string)
+  default     = ["t3.small"]
+}
+
+variable "node_desired_size" {
+  description = "Node count when the app is running. ansible/playbooks/resume.yml scales back to it after pause.yml scaled the node group to 0."
+  type        = number
+  default     = 2
+}
+
+variable "node_max_size" {
+  description = "Most nodes the node group can have. Nothing adds nodes on its own, so this only caps what resume.yml or a manual scale sets."
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.node_max_size >= var.node_desired_size
+    error_message = "node_max_size must be at least node_desired_size."
+  }
+}
+
+variable "db_instance_class" {
+  description = "RDS instance class of the PostgreSQL database. Its memory sets max_connections (79 on db.t4g.micro), and the backend pods' pools in ansible/playbooks/backend-secret.yml have to fit under it."
+  type        = string
+  default     = "db.t4g.micro"
+}
+
+variable "db_multi_az" {
+  description = "Keep a standby copy of the database in a second availability zone, which RDS fails over to. Doubles the instance and storage cost."
+  type        = bool
+  default     = false
+}
+
+variable "db_backup_retention_days" {
+  description = "Days of automated backups, for point-in-time restore while the stack is up. Destroy deletes them with the instance either way."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.db_backup_retention_days >= 1 && var.db_backup_retention_days <= 35
+    error_message = "db_backup_retention_days must be between 1 and 35."
+  }
 }
 
 variable "github_repository" {

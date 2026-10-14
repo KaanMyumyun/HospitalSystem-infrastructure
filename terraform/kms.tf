@@ -49,7 +49,7 @@ resource "aws_kms_key" "main" {
       {
         Sid       = "EksSecretsEncryption"
         Effect    = "Allow"
-        Principal = { AWS = aws_iam_role.eks_cluster.arn }
+        Principal = { AWS = module.eks.cluster_role_arn }
         Action = [
           "kms:Decrypt",
           "kms:DescribeKey",
@@ -60,7 +60,7 @@ resource "aws_kms_key" "main" {
       {
         Sid       = "EksSecretsGrants"
         Effect    = "Allow"
-        Principal = { AWS = aws_iam_role.eks_cluster.arn }
+        Principal = { AWS = module.eks.cluster_role_arn }
         Action    = "kms:CreateGrant"
         Resource  = "*"
         Condition = {

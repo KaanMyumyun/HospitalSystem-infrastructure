@@ -3,7 +3,7 @@ locals {
   # so the ARN is built from the name instead of read from the resource.
   alerts_topic_name = "${var.project_name}-alerts"
   alerts_topic_arn  = "arn:aws:sns:${var.aws_region}:${local.account_id}:${local.alerts_topic_name}"
-  node_asg_name     = aws_eks_node_group.hospitalsystempr1.resources[0].autoscaling_groups[0].name
+  node_asg_name     = module.eks.node_asg_name
 }
 
 resource "aws_sns_topic" "alerts" {

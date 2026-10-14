@@ -16,7 +16,8 @@ import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
-RESOURCES = ["aws_eks_cluster.main", "aws_vpc.kubes", "terraform_data.kubernetes_cleanup", "aws_db_instance.main"]
+RESOURCES = ["module.eks.aws_eks_cluster.main", "module.network.aws_vpc.main", "terraform_data.kubernetes_cleanup",
+             "aws_db_instance.main"]
 OUTPUTS = {"account_id": "123456789012", "cluster_name": "eks-pr1", "vpc_id": "vpc-1",
            "ops_instance_id": "i-ops"}
 BUCKET = "hospitalsystem-tfstate-123456789012"
@@ -319,8 +320,8 @@ class TeardownTests(FakeRepoTest):
 
     def test_save_is_skipped_without_a_database_or_a_cluster(self):
         for resources, message in (
-            (["aws_eks_cluster.main", "aws_vpc.kubes"], "No database in state"),
-            (["aws_db_instance.main", "aws_vpc.kubes"], "The cluster is gone, so nothing can reach the database"),
+            (["module.eks.aws_eks_cluster.main", "module.network.aws_vpc.main"], "No database in state"),
+            (["aws_db_instance.main", "module.network.aws_vpc.main"], "The cluster is gone, so nothing can reach the database"),
         ):
             with self.subTest(resources=resources):
                 result = self.run_teardown(resources=resources)
@@ -328,6 +329,12 @@ class TeardownTests(FakeRepoTest):
                 self.assertIn(f"{message}; seed.sql stays as it is.", result.stdout)
                 self.assertNotIn(SAVE, self.calls())
                 self.assertEqual(self.remaining, [])
+
+    def test_database_is_saved_with_the_cluster_at_its_old_address(self):
+        # A stack built before the cluster moved into terraform/modules/eks.
+        result = self.run_teardown(resources=["aws_eks_cluster.main", "aws_vpc.kubes", "aws_db_instance.main"])
+        self.assertExit(result, 0)
+        self.assertEqual(self.calls()[0], SAVE)
 
     def test_old_count_address_of_the_cleanup_is_targeted(self):
         result = self.run_teardown(resources=["aws_vpc.kubes", "terraform_data.kubernetes_cleanup[0]"])
@@ -354,7 +361,8 @@ class TeardownTests(FakeRepoTest):
         self.assertExit(result, 1)
         self.assertIn("couldn't be deleted", result.stderr)
         self.assertNotIn("terraform destroy -auto-approve -input=false -no-color", self.calls())
-        self.assertEqual(self.remaining, ["aws_eks_cluster.main", "aws_vpc.kubes", "aws_db_instance.main"])
+        self.assertEqual(self.remaining, ["module.eks.aws_eks_cluster.main", "module.network.aws_vpc.main",
+                                          "aws_db_instance.main"])
 
     def test_failed_destroy_cleans_up_deletes_the_cluster_group_and_retries(self):
         result = self.run_teardown(fail={"full": 1})
@@ -372,12 +380,12 @@ class TeardownTests(FakeRepoTest):
         result = self.run_teardown(fail={"full": 2})
         self.assertExit(result, 1)
         self.assertIn("The destroy failed twice", result.stderr)
-        self.assertIn("Still in Terraform state:\n  aws_eks_cluster.main", result.stdout)
+        self.assertIn("Still in Terraform state:\n  module.eks.aws_eks_cluster.main", result.stdout)
         self.assertFalse(any(call.startswith(("account-sweep.py", "terraform bootstrap")) for call in self.calls()))
         self.assertTrue(self.bucket_exists)
 
     def test_state_left_after_the_destroy_keeps_the_bucket(self):
-        result = self.run_teardown(env={"FAKE_DESTROY_LEAVES": "aws_vpc.kubes"})
+        result = self.run_teardown(env={"FAKE_DESTROY_LEAVES": "module.network.aws_vpc.main"})
         self.assertExit(result, 1)
         self.assertIn("Terraform state still has 1 resource(s).", result.stdout)
         self.assertIn(f"Kept {BUCKET}", result.stdout)

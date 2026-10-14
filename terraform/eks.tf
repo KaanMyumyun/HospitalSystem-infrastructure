@@ -1,117 +1,22 @@
-resource "aws_cloudwatch_log_group" "eks_cluster" {
-  name              = "/aws/eks/${local.cluster_name}/cluster"
-  retention_in_days = 365
-  kms_key_id        = aws_kms_key.main.arn
-}
+# No depends_on here: the KMS key policy names the cluster role, and the
+# cluster uses the key. Terraform orders the resources inside the module one
+# by one, which a depends_on on the whole module would turn into a cycle.
+module "eks" {
+  source = "./modules/eks"
 
-resource "aws_eks_cluster" "main" {
-  name     = local.cluster_name
-  role_arn = aws_iam_role.eks_cluster.arn
-  version  = var.eks_version
+  cluster_name       = local.cluster_name
+  kubernetes_version = var.eks_version
+  environment        = var.environment
+  aws_region         = var.aws_region
+  account_id         = local.account_id
+  subnet_ids         = module.network.private_subnet_ids
+  vpc_arn            = module.network.vpc_arn
+  kms_key_arn        = aws_kms_key.main.arn
+  certificate_arn    = aws_acm_certificate.app.arn
 
-  enabled_cluster_log_types = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
-
-  encryption_config {
-    resources = ["secrets"]
-
-    provider {
-      key_arn = aws_kms_key.main.arn
-    }
-  }
-
-  kubernetes_network_config {
-    ip_family         = "ipv4"
-    service_ipv4_cidr = "172.20.0.0/16"
-  }
-
-  zonal_shift_config {
-    enabled = false
-  }
-
-  access_config {
-    # Preserve existing managed-node and other aws-auth mappings during migration.
-    # Deploy roles use access entries, which take precedence for those principals.
-    authentication_mode                         = "API_AND_CONFIG_MAP"
-    bootstrap_cluster_creator_admin_permissions = true
-  }
-
-  vpc_config {
-    endpoint_private_access = true
-    endpoint_public_access  = false
-    subnet_ids              = [aws_subnet.private_a.id, aws_subnet.private_b.id]
-  }
-
-  tags = {
-    Name = "${local.cluster_name}-Terraform"
-    ENV  = var.environment
-  }
-
-  depends_on = [
-    aws_cloudwatch_log_group.eks_cluster,
-    aws_iam_role_policy_attachment.eks_cluster_policy
-  ]
-}
-
-resource "aws_eks_node_group" "hospitalsystempr1" {
-  cluster_name    = aws_eks_cluster.main.name
-  node_group_name = "hospitalsystempr1"
-  node_role_arn   = aws_iam_role.eks_node.arn
-  subnet_ids      = [aws_subnet.private_a.id, aws_subnet.private_b.id]
-
-  ami_type       = "AL2023_x86_64_STANDARD"
-  capacity_type  = "ON_DEMAND"
-  disk_size      = 20
-  instance_types = ["t3.small"]
-
-  scaling_config {
-    desired_size = local.node_desired_size
-    max_size     = 2
-    min_size     = 0
-  }
-
-  update_config {
-    max_unavailable = 1
-    update_strategy = "DEFAULT"
-  }
-
-  tags = {
-    Name                        = "hospitalsystempr1-Terraform"
-    "eks:cluster-name"          = local.cluster_name
-    "eks:nodegroup-name"        = "hospitalsystempr1"
-    (local.eks_cluster_tag_key) = "owned"
-  }
-
-  lifecycle {
-    ignore_changes = [scaling_config[0].desired_size]
-  }
-
-  depends_on = [
-    aws_iam_role_policy_attachment.eks_node_cni,
-    aws_iam_role_policy_attachment.eks_node_ecr_public_readonly,
-    aws_iam_role_policy_attachment.eks_node_ecr_readonly,
-    aws_iam_role_policy_attachment.eks_node_worker
-  ]
-}
-
-data "aws_eks_addon_version" "core" {
-  for_each = toset(["vpc-cni", "coredns", "kube-proxy"])
-
-  addon_name         = each.key
-  kubernetes_version = aws_eks_cluster.main.version
-}
-
-resource "aws_eks_addon" "core" {
-  for_each = data.aws_eks_addon_version.core
-
-  cluster_name                = aws_eks_cluster.main.name
-  addon_name                  = each.key
-  addon_version               = each.value.version
-  resolve_conflicts_on_create = "OVERWRITE"
-  resolve_conflicts_on_update = "OVERWRITE"
-  preserve                    = true
-
-  # Without this the VPC CNI accepts NetworkPolicies but enforces none of them.
-  configuration_values = each.key == "vpc-cni" ? jsonencode({ enableNetworkPolicy = "true" }) : null
-
-  depends_on = [aws_eks_node_group.hospitalsystempr1]
+  node_group_name     = "hospitalsystempr1"
+  node_role_name      = "hospital-pr1-node-role"
+  node_instance_types = var.node_instance_types
+  node_desired_size   = var.node_desired_size
+  node_max_size       = var.node_max_size
 }
