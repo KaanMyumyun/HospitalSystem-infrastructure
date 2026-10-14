@@ -6,7 +6,9 @@ Infrastructure and Kubernetes deployment configuration for:
 
 Current AWS deployment target:
 
-- Public app URL: [https://app.hospitalsyst.cc](https://app.hospitalsyst.cc)
+- App: [app.hospitalsyst.cc](https://app.hospitalsyst.cc), while the stack
+  is deployed
+- Always-on demo: [hospitalsystem.pages.dev](https://hospitalsystem.pages.dev/)
 - Runtime platform: Amazon EKS
 - Container registry: Amazon ECR
 - Ingress: AWS Application Load Balancer
