@@ -1184,6 +1184,11 @@ stack:
 - The dump replaces `seed.sql` only if `pg_dump` succeeded and the file ends
   like a complete dump. The old `seed.sql` is kept in the ignored
   `.generated/seed-backups/`, one timestamped file per save.
+- The dump comes over gzip'd, and a cut download is tried up to three times.
+  The SSM tunnel stops long downloads from the cluster after 4 to 7 MB, and the
+  2026-10-14 demo data dumps to 6 MB of SQL but only 1.2 MB gzip'd. Uploads,
+  such as loading `seed.sql`, aren't affected. A database whose gzip'd dump
+  reaches a few MB, roughly 20 MB of SQL, needs the dump fetched in pieces.
 - A database without tables, from a bootstrap that failed before the seed,
   leaves `seed.sql` alone.
 - If the dump fails, the teardown stops before it destroys anything. The dump

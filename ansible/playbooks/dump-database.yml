@@ -10,6 +10,11 @@
 # database.yml. The dump replaces seed.sql only when pg_dump succeeded and the
 # file ends like a complete dump, and the old seed.sql is kept in
 # .generated/seed-backups/. A database without tables leaves seed.sql alone.
+#
+# The SSM tunnel to the cluster cuts downloads after a few MB: in tests on
+# 2026-10-14, streams stopped after 4 to 7 MB, over WebSocket and SPDY alike,
+# while 8 MB uploads went through. So the dump comes over gzip'd, about a
+# fifth of its size, and a cut download is tried again.
 - name: Save the backend database into seed.sql
   hosts: local
   gather_facts: false
@@ -20,6 +25,9 @@
     db_password: "{{ lookup('ansible.builtin.env', 'HOSPITALSYSTEM_DB_PASSWORD') }}"
     db_seed_path: "{{ playbook_dir }}/../../seed.sql"
     db_dump_path: "{{ playbook_dir }}/../../.generated/seed.sql.partial"
+    db_dump_gz_path: "{{ playbook_dir }}/../../.generated/seed.sql.gz.partial"
+    # Seconds between download attempts; the tests set 0.
+    db_dump_retry_delay: 5
     db_backup_dir: "{{ playbook_dir }}/../../.generated/seed-backups"
     db_client_pod: hospital-db-dump
     # The password is the first line of stdin.
@@ -28,11 +36,12 @@
       IFS= read -r PGPASSWORD
       export PGPASSWORD
       psql -X -A -t -c "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'"
+    # pipefail: a pg_dump that fails fails the script, not just gzip.
     db_dump_script: |
-      set -eu
+      set -eu -o pipefail
       IFS= read -r PGPASSWORD
       export PGPASSWORD
-      exec pg_dump --no-owner --no-privileges
+      pg_dump --no-owner --no-privileges | gzip -c
 
   tasks:
     - name: Require the database variables Terraform writes
@@ -168,24 +177,37 @@
           when: db_tables.stdout | int > 0
           block:
             # Straight into a file only you can read, so the dump never
-            # passes through Ansible.
+            # passes through Ansible. A download the tunnel cut makes kubectl
+            # exit 1, and each attempt starts the file over.
             - name: Run pg_dump
               ansible.builtin.shell:
                 cmd: >-
                   umask 077;
                   kubectl exec --stdin {{ db_client_pod | quote }} --namespace={{ k8s_namespace | quote }}
-                  -- sh -c {{ db_dump_script | quote }} > {{ db_dump_path | quote }}
+                  -- sh -c {{ db_dump_script | quote }} > {{ db_dump_gz_path | quote }}
                 stdin: "{{ db_password }}"
               register: db_dump
               changed_when: false
               failed_when: false
+              until: db_dump.rc == 0
+              retries: 2
+              delay: "{{ db_dump_retry_delay }}"
               # stdin holds the password.
               no_log: true
 
+            # Runs after a failed dump too, so the checks below have a file to
+            # read: gunzip writes what it can and exits non-zero.
+            - name: Unpack the dump
+              ansible.builtin.shell:
+                cmd: umask 077; gunzip -c {{ db_dump_gz_path | quote }} > {{ db_dump_path | quote }}
+              register: db_unpack
+              changed_when: false
+              failed_when: false
+
             - name: Show the pg_dump errors
               ansible.builtin.debug:
-                msg: "{{ db_dump.stderr_lines }}"
-              when: db_dump.stderr | length > 0
+                msg: "{{ db_dump.stderr_lines + db_unpack.stderr_lines }}"
+              when: (db_dump.stderr + db_unpack.stderr) | length > 0
 
             - name: Read the end of the dump
               ansible.builtin.command:
@@ -199,6 +221,7 @@
               ansible.builtin.assert:
                 that:
                   - db_dump.rc == 0
+                  - db_unpack.rc == 0
                   - "'-- PostgreSQL database dump complete' in db_dump_end.stdout_lines"
                 fail_msg: >-
                   pg_dump failed or its output is incomplete (any errors are
@@ -242,8 +265,11 @@
       always:
         - name: Delete the partial dump
           ansible.builtin.file:
-            path: "{{ db_dump_path }}"
+            path: "{{ item }}"
             state: absent
+          loop:
+            - "{{ db_dump_path }}"
+            - "{{ db_dump_gz_path }}"
 
         - name: Delete the dump pod
           ansible.builtin.command:

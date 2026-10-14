@@ -59,8 +59,10 @@ ALTER TABLE ONLY public.patients
 
 # The pod exists from kubectl run until kubectl delete.
 # FAKE_NODES: what get nodes prints. FAKE_TABLES: the table count, or "fail"
-# when psql can't connect. FAKE_DUMP: "complete", "cut" (stops before the end
-# but exits 0) or "fail" (stops and exits 1).
+# when psql can't connect. FAKE_DUMP, for the gzip'd dump the pod sends:
+# "complete"; "cut" (pg_dump stopped before the end but exited 0, so a whole
+# gzip of half a dump); "fail" (the download stops partway and kubectl exits 1,
+# on every try); "flaky" (like "fail", but only on the first try).
 FAKE_KUBECTL = r'''
 import json, os, sys
 from pathlib import Path
@@ -84,10 +86,20 @@ elif args[0] == "run":
 elif args[0] == "wait":
     sys.exit(0 if pod.exists() else 1)
 elif args[0] == "exec" and "pg_dump" in args[-1]:
+    import gzip
     mode = os.environ.get("FAKE_DUMP", "complete")
-    sys.stdout.write(DUMP if mode == "complete" else DUMP.split("--\n-- PostgreSQL database dump complete")[0])
-    if mode == "fail":
-        print("pg_dump: error: SSL connection has been closed unexpectedly", file=sys.stderr)
+    tries = Path(os.environ["FAKE_LOG"] + ".dumps")
+    attempt = int(tries.read_text()) + 1 if tries.exists() else 1
+    tries.write_text(str(attempt))
+    whole = gzip.compress(DUMP.encode())
+    if mode == "complete" or (mode == "flaky" and attempt > 1):
+        sys.stdout.buffer.write(whole)
+    elif mode == "cut":
+        sys.stdout.buffer.write(gzip.compress(DUMP.split("--\n-- PostgreSQL database dump complete")[0].encode()))
+    else:
+        sys.stdout.buffer.write(whole[:len(whole) // 2])
+        print("pg_dump: error: SSL connection has been closed unexpectedly" if mode == "fail"
+              else "error: error reading from error stream: read message: unexpected EOF", file=sys.stderr)
         sys.exit(1)
 elif args[0] == "exec":
     tables = os.environ.get("FAKE_TABLES", "4")
@@ -131,7 +143,8 @@ class DumpDatabaseTests(TestCase):
             environment["HOSPITALSYSTEM_DB_PASSWORD"] = password
         # kubeconfig_configured skips tasks/kubeconfig.yml and its SSM tunnel.
         return subprocess.run(
-            [ANSIBLE_PLAYBOOK, "ansible/playbooks/dump-database.yml", "-e", '{"kubeconfig_configured": true}'],
+            [ANSIBLE_PLAYBOOK, "ansible/playbooks/dump-database.yml",
+             "-e", '{"kubeconfig_configured": true, "db_dump_retry_delay": 0}'],
             cwd=repo, env=environment, capture_output=True, text=True, timeout=120,
         )
 
@@ -161,6 +174,7 @@ class DumpDatabaseTests(TestCase):
         self.assertEqual(self.steps()[-1], "delete pod")
         self.assertFalse(self.pod.exists())
         self.assertFalse((self.repo / ".generated/seed.sql.partial").exists())
+        self.assertFalse((self.repo / ".generated/seed.sql.gz.partial").exists())
 
     def test_complete_dump_replaces_seed_sql_and_keeps_the_old_one(self):
         result = self.run_playbook()
@@ -194,6 +208,9 @@ class DumpDatabaseTests(TestCase):
         self.assertEqual(container["securityContext"]["capabilities"]["drop"], ["ALL"])
         execs = [call for call in self.calls() if call["args"][0] == "exec"]
         self.assertEqual([call["stdin"] for call in execs], ["fake-password\n"] * 2)
+        # gzip'd in the pod, and pg_dump's own failure still fails the script.
+        self.assertIn("set -eu -o pipefail", execs[1]["args"][-1])
+        self.assertIn("pg_dump --no-owner --no-privileges | gzip -c", execs[1]["args"][-1])
         self.assertFalse(any("fake-password" in arg for call in self.calls() for arg in call["args"]))
 
     def test_first_dump_writes_seed_sql_without_a_backup(self):
@@ -210,11 +227,22 @@ class DumpDatabaseTests(TestCase):
                 result = self.run_playbook(env={"FAKE_DUMP": mode})
                 self.assertOk(result, False)
                 self.assertIn("seed.sql was left as it is", result.stdout)
+                # A failed download is tried three times; a cut-off dump that
+                # exited 0 isn't.
+                self.assertEqual(self.steps().count("exec pg_dump"), 3 if mode == "fail" else 1)
                 if mode == "fail":
                     self.assertIn("pg_dump: error: SSL connection has been closed unexpectedly", result.stdout)
                 self.assertEqual(self.seed(), OLD_SEED)
                 self.assertEqual(self.backups(), [])
                 self.assertCleanedUp()
+
+    def test_cut_download_is_tried_again(self):
+        result = self.run_playbook(env={"FAKE_DUMP": "flaky"})
+        self.assertOk(result)
+        self.assertEqual(self.steps().count("exec pg_dump"), 2)
+        self.assertEqual(self.seed(), DUMP)
+        self.assertEqual(len(self.backups()), 1)
+        self.assertCleanedUp()
 
     def test_database_without_tables_leaves_seed_sql_alone(self):
         result = self.run_playbook(env={"FAKE_TABLES": "0"})
