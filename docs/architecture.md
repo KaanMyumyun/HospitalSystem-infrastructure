@@ -65,8 +65,8 @@ Ansible renders the templates in `kubernetes/` and applies them (see
   (see [Pause and scaling](operations.md#pause-and-scaling)).
 - An ExternalSecret that copies the backend secret from AWS Secrets Manager.
 - A Job that runs the backend image's database migrations, created by the
-  bootstrap and by `migrate.yml` (see [Database](disaster-recovery.md#database)),
-  never by a deploy.
+  bootstrap and by `migrate.yml` (see
+  [Database](disaster-recovery.md#database)), never by a deploy.
 
 **Routing**
 

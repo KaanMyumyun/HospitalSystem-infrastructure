@@ -89,11 +89,15 @@ python3 scripts/rotate-jwt-key.py       # writes the JWT key into .env.local
 ./scripts/teardown.sh                   # destroy it all when done
 ```
 
+[Local setup](docs/terraform.md#local-setup) describes the values `.env.local`
+needs.
+
 The database starts empty on every new stack, and the bootstrap loads
 `seed.sql` into it. The teardown saves the database back into `seed.sql`
 before it destroys anything, so the next stack starts with the data you left.
 Before the first apply, put a `pg_dump` of the data to start from in
-`seed.sql`, or nobody can sign in (see [Database](docs/disaster-recovery.md#database)).
+`seed.sql`, or nobody can sign in (see
+[Database](docs/disaster-recovery.md#database)).
 
 The stack bills roughly $250 a month while it exists, about $215 of it even
 with the nodes paused (see [Costs](docs/operations.md#costs)). After the
@@ -114,7 +118,8 @@ apply, confirm the SNS subscription email, or no alarm email arrives.
 | `CICD/` | A copy of the application repository's workflows, not run here |
 | `coursework/` | University coursework (Information Systems) describing this project, in Bulgarian |
 
-The full tree is in [docs/architecture.md](docs/architecture.md#repository-contents).
+The full tree is in
+[docs/architecture.md](docs/architecture.md#repository-contents).
 
 ## Documentation
 
