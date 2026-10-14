@@ -6,7 +6,7 @@ of it needs AWS credentials:
 | Job | What it checks |
 | --- | -------------- |
 | No state or env files | No Terraform state or tfvars, `.env*` file other than `.env.example`, kubeconfig or generated file is tracked, or was added in any commit of the push or pull request. |
-| Terraform | `fmt`, `validate` and TFLint, for `terraform/` and `terraform/bootstrap/`. |
+| Terraform | `fmt` and `validate` for `terraform/` and `terraform/bootstrap/`, and TFLint over every directory under `terraform/`, the modules included. |
 | Ansible | A syntax check of every playbook, and `ansible-lint`. |
 | Kubernetes manifests | Every template renders with stand-in values and passes kubeconform. |
 | Shell scripts | ShellCheck on every tracked `*.sh`; warnings and errors fail. |
@@ -28,7 +28,7 @@ The other checks locally (the workflow pins each tool's version):
 ```bash
 ./scripts/tf.sh fmt -check -recursive
 ./scripts/tf.sh validate
-(cd terraform && tflint)
+(cd terraform && tflint --recursive)
 ansible-playbook --syntax-check ansible/playbooks/*.yml
 ansible-lint ansible/
 shellcheck --severity=warning $(git ls-files '*.sh')
