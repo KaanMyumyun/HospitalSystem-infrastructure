@@ -1,8 +1,10 @@
 # Portable One-Apply AWS Rebuild Plan
 
 > **Status: done.** This plan is implemented and kept as a record of the
-> design; the README describes how things work now. Where the implementation
-> differs from the plan:
+> design; the [README](../../README.md) and the other docs describe how things
+> work now. The plan was written for an older AWS account, whose ID and
+> certificate ID are replaced with `<account-id>` and `<certificate-id>` here.
+> Where the implementation differs from the plan:
 >
 > - Section 9: Terraform doesn't pass values with `-e`. It writes them to the
 >   ignored `ansible/group_vars/all/terraform.yml` on every apply, and
@@ -12,6 +14,12 @@
 >   SSM document instead of calling the cluster directly.
 > - Run Terraform through `./scripts/tf.sh`, which loads `.env.local`, rather
 >   than `terraform apply` in `terraform/`.
+> - The database didn't stay outside AWS. Since 2026-10-12 it's an RDS
+>   PostgreSQL instance in Terraform, and the bootstrap builds the connection
+>   string from its endpoint and `HOSPITALSYSTEM_DB_PASSWORD`, so there's no
+>   `HOSPITALSYSTEM_CONNECTION_STRING` to supply.
+> - Since 2026-10-14 the network and the EKS cluster are Terraform modules
+>   (`terraform/modules/`), not the flat files this plan describes.
 
 ## Goal
 
@@ -45,12 +53,12 @@ The external database remains outside AWS/Terraform and is supplied through `HOS
 
 The current repository is not portable to a new AWS account because it contains hardcoded values from the current account:
 
-- AWS account ID: `147914447694`
+- AWS account ID: `<account-id>`
 - ECR image URLs:
-  - `147914447694.dkr.ecr.eu-north-1.amazonaws.com/hospital-backend:latest`
-  - `147914447694.dkr.ecr.eu-north-1.amazonaws.com/hospital-frontend:latest`
+  - `<account-id>.dkr.ecr.eu-north-1.amazonaws.com/hospital-backend:latest`
+  - `<account-id>.dkr.ecr.eu-north-1.amazonaws.com/hospital-frontend:latest`
 - ACM certificate ARN:
-  - `arn:aws:acm:eu-north-1:147914447694:certificate/f82d2036-d650-45a0-bd19-3e67ccc16e39`
+  - `arn:aws:acm:eu-north-1:<account-id>:certificate/<certificate-id>`
 - IAM role ARNs in Ansible variables.
 
 Important AWS resources also currently exist outside Terraform:
@@ -121,7 +129,7 @@ locals {
 }
 ```
 
-Replace all hardcoded `147914447694` usage in Terraform-generated values with `local.account_id`.
+Replace all hardcoded `<account-id>` usage in Terraform-generated values with `local.account_id`.
 
 Files/classes of values to update:
 
@@ -372,7 +380,7 @@ In a new AWS account, no import is needed. Terraform creates it.
 In the current AWS account, import before apply:
 
 ```bash
-terraform import aws_iam_openid_connect_provider.github_actions arn:aws:iam::147914447694:oidc-provider/token.actions.githubusercontent.com
+terraform import aws_iam_openid_connect_provider.github_actions arn:aws:iam::<account-id>:oidc-provider/token.actions.githubusercontent.com
 ```
 
 ### 6. Add Terraform-Managed ACM Certificate
@@ -588,7 +596,7 @@ These imports are only for adopting resources in the current AWS account. They a
 ```bash
 terraform import aws_ecr_repository.backend hospital-backend
 terraform import aws_ecr_repository.frontend hospital-frontend
-terraform import aws_iam_openid_connect_provider.github_actions arn:aws:iam::147914447694:oidc-provider/token.actions.githubusercontent.com
+terraform import aws_iam_openid_connect_provider.github_actions arn:aws:iam::<account-id>:oidc-provider/token.actions.githubusercontent.com
 ```
 
 For ACM in the current account, two choices exist:
@@ -642,7 +650,7 @@ terraform plan
 
 Confirm:
 
-- No hardcoded `147914447694` remains in Terraform-generated runtime values.
+- No hardcoded `<account-id>` remains in Terraform-generated runtime values.
 - ECR repositories are created or imported.
 - GitHub OIDC provider is managed by Terraform.
 - ACM certificate and Cloudflare validation CNAME are planned.

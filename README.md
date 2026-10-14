@@ -126,3 +126,4 @@ The full tree is in [docs/architecture.md](docs/architecture.md#repository-conte
 | [Monitoring](docs/monitoring.md) | `monitoring.sh`, the alarms, resource sizing, and which image each app runs |
 | [Disaster recovery](docs/disaster-recovery.md) | Rebuilding the stack, what the teardown does, and how the database carries over in `seed.sql` |
 | [Checks and tests](docs/testing.md) | What CI checks, and running the checks and regression tests locally |
+| [Portable rebuild plan](docs/history/portable-rebuild-plan.md) | The design record behind building the whole stack from one apply in any AWS account |
