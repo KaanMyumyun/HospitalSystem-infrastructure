@@ -73,9 +73,11 @@ Ansible renders the templates in `kubernetes/` and applies them (see
 - An ALB-backed Ingress for `app.hospitalsyst.cc`: `/api` to the backend, `/`
   to the frontend.
 - An HTTPS listener using ACM, which adds `Strict-Transport-Security` (one
-  year), `X-Content-Type-Options: nosniff` and `X-Frame-Options: DENY` to every
-  response and drops the ALB's own `Server` header; no Content-Security-Policy
-  yet.
+  year), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and a
+  Content-Security-Policy to every response, and drops the ALB's own `Server`
+  header. The policy only allows the app's own origin
+  (`default-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`),
+  so a frontend build that calls an API on another host would need it widened.
 
 **Security**
 
