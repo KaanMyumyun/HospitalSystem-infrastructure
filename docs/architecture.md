@@ -52,6 +52,19 @@ Ingress. A few things to know about what it manages:
 - It also runs the Ansible bootstrap after an apply and the Kubernetes cleanup
   before a destroy.
 
+**Email records.** The domain sends and receives no email. Three records in the
+`hospitalsyst.cc` Cloudflare zone say so, and tell mail servers to reject mail
+that claims to come from it:
+
+| Record | Value |
+| ------ | ----- |
+| TXT `hospitalsyst.cc` | `v=spf1 -all` |
+| TXT `_dmarc.hospitalsyst.cc` | `v=DMARC1; p=reject;` |
+| MX `hospitalsyst.cc` | `0 .` (a null MX) |
+
+They were added by hand, outside Terraform, so the teardown leaves them alone. A
+new zone needs them added again.
+
 ## Kubernetes layer
 
 Ansible renders the templates in `kubernetes/` and applies them (see
