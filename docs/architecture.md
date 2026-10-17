@@ -52,6 +52,19 @@ Ingress. A few things to know about what it manages:
 - It also runs the Ansible bootstrap after an apply and the Kubernetes cleanup
   before a destroy.
 
+**Email records.** The domain sends and receives no email. Three records in the
+`hospitalsyst.cc` Cloudflare zone say so, and tell mail servers to reject mail
+that claims to come from it:
+
+| Record | Value |
+| ------ | ----- |
+| TXT `hospitalsyst.cc` | `v=spf1 -all` |
+| TXT `_dmarc.hospitalsyst.cc` | `v=DMARC1; p=reject;` |
+| MX `hospitalsyst.cc` | `0 .` (a null MX) |
+
+They were added by hand, outside Terraform, so the teardown leaves them alone. A
+new zone needs them added again.
+
 ## Kubernetes layer
 
 Ansible renders the templates in `kubernetes/` and applies them (see
@@ -73,9 +86,11 @@ Ansible renders the templates in `kubernetes/` and applies them (see
 - An ALB-backed Ingress for `app.hospitalsyst.cc`: `/api` to the backend, `/`
   to the frontend.
 - An HTTPS listener using ACM, which adds `Strict-Transport-Security` (one
-  year), `X-Content-Type-Options: nosniff` and `X-Frame-Options: DENY` to every
-  response and drops the ALB's own `Server` header; no Content-Security-Policy
-  yet.
+  year), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and a
+  Content-Security-Policy to every response, and drops the ALB's own `Server`
+  header. The policy only allows the app's own origin
+  (`default-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`),
+  so a frontend build that calls an API on another host would need it widened.
 
 **Security**
 
