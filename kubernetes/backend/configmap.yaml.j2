@@ -7,3 +7,12 @@ data:
   ASPNETCORE_ENVIRONMENT: "Production"
   Database__RunMigrationsOnStartup: "false"
   Demo__Enabled: "{{ demo_login_enabled | string | lower }}"
+  # The API reads the client's address from X-Forwarded-For only on requests
+  # from a known proxy. The ALB is the only proxy, as the Cloudflare record
+  # isn't proxied: it reaches the pods from its nodes in the public subnets
+  # and appends the address it saw. Proxying the record would put Cloudflare
+  # in front of it, which needs ForwardedHeaders__ForwardLimit "2" and
+  # Cloudflare's ranges listed here too.
+{% for cidr in public_subnet_cidrs %}
+  ForwardedHeaders__KnownNetworks__{{ loop.index0 }}: "{{ cidr }}"
+{% endfor %}
