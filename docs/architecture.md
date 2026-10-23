@@ -85,6 +85,10 @@ Ansible renders the templates in `kubernetes/` and applies them (see
 
 - An ALB-backed Ingress for `app.hospitalsyst.cc`: `/api` to the backend, `/`
   to the frontend.
+- The ALB appends the client's address to `X-Forwarded-For`. The API reads it
+  from there only on requests from the public subnets, which its ConfigMap
+  lists as `ForwardedHeaders__KnownNetworks__*`, so its rate limits count each
+  client separately.
 - An HTTPS listener using ACM, which adds `Strict-Transport-Security` (one
   year), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and a
   Content-Security-Policy to every response, and drops the ALB's own `Server`
