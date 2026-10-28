@@ -19,9 +19,10 @@ state_bucket_exists() {
   [ "$found" = "$1" ]
 }
 
+# Shows the plan and asks before creating the bucket, like any apply.
 create_state_bucket() {
   terraform -chdir="$BOOTSTRAP_DIR" init -input=false >/dev/null \
-    && terraform -chdir="$BOOTSTRAP_DIR" apply -auto-approve -input=false -var "bucket_name=$1"
+    && terraform -chdir="$BOOTSTRAP_DIR" apply -var "bucket_name=$1"
 }
 
 # Deletes every state version in the bucket too (force_destroy).

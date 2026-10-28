@@ -91,8 +91,11 @@ fi
 if [ "$status" = 1 ]; then
   case "$1" in
     apply | plan | init | import)
-      echo "Creating the state bucket $bucket (terraform/bootstrap)." >&2
-      create_state_bucket "$bucket" >&2
+      echo "No state bucket yet: terraform/bootstrap will create $bucket once you approve it." >&2
+      if ! create_state_bucket "$bucket" >&2; then
+        echo "The state bucket wasn't created, so terraform $1 didn't run." >&2
+        exit 1
+      fi
       ;;
     *)
       echo "There is no state bucket ($bucket), so there is no state: nothing has been applied since the last teardown." >&2
