@@ -53,6 +53,10 @@ if args[0] == "init":
         record.parent.mkdir(exist_ok=True)
         record.write_text(json.dumps({"backend": {"type": "s3", "config": {"bucket": bucket}}}))
 elif bootstrap and args[0] == "apply":
+    # Like terraform: without -auto-approve, only "yes" on stdin applies.
+    if "-auto-approve" not in args and sys.stdin.readline().strip() != "yes":
+        print("Error: Apply cancelled.")
+        sys.exit(1)
     state["bucket"] = True
     save()
 elif bootstrap and args[0] == "destroy":
@@ -415,16 +419,29 @@ class TfWrapperTests(FakeRepoTest):
     def test_plan_or_apply_without_a_bucket_creates_it_and_initializes_first(self):
         for command in ("plan", "apply"):
             with self.subTest(command=command):
-                result = self.run_tf(command, "-no-color", bucket=False, backend=None)
+                result = self.run_tf(command, "-no-color", bucket=False, backend=None, stdin="yes\n")
                 self.assertExit(result, 0)
                 self.assertEqual(self.calls(), [
                     "terraform bootstrap init -input=false",
-                    f"terraform bootstrap apply -auto-approve -input=false -var bucket_name={BUCKET}",
+                    f"terraform bootstrap apply -var bucket_name={BUCKET}",
                     f"terraform init -input=false -backend-config=bucket={BUCKET}",
                     f"terraform {command} -no-color",
                 ])
                 self.assertTrue(self.bucket_exists)
                 self.assertEqual(result.stdout, f"fake {command}\n")
+
+    def test_declining_the_bucket_stops_before_the_command(self):
+        for command in ("plan", "apply"):
+            with self.subTest(command=command):
+                result = self.run_tf(command, bucket=False, backend=None, stdin="no\n")
+                self.assertExit(result, 1)
+                self.assertIn(f"The state bucket wasn't created, so terraform {command} didn't run.",
+                              result.stderr)
+                self.assertEqual(self.calls(), [
+                    "terraform bootstrap init -input=false",
+                    f"terraform bootstrap apply -var bucket_name={BUCKET}",
+                ])
+                self.assertFalse(self.bucket_exists)
 
     def test_existing_bucket_and_backend_run_terraform_alone(self):
         result = self.run_tf("plan")

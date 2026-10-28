@@ -7,7 +7,7 @@ bucket. Check and review a change before applying it:
 
 ```bash
 ./scripts/tf.sh fmt -check -recursive
-./scripts/tf.sh plan    # validates too; the first run creates the state bucket
+./scripts/tf.sh plan    # validates too; the first run asks to create the state bucket
 ./scripts/tf.sh apply
 ```
 
@@ -97,8 +97,10 @@ The state lives in the S3 bucket `hospitalsystem-tfstate-<account ID>`, under
 so nothing is left billing after a teardown:
 
 - **Created** by `./scripts/tf.sh apply` (and `plan`, `init`, `import`) from
-  `terraform/bootstrap` when it's missing, which then runs `terraform init`
-  against it when this checkout isn't set up for it yet.
+  `terraform/bootstrap` when it's missing. Terraform shows the bucket's plan
+  and asks first; any answer but `yes` stops the script before the command
+  you ran. Once the bucket exists, the script runs `terraform init` against it
+  when this checkout isn't set up for it yet.
 - **Deleted** by `./scripts/teardown.sh` after the destroy, with every state
   version in it, but only when the state is empty and unlocked. Otherwise the
   bucket stays and the teardown reports it.
