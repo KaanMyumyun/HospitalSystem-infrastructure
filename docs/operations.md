@@ -91,7 +91,8 @@ A new stack needs none of this: it takes whatever `.env.local` holds.
 
 - `backend-secret.yml` builds the connection string from the database endpoint
   Terraform reports and `HOSPITALSYSTEM_DB_PASSWORD`, with `SSL Mode=Require`
-  (RDS requires TLS) and `Maximum Pool Size=20`.
+  (RDS requires TLS), `Maximum Pool Size=20`, `Timeout=3` and
+  `No Reset On Close=true`.
 - External Secrets, installed by `external-secrets.yml` and watching only the
   app namespace, copies the secret into the `hospital-backend-secrets` Secret
   every hour. It authenticates as the `backend-secrets-reader` service account,
@@ -101,6 +102,15 @@ A new stack needs none of this: it takes whatever `.env.local` holds.
   `db.t4g.micro`. With Npgsql's default of 100 per pod, a load test made the
   database swap and fail at 160 requests/s. Lower the pool size if the backend
   runs more pods.
+- **Overload.** A backend pod works on at most as many requests at once as
+  its pool holds and refuses the rest at once with 503 and `Retry-After`. A
+  request that waits longer than `Timeout` (3 s) for a connection also gets a
+  503. With Npgsql's default of 15 s, requests waited and then failed with
+  500.
+- **No reset.** `No Reset On Close=true` stops Npgsql sending `DISCARD ALL`
+  each time it reuses a pooled connection. The backend sets no session state
+  (no `SET`, temporary tables or advisory locks), so there is nothing to
+  reset.
 
 ## Playbooks
 
