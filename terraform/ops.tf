@@ -3,7 +3,7 @@ data "aws_ssm_parameter" "al2023_ami" {
 }
 
 locals {
-  # scripts/deploy-release.py reads these on the ops instance.
+  # scripts/python/deploy-release.py reads these on the ops instance.
   deploy_settings = {
     AWS_REGION          = var.aws_region
     EKS_CLUSTER         = module.eks.cluster_name
@@ -21,7 +21,7 @@ locals {
     ["set -euo pipefail", "export IMAGE_TAG='{{ ImageTag }}'"],
     [for name, value in local.deploy_settings : "export ${name}='${value}'"],
     ["python3 - <<'PY'"],
-    split("\n", trimspace(file("${path.module}/../scripts/deploy-release.py"))),
+    split("\n", trimspace(file("${path.module}/../scripts/python/deploy-release.py"))),
     ["PY"],
   )
 }

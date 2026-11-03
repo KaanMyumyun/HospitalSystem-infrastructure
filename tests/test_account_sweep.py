@@ -1,4 +1,4 @@
-"""Run scripts/account-sweep.py against a fake AWS account.
+"""Run scripts/python/account-sweep.py against a fake AWS account.
 
 The fake aws command evaluates --query with jmespath, the library the AWS CLI
 uses, so the script's own selection queries are what gets tested. A service
@@ -15,7 +15,7 @@ import sys
 import tempfile
 
 
-SCRIPT = Path(__file__).resolve().parents[1] / "scripts/account-sweep.py"
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts/python/account-sweep.py"
 
 FAKE_AWS = r'''
 import json, os, sys

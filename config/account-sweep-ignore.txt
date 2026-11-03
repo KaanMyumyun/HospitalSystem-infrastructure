@@ -1,4 +1,4 @@
-# Findings scripts/account-sweep.py reports as IGNORED instead of BILLABLE or
+# Findings scripts/python/account-sweep.py reports as IGNORED instead of BILLABLE or
 # FREE: things in the account that aren't from this stack and are kept on
 # purpose. One per line: <region> | <kind> | <name>  # reason
 # Region and name take globs (* and ?); kind is the finding's kind as printed.

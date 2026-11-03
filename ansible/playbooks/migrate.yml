@@ -28,7 +28,7 @@
           - k8s_namespace is defined
         fail_msg: >-
           ansible/group_vars/all/terraform.yml is missing or out of date. Run
-          ./scripts/tf.sh apply to generate it.
+          ./scripts/python/tf.py apply to generate it.
         quiet: true
 
     # A missing tag would leave the Job pulling until its deadline.

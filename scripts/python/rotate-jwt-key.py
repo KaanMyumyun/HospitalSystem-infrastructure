@@ -7,8 +7,8 @@ fail, and a key changed only in Secrets Manager would be lost.
 
 1. Generate a random key and save it to .env.local, mode 0600. Only the
    HOSPITALSYSTEM_JWT_SECRET line changes.
-2. With the stack down, stop: the next ./scripts/tf.sh apply stores it.
-3. With the stack up, load .env.local the way tf.sh does and run
+2. With the stack down, stop: the next ./scripts/python/tf.py apply stores it.
+3. With the stack up, load .env.local the way tf.py does and run
    backend-secret.yml, which stores the key, syncs the Secret and restarts
    the backend.
 4. Check that the backend's pods started with the new Secret and are ready.
@@ -29,6 +29,10 @@ import subprocess
 import sys
 import tempfile
 import time
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from lib.commands import ScriptError
+from lib.env import load_env as load_shell_env
 
 
 KEY_VARIABLE = "HOSPITALSYSTEM_JWT_SECRET"
@@ -59,18 +63,11 @@ class RotationError(Exception):
 
 
 def load_env(env_file):
-    """Return the environment tf.sh runs with after sourcing env_file."""
-    script = (
-        'set -euo pipefail; set -a; source "$1"; set +a; '
-        'exec "$2" -c "import json, os, sys; json.dump(dict(os.environ), sys.stdout)"'
-    )
-    result = subprocess.run(
-        ["bash", "-c", script, "bash", str(env_file), sys.executable],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        raise RotationError(f"could not source {env_file}: {result.stderr.strip()}")
-    return json.loads(result.stdout)
+    """Return the environment tf.py runs with after sourcing env_file."""
+    try:
+        return load_shell_env(env_file)
+    except ScriptError as error:
+        raise RotationError(str(error)) from error
 
 
 def save_key(env_file, key):
@@ -163,7 +160,7 @@ def check_backend(root):
         if problem is None:
             break
     else:
-        raise RotationError(f"{problem}. Check with ./scripts/monitoring.sh workloads, "
+        raise RotationError(f"{problem}. Check with ./scripts/python/monitoring.py workloads, "
                             f"and push the saved key again with: {PUSH_AGAIN}")
     want = deployment["spec"].get("replicas", 1)
     if not want:
@@ -205,7 +202,7 @@ def rotate(root, assume_yes):
                             f"{KEY_VARIABLE}. Check what else sets it.")
     print(f"Saved a new JWT key to {env_file}.")
     if not stack_up:
-        print("The stack is down. The next ./scripts/tf.sh apply stores the key.")
+        print("The stack is down. The next ./scripts/python/tf.py apply stores the key.")
         return 0
 
     print(f"Pushing it with {PLAYBOOK}.", flush=True)
@@ -222,7 +219,7 @@ def main(argv=None):
                     "when the stack is up, restart the backend with it.")
     parser.add_argument("--yes", action="store_true",
                         help="don't ask before logging every user out")
-    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1],
+    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2],
                         help="repository root (default: the one this script is in)")
     args = parser.parse_args(argv)
     try:

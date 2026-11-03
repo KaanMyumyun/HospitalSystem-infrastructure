@@ -1,4 +1,4 @@
-"""Run scripts/teardown.sh and the real tf.sh in a copy of the repo with fakes.
+"""Run scripts/python/teardown.py and the real tf.py in a copy of the repo with fakes.
 
 terraform, aws, ansible-playbook, and the cleanup, orphan and sweep scripts are
 fakes that log every call, so the tests check the order of the steps and where
@@ -39,7 +39,7 @@ args = [a for a in sys.argv[1:] if not a.startswith("-chdir=")]
 bootstrap = chdir.endswith("bootstrap")
 with open(os.environ["FAKE_LOG"], "a") as log:
     log.write("terraform " + ("bootstrap " if bootstrap else "") + " ".join(args) + "\n")
-if os.environ.get("FAKE_ENV_LOG"):  # what tf.sh passed on
+if os.environ.get("FAKE_ENV_LOG"):  # what tf.py passed on
     with open(os.environ["FAKE_ENV_LOG"], "a") as env_log:
         env_log.write(json.dumps({"db_password": os.environ.get("TF_VAR_db_password")}) + "\n")
 
@@ -158,12 +158,14 @@ class FakeRepoTest(TestCase):
         """
         tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         repo = tmp / "repo"
-        (repo / "scripts/lib").mkdir(parents=True)
-        for name in ("teardown.sh", "tf.sh", "read-config.py", "lib/config.sh", "lib/state.sh"):
+        (repo / "scripts/python/lib").mkdir(parents=True)
+        for name in ("python/teardown.py", "python/tf.py", "python/lib/__init__.py",
+                     "python/lib/commands.py", "python/lib/config.py", "python/lib/env.py",
+                     "python/lib/state.py"):
             shutil.copy(ROOT / "scripts" / name, repo / "scripts" / name)
-        for name in ("pre-destroy-cleanup.sh", "cleanup-orphans.sh", "account-sweep.py"):
-            (repo / "scripts" / name).write_text(FAKE_SCRIPT)
-            (repo / "scripts" / name).chmod(0o755)
+        for name in ("pre-destroy-cleanup.py", "cleanup-orphans.py", "account-sweep.py"):
+            (repo / "scripts/python" / name).write_text(FAKE_SCRIPT)
+            (repo / "scripts/python" / name).chmod(0o755)
         (repo / "ansible/group_vars/all").mkdir(parents=True)
         (repo / "ansible/group_vars/all/main.yml").write_text("ingress_name: hospital-ingress\n")
         (repo / "ansible/group_vars/all/terraform.yml").write_text(
@@ -192,7 +194,8 @@ class FakeRepoTest(TestCase):
         self.log.touch()
         self.repo = repo
         result = subprocess.run(
-            ["bash", str(repo / command[0]), *command[1:]], input=stdin, text=True,
+            [sys.executable if command[0].endswith(".py") else "bash", str(repo / command[0]), *command[1:]],
+            input=stdin, text=True,
             capture_output=True, timeout=60,
             env={"PATH": f"{bin_dir}:{os.environ['PATH']}", "HOME": str(tmp),
                  "FAKE_STATE": str(state), "FAKE_LOG": str(self.log),
@@ -225,7 +228,7 @@ CLEANUP = "terraform destroy -target=terraform_data.kubernetes_cleanup -auto-app
 class TeardownTests(FakeRepoTest):
     # stdin is empty, so a question would get no answer and stop the teardown.
     def run_teardown(self, *args, **kwargs):
-        return self.run_script(["scripts/teardown.sh", *args], **kwargs)
+        return self.run_script(["scripts/python/teardown.py", *args], **kwargs)
 
     def test_full_teardown_runs_every_step_in_order(self):
         result = self.run_teardown()
@@ -233,10 +236,10 @@ class TeardownTests(FakeRepoTest):
         self.assertEqual(self.calls(), [
             SAVE,
             CLEANUP,
-            "pre-destroy-cleanup.sh VPC_ID=vpc-1 CLUSTER_NAME= ALARM_PREFIX= --apply",
+            "pre-destroy-cleanup.py VPC_ID=vpc-1 CLUSTER_NAME= ALARM_PREFIX= --apply",
             "terraform destroy -auto-approve -input=false -no-color",
             # terraform.yml is gone after the destroy; these were read before it.
-            "cleanup-orphans.sh VPC_ID= CLUSTER_NAME=eks-pr1 ALARM_PREFIX=hospitalsystem --apply",
+            "cleanup-orphans.py VPC_ID= CLUSTER_NAME=eks-pr1 ALARM_PREFIX=hospitalsystem --apply",
             *BUCKET_DELETE,
             "account-sweep.py VPC_ID= CLUSTER_NAME= ALARM_PREFIX= ",
         ])
@@ -258,14 +261,14 @@ class TeardownTests(FakeRepoTest):
         result = self.run_teardown(resources=[])
         self.assertExit(result, 0)
         self.assertEqual([call.split(" VPC_ID")[0] for call in self.calls()],
-                         ["cleanup-orphans.sh", *BUCKET_DELETE, "account-sweep.py"])
+                         ["cleanup-orphans.py", *BUCKET_DELETE, "account-sweep.py"])
         self.assertFalse(self.bucket_exists)
 
     def test_no_state_bucket_only_cleans_orphans_and_sweeps(self):
         result = self.run_teardown(resources=[], bucket=False)
         self.assertExit(result, 0)
         self.assertIn(f"No state bucket ({BUCKET}), so nothing is in Terraform state.", result.stdout)
-        self.assertEqual([call.split()[0] for call in self.calls()], ["cleanup-orphans.sh", "account-sweep.py"])
+        self.assertEqual([call.split()[0] for call in self.calls()], ["cleanup-orphans.py", "account-sweep.py"])
         self.assertNotIn("terraform", self.log.read_text())
 
     def test_unlistable_buckets_stop_first(self):
@@ -293,7 +296,7 @@ class TeardownTests(FakeRepoTest):
         result = self.run_teardown(env={"FAKE_LOCK": json.dumps(LOCK)})
         self.assertExit(result, 1)
         self.assertIn("locked by kaan@laptop (apply since 2026-09-27T10:00:00Z)", result.stderr)
-        self.assertIn("./scripts/tf.sh force-unlock 0b1c-lock", result.stderr)
+        self.assertIn("./scripts/python/tf.py force-unlock 0b1c-lock", result.stderr)
         self.assertIn(f"aws s3api list-objects-v2 --bucket {BUCKET} "
                       "--prefix hospitalsystem/terraform.tfstate.tflock", self.log.read_text())
         self.assertEqual(self.calls(), [])
@@ -355,13 +358,13 @@ class TeardownTests(FakeRepoTest):
         self.assertTrue(self.bucket_exists)
 
     def test_pre_destroy_cleanup_is_retried_once(self):
-        result = self.run_teardown(env={"FAKE_PRE_DESTROY_CLEANUP_SH_FAILS": "1"})
+        result = self.run_teardown(env={"FAKE_PRE_DESTROY_CLEANUP_PY_FAILS": "1"})
         self.assertExit(result, 0)
-        self.assertEqual(sum(call.startswith("pre-destroy-cleanup.sh") for call in self.calls()), 2)
+        self.assertEqual(sum(call.startswith("pre-destroy-cleanup.py") for call in self.calls()), 2)
         self.assertEqual(self.remaining, [])
 
     def test_pre_destroy_cleanup_failing_twice_stops_before_the_destroy(self):
-        result = self.run_teardown(env={"FAKE_PRE_DESTROY_CLEANUP_SH_FAILS": "2"})
+        result = self.run_teardown(env={"FAKE_PRE_DESTROY_CLEANUP_PY_FAILS": "2"})
         self.assertExit(result, 1)
         self.assertIn("couldn't be deleted", result.stderr)
         self.assertNotIn("terraform destroy -auto-approve -input=false -no-color", self.calls())
@@ -375,7 +378,7 @@ class TeardownTests(FakeRepoTest):
         destroy = "terraform destroy -auto-approve -input=false -no-color"
         first, second = [i for i, call in enumerate(calls) if call == destroy]
         between = calls[first + 1:second]
-        self.assertTrue(between[0].startswith("pre-destroy-cleanup.sh VPC_ID=vpc-1"))
+        self.assertTrue(between[0].startswith("pre-destroy-cleanup.py VPC_ID=vpc-1"))
         self.assertIn("Values=eks-cluster-sg-eks-pr1-*", between[1])
         self.assertIn("aws ec2 delete-security-group --region eu-north-1 --group-id sg-cluster", between)
         self.assertEqual(self.remaining, [])
@@ -404,7 +407,7 @@ class TeardownTests(FakeRepoTest):
         self.assertIn("Not clean: 1 problem(s)", result.stdout)
 
     def test_billable_sweep_or_failed_orphan_cleanup_is_not_clean(self):
-        for script in ("ACCOUNT_SWEEP_PY", "CLEANUP_ORPHANS_SH"):
+        for script in ("ACCOUNT_SWEEP_PY", "CLEANUP_ORPHANS_PY"):
             with self.subTest(script=script):
                 result = self.run_teardown(env={f"FAKE_{script}_FAILS": "1"})
                 self.assertExit(result, 1)
@@ -414,7 +417,7 @@ class TeardownTests(FakeRepoTest):
 
 class TfWrapperTests(FakeRepoTest):
     def run_tf(self, *args, **kwargs):
-        return self.run_script(["scripts/tf.sh", *args], **kwargs)
+        return self.run_script(["scripts/python/tf.py", *args], **kwargs)
 
     def test_plan_or_apply_without_a_bucket_creates_it_and_initializes_first(self):
         for command in ("plan", "apply"):

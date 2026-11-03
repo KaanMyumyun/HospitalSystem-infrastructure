@@ -1,4 +1,4 @@
-"""Run scripts/cleanup-orphans.sh against a fake AWS account.
+"""Run scripts/python/cleanup-orphans.py against a fake AWS account.
 
 The fake aws command evaluates --query with jmespath, the library the AWS CLI
 uses, so the script's own selection queries are what gets tested.
@@ -14,7 +14,7 @@ import sys
 import tempfile
 
 
-SCRIPT = Path(__file__).resolve().parents[1] / "scripts/cleanup-orphans.sh"
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts/python/cleanup-orphans.py"
 TG_ARN = "arn:aws:elasticloadbalancing:eu-north-1:123456789012:targetgroup"
 ALB_ARN = "arn:aws:elasticloadbalancing:eu-north-1:123456789012:loadbalancer/app/hospital-system-alb/1"
 OURS = {
@@ -204,7 +204,7 @@ class CleanupOrphansTests(TestCase):
             "FAKE_FAIL": fail,
         }
         return subprocess.run(
-            ["bash", str(SCRIPT), *args], env=env, capture_output=True, text=True, timeout=60
+            [sys.executable, str(SCRIPT), *args], env=env, capture_output=True, text=True, timeout=60
         )
 
     def deleted(self):

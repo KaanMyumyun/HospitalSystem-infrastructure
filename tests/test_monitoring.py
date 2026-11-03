@@ -14,7 +14,7 @@ import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "scripts/monitoring.sh"
+SCRIPT = ROOT / "scripts/python/monitoring.py"
 ALB = "arn:aws:elasticloadbalancing:eu-north-1:123:loadbalancer/app/test/1"
 TARGET = "arn:aws:elasticloadbalancing:eu-north-1:123:targetgroup/backend/1"
 ERROR = {"stderr": "AccessDenied: simulated read failure", "code": 1}
@@ -105,11 +105,11 @@ def healthy_routes():
 
 
 class MonitoringTests(TestCase):
-    def run_check(self, *sections, overrides=()):
+    def run_check(self, *sections, overrides=(), env_overrides=None):
         tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         bin_dir = tmp / "bin"
         bin_dir.mkdir()
-        for tool in ("aws", "kubectl", "ansible-playbook", "helm"):
+        for tool in ("aws", "kubectl", "ansible-playbook", "helm", "gh", "dig", "curl", "openssl"):
             command = bin_dir / tool
             command.write_text(f"#!{sys.executable}\n{FAKE_TOOL}")
             command.chmod(0o755)
@@ -128,7 +128,8 @@ class MonitoringTests(TestCase):
             "FAKE_SCENARIO": json.dumps([*overrides, *healthy_routes()]),
             "FAKE_CALLS": str(tmp / "calls"), "FAKE_UNEXPECTED": str(tmp / "unexpected"),
         }
-        result = subprocess.run(["bash", str(SCRIPT), *sections], env=env,
+        env.update(env_overrides or {})
+        result = subprocess.run([sys.executable, str(SCRIPT), *sections], env=env,
                                 capture_output=True, text=True, timeout=30)
         self.assertFalse((tmp / "unexpected").exists(),
                          (tmp / "unexpected").read_text() if (tmp / "unexpected").exists() else "")
@@ -277,6 +278,99 @@ class MonitoringTests(TestCase):
         self.assertExit(result, 1)
         self.assertIn("Backend /health/ready", result.stdout)
         self.assertIn("1 failure(s)", result.stdout)
+
+    def test_new_aws_sections_report_failed_reads(self):
+        cases = (
+            ("eks", "eks describe-cluster", "Cluster test-cluster not found"),
+            ("metrics", "cloudwatch get-metric-data", "Could not read ALB metrics"),
+            ("control-plane", "logs describe-log-groups", "Could not read log group"),
+            ("cost", "ce get-cost-and-usage", "Cost Explorer query failed"),
+        )
+        for section, command, message in cases:
+            with self.subTest(section=section):
+                result = self.run_check(section, overrides=[route("aws", command, ERROR)])
+                self.assertExit(result, 1)
+                self.assertIn(message, result.stdout)
+                self.assertNotIn("unexpected error", result.stdout)
+
+    def test_eks_section_checks_node_group_and_addons(self):
+        result = self.run_check("eks", overrides=[
+            route("aws", "eks describe-cluster", "ACTIVE\t1.32\teks.1\t0"),
+            route("aws", "eks list-insights", "PASSING\t1.33\tupgrade readiness"),
+            route("aws", "eks list-addons", "vpc-cni"),
+            route("aws", "eks describe-addon", "ACTIVE\tv1.2\t0"),
+            route("aws", "eks list-nodegroups", "workers"),
+            route("aws", "eks describe-nodegroup", "ACTIVE\t1\t1\t2\tami-1\t0\tworkers-asg"),
+            route("aws", ["autoscaling describe-auto-scaling-groups", "Instances"],
+                  "i-123\tt3.medium\teu-north-1a\tInService\tHealthy"),
+            route("aws", ["autoscaling describe-auto-scaling-groups", "EnabledMetrics"],
+                  "GroupInServiceInstances\tGroupDesiredCapacity"),
+        ])
+        self.assertExit(result, 0)
+        self.assertIn("Add-on vpc-cni is ACTIVE", result.stdout)
+        self.assertIn("0 failure(s)", result.stdout)
+        self.assertIn("Node group workers is ACTIVE", result.stdout)
+
+    def test_cost_and_control_plane_sections_parse_healthy_data(self):
+        cost = self.run_check("cost", overrides=[
+            route("aws", "ce get-cost-and-usage", "Amazon EC2\t12.34\nAmazon S3\t0.10\n"),
+        ])
+        self.assertExit(cost, 0)
+        self.assertIn("$    12.44", cost.stdout)
+        logs = self.run_check("control-plane", overrides=[
+            route("aws", "logs describe-log-groups", "30\t1048576"),
+            route("aws", "eks describe-cluster", "api\taudit"),
+            route("aws", "logs filter-log-events", ""),
+        ])
+        self.assertExit(logs, 0)
+        self.assertIn("authenticator: nothing matching", logs.stdout)
+
+    def test_logs_read_failure_and_empty_ecr_configuration(self):
+        result = self.run_check("logs", overrides=[
+            route("kubectl", "logs -n hospitalsystem", ERROR),
+            route("kubectl", ["get pods", "restartCount"], ""),
+        ])
+        self.assertExit(result, 0)
+        self.assertIn("Could not read hospital-backend logs", result.stdout)
+        self.assertIn("Could not read hospital-frontend logs", result.stdout)
+
+        result = self.run_check("ecr")
+        self.assertExit(result, 0)
+        self.assertIn("No repository URL for hospital-backend", result.stdout)
+
+    def test_ecr_image_list_failure_is_not_reported_healthy(self):
+        result = self.run_check("ecr", overrides=[route("aws", "ecr describe-images", ERROR)],
+                                env_overrides={"BACKEND_REPOSITORY_URL": "registry.example/hospital-backend",
+                                               "FRONTEND_REPOSITORY_URL": "registry.example/hospital-frontend"})
+        self.assertExit(result, 1)
+        self.assertIn("Could not list images in hospital-backend", result.stdout)
+        self.assertIn("Could not list images in hospital-frontend", result.stdout)
+
+    def test_cicd_reports_failed_ssm_reads_and_skips_unauthenticated_gh(self):
+        result = self.run_check("cicd", overrides=[
+            route("aws", "ssm describe-document", ERROR),
+            route("aws", "ssm list-commands", ERROR),
+            route("gh", "auth status", ERROR),
+        ])
+        self.assertExit(result, 1)
+        self.assertIn("Could not read deploy document", result.stdout)
+        self.assertIn("Could not list the deploy commands", result.stdout)
+        self.assertIn("gh is not logged in", result.stdout)
+
+    def test_endpoints_uses_fake_network_tools(self):
+        result = self.run_check("endpoints", overrides=[
+            route("dig", "CNAME", "alb.example.test.\n"),
+            route("dig", " A", "1.2.3.4\n"),
+            route("curl", "http://app.example.test/", "301|0.1|https://app.example.test/|text/html"),
+            route("curl", "https://app.example.test/api/health", "404|0.1||application/json"),
+            route("curl", "https://app.example.test/", "200|0.1||text/html"),
+            route("openssl", "s_client", "-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----"),
+            route("openssl", "x509", "notAfter=Dec 31 12:00:00 2030 GMT\nissuer=Test CA\n"),
+        ])
+        self.assertExit(result, 0)
+        self.assertIn("HTTP redirects to HTTPS", result.stdout)
+        self.assertIn("API requests reach the backend", result.stdout)
+        self.assertIn("Served certificate is valid", result.stdout)
 
 
 if __name__ == "__main__":

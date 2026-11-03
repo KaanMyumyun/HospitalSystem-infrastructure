@@ -1,5 +1,5 @@
 variable "bucket_name" {
-  description = "The state bucket's name. scripts/tf.sh passes hospitalsystem-tfstate-<account ID>."
+  description = "The state bucket's name. scripts/python/tf.py passes hospitalsystem-tfstate-<account ID>."
   type        = string
 }
 

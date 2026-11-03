@@ -1,6 +1,6 @@
 ---
 # Sends the same SSM document as the CI deploy, so a manual deploy gets the
-# same image check, smoke test and rollback (scripts/deploy-release.py).
+# same image check, smoke test and rollback (scripts/python/deploy-release.py).
 - name: Deploy a specific image tag to EKS
   hosts: local
   gather_facts: false
@@ -21,7 +21,7 @@
           - deploy_ssm_document_name is defined
         fail_msg: >-
           ansible/group_vars/all/terraform.yml is missing or out of date. Run
-          ./scripts/tf.sh apply to generate it.
+          ./scripts/python/tf.py apply to generate it.
         quiet: true
 
     - name: Send the deploy document to the ops instance

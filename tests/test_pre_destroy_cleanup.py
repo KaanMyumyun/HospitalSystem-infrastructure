@@ -1,4 +1,4 @@
-"""Run scripts/pre-destroy-cleanup.sh against a fake AWS account.
+"""Run scripts/python/pre-destroy-cleanup.py against a fake AWS account.
 
 Reuses the fake aws command from test_cleanup_orphans. The default account has
 no ALB, target groups, network leftovers or certificate, so only the alarm
@@ -18,7 +18,7 @@ import tempfile
 from test_cleanup_orphans import FAKE_AWS
 
 
-SCRIPT = Path(__file__).resolve().parents[1] / "scripts/pre-destroy-cleanup.sh"
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts/python/pre-destroy-cleanup.py"
 ACCOUNT = {
     "TargetGroups": [],
     "Vpcs": [],
@@ -63,7 +63,7 @@ class PreDestroyAlarmTests(TestCase):
             "RETRY_DELAY": "0",
         }
         return subprocess.run(
-            ["bash", str(SCRIPT), *args], env=env, capture_output=True, text=True, timeout=60
+            [sys.executable, str(SCRIPT), *args], env=env, capture_output=True, text=True, timeout=60
         )
 
     def alarm_section(self, stdout):
@@ -104,7 +104,7 @@ class PreDestroyFailureTests(TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.deleted(), [f"delete-target-group {TARGET_GROUP}"])
-        self.assertIn("Now run: ./scripts/tf.sh destroy", result.stdout)
+        self.assertIn("Now run: ./scripts/python/tf.py destroy", result.stdout)
 
     def test_security_group_that_stays_in_use_fails_the_run(self):
         result = self.run_cleanup(
@@ -115,7 +115,7 @@ class PreDestroyFailureTests(TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("could not delete sg-k8s: An error occurred (DependencyViolation)", result.stderr)
         self.assertIn("1 could not be deleted", result.stderr)
-        self.assertNotIn("Now run: ./scripts/tf.sh destroy", result.stdout)
+        self.assertNotIn("Now run: ./scripts/python/tf.py destroy", result.stdout)
         self.assertEqual(self.deleted(), [])
 
     def test_already_deleted_security_group_counts_as_deleted(self):
@@ -135,7 +135,7 @@ class PreDestroyFailureTests(TestCase):
                 result = self.run_cleanup("--apply", fail=operation, cert=CERT)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(f"{operation} failed: An error occurred (AccessDenied)", result.stderr)
-                self.assertNotIn("Now run: ./scripts/tf.sh destroy", result.stdout)
+                self.assertNotIn("Now run: ./scripts/python/tf.py destroy", result.stdout)
                 self.assertNotIn("not in use", result.stdout)
 
 

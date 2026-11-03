@@ -2,13 +2,13 @@
 
 Terraform is the source of truth for the AWS layer: it builds the whole
 environment from an empty account, so there's nothing to import first. Run it
-through `./scripts/tf.sh`, which loads your settings and manages the state
+through `./scripts/python/tf.py`, which loads your settings and manages the state
 bucket. Check and review a change before applying it:
 
 ```bash
-./scripts/tf.sh fmt -check -recursive
-./scripts/tf.sh plan    # validates too; the first run asks to create the state bucket
-./scripts/tf.sh apply
+./scripts/python/tf.py fmt -check -recursive
+./scripts/python/tf.py plan    # validates too; the first run asks to create the state bucket
+./scripts/python/tf.py apply
 ```
 
 ## Layout and sizing
@@ -62,13 +62,13 @@ CLOUDFLARE_ZONE_ID='your-zone-id'      # optional, skips the zone lookup
   python3 -c 'import secrets; print(secrets.token_urlsafe(24))'
   ```
 
-- **JWT key.** Don't make it up: `python3 scripts/rotate-jwt-key.py` generates
+- **JWT key.** Don't make it up: `python3 scripts/python/rotate-jwt-key.py` generates
   it into `.env.local` (see [Rotate the JWT key](operations.md#rotate-the-jwt-key)).
 - **Cloudflare token.** It needs `Zone:Read` and `DNS:Edit` permissions for
   `hospitalsyst.cc`: Terraform uses it for the ACM certificate validation
   record, and the bootstrap for the app's CNAME.
 
-`./scripts/tf.sh` loads `.env.local`, exports `TF_VAR_cloudflare_api_token`,
+`./scripts/python/tf.py` loads `.env.local`, exports `TF_VAR_cloudflare_api_token`,
 `TF_VAR_alert_email` and `TF_VAR_db_password`, and checks only what the command
 needs:
 
@@ -84,7 +84,7 @@ state is in S3. The database password is a write-only argument (`password_wo`
 in `terraform/rds.tf`): Terraform sends it to RDS but never writes it to the
 state or a plan, so a destroy doesn't need it.
 
-Skipping `tf.sh` is how most setup problems start: the Ansible bootstrap
+Skipping `tf.py` is how most setup problems start: the Ansible bootstrap
 sources `.env.local` itself, but the Cloudflare provider reads its token from
 the environment, so a plain `terraform apply` without
 `TF_VAR_cloudflare_api_token` exported fails with
@@ -96,12 +96,12 @@ The state lives in the S3 bucket `hospitalsystem-tfstate-<account ID>`, under
 `hospitalsystem/terraform.tfstate`. The bucket exists only as long as the stack,
 so nothing is left billing after a teardown:
 
-- **Created** by `./scripts/tf.sh apply` (and `plan`, `init`, `import`) from
+- **Created** by `./scripts/python/tf.py apply` (and `plan`, `init`, `import`) from
   `terraform/bootstrap` when it's missing. Terraform shows the bucket's plan
   and asks first; any answer but `yes` stops the script before the command
   you ran. Once the bucket exists, the script runs `terraform init` against it
   when this checkout isn't set up for it yet.
-- **Deleted** by `./scripts/teardown.sh` after the destroy, with every state
+- **Deleted** by `./scripts/python/teardown.py` after the destroy, with every state
   version in it, but only when the state is empty and unlocked. Otherwise the
   bucket stays and the teardown reports it.
 - **Locked** with a `.tflock` object next to the state (`use_lockfile`), so no
@@ -109,7 +109,7 @@ so nothing is left billing after a teardown:
 - **Protected:** versioned while the stack is up, so an earlier state can be
   restored; encrypted with SSE-S3; private, and reachable only over TLS.
 
-Without the bucket, `./scripts/tf.sh output`, `state` and `destroy` stop and say
+Without the bucket, `./scripts/python/tf.py output`, `state` and `destroy` stop and say
 there's no state.
 
 `terraform/bootstrap` is a separate configuration because the bucket can't
@@ -120,11 +120,11 @@ empty and delete it in the S3 console.
 
 **A stale lock.** If an interrupted run leaves the lock behind, the next run
 fails with `Error acquiring the state lock` and prints the lock ID. When
-nothing is still running, remove it with `./scripts/tf.sh force-unlock <ID>`.
+nothing is still running, remove it with `./scripts/python/tf.py force-unlock <ID>`.
 
 ## What an apply does
 
-On a fresh AWS account, `./scripts/tf.sh apply`:
+On a fresh AWS account, `./scripts/python/tf.py apply`:
 
 1. Detects the active account ID and creates the AWS resources, among them:
    - the ECR repositories for the backend and frontend images
@@ -184,7 +184,7 @@ change images use `deploy-image.yml` or CI, and to stop and start the app and
 its nodes use `pause.yml`/`resume.yml`. Failed or malformed Kubernetes reads
 stop the apply.
 
-How it keeps them: `scripts/apply-workload.py` removes image and replica
+How it keeps them: `scripts/python/apply-workload.py` removes image and replica
 ownership from the old last-applied annotation before omitting those fields on
 updates, following the
 [Kubernetes field ownership migration procedure](https://kubernetes.io/docs/tasks/manage-kubernetes-objects/declarative-config/#changing-the-owner-from-a-configuration-file-to-a-direct-imperative-writer).
@@ -194,15 +194,15 @@ image change during the bootstrap.
 Two variables skip parts of an apply:
 
 ```bash
-./scripts/tf.sh apply -var run_ansible_bootstrap=false    # AWS resources only
-./scripts/tf.sh apply -var push_initial_ecr_images=false  # no local image build and push
+./scripts/python/tf.py apply -var run_ansible_bootstrap=false    # AWS resources only
+./scripts/python/tf.py apply -var push_initial_ecr_images=false  # no local image build and push
 ```
 
 - Skipping the bootstrap is safe on a running stack: what the bootstrap
   created, including the Ingress and its ALB, stays up. Setting it back to
   `true` runs the bootstrap again. The Kubernetes cleanup still runs on destroy
   either way.
-- `./scripts/tf.sh` still checks for the Docker daemon on every `apply`, even
+- `./scripts/python/tf.py` still checks for the Docker daemon on every `apply`, even
   with `push_initial_ecr_images=false`.
 
 ### On destroy

@@ -70,8 +70,8 @@ locals {
       "ansible/playbooks/apply-kubernetes.yml",
       "ansible/playbooks/cloudflare-dns.yml",
       "ansible/playbooks/monitoring.yml",
-      "scripts/apply-workload.py",
-      "scripts/backend-secret.py",
+      "scripts/python/apply-workload.py",
+      "scripts/python/backend-secret.py",
       "config/alb-alarms.json",
     ],
     [

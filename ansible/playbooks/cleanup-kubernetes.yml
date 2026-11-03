@@ -31,7 +31,7 @@
       ansible.builtin.fail:
         msg: >-
           Set CLOUDFLARE_API_TOKEN so the {{ cloudflare_record_name }} record can
-          be removed. ./scripts/tf.sh destroy reads it from .env.local.
+          be removed. ./scripts/python/tf.py destroy reads it from .env.local.
       when: cloudflare_api_token | length == 0
 
     - name: Look up Cloudflare zone ID

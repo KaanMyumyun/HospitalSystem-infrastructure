@@ -2,22 +2,22 @@
 
 Monitoring is deliberately light. The project runs no Prometheus, Grafana,
 CloudWatch Observability or EKS runtime monitoring, which would cost money to
-keep running. Instead, `scripts/monitoring.sh` checks everything on demand, and
+keep running. Instead, `scripts/python/monitoring.py` checks everything on demand, and
 three kinds of CloudWatch alarm email you when something breaks.
 
 ## Checking the stack
 
 ```bash
-./scripts/monitoring.sh                    # everything; changes nothing in AWS
-./scripts/monitoring.sh --refresh-alarms   # also recreate the ALB alarms (monitoring.yml) first
-./scripts/monitoring.sh workloads logs     # only the named sections
+./scripts/python/monitoring.py                    # everything; changes nothing in AWS
+./scripts/python/monitoring.py --refresh-alarms   # also recreate the ALB alarms (monitoring.yml) first
+./scripts/python/monitoring.py workloads logs     # only the named sections
 ```
 
 It ends with a summary of warnings and failures, and exits 1 when any check
 fails. A check that can't read its data, because an AWS, Kubernetes, Helm or
 GitHub call fails, is reported as a failure with the error, or as a warning
 for checks that only ever warn. It never counts as healthy.
-`./scripts/monitoring.sh --help` lists the sections and the environment
+`./scripts/python/monitoring.py --help` lists the sections and the environment
 overrides (`LOOKBACK_HOURS`, `LOG_TAIL_LINES`, and others).
 
 | Area | What it checks |
@@ -35,22 +35,22 @@ overrides (`LOOKBACK_HOURS`, `LOG_TAIL_LINES`, and others).
 The most common checks, and the same Kubernetes metrics queried directly:
 
 ```bash
-./scripts/monitoring.sh alarms workloads   # alarm states, HPA targets, pod CPU/memory from metrics-server
-./scripts/monitoring.sh logs               # recent app logs
+./scripts/python/monitoring.py alarms workloads   # alarm states, HPA targets, pod CPU/memory from metrics-server
+./scripts/python/monitoring.py logs               # recent app logs
 kubectl get hpa -n hospitalsystem
 kubectl top pods -n hospitalsystem
 ```
 
 ## Checking a rollout
 
-`scripts/rollout-check.sh` answers a narrower question: does a deploy really
+`scripts/python/rollout-check.py` answers a narrower question: does a deploy really
 replace the pods without dropping a request? It also exits 1 when any check
 fails.
 
 ```bash
-./scripts/rollout-check.sh             # settings only; changes nothing
-./scripts/rollout-check.sh --watch     # probes the app while a CI deploy rolls out
-./scripts/rollout-check.sh --restart   # starts a rollout itself and probes it
+./scripts/python/rollout-check.py             # settings only; changes nothing
+./scripts/python/rollout-check.py --watch     # probes the app while a CI deploy rolls out
+./scripts/python/rollout-check.py --restart   # starts a rollout itself and probes it
 ```
 
 - **No options:** reads the `RollingUpdate` settings on both Deployments, the
@@ -85,7 +85,7 @@ The alarms are built from existing AWS metrics:
   Balancer Controller has made it. Create or refresh them with
   `ansible-playbook ansible/playbooks/monitoring.yml`. They aren't in
   Terraform, so the cleanup deletes them with the ALB:
-  `scripts/pre-destroy-cleanup.sh --apply` and the `cleanup-kubernetes.yml`
+  `scripts/python/pre-destroy-cleanup.py --apply` and the `cleanup-kubernetes.yml`
   playbook Terraform runs during destroy both delete `hospitalsystem-alb-5xx`
   and `hospitalsystem-unhealthy-targets-*`, and never Terraform's own alarm.
 - **The node group alarm** stays OK when you scale the node group to 0 on
@@ -101,10 +101,10 @@ first gets data. The topic is encrypted with the project KMS key, whose policy
 lets CloudWatch use it for that topic only.
 
 The recipient is `ALERT_EMAIL=you@example.com` in `.env.local`;
-`./scripts/tf.sh apply` requires it and subscribes it to the topic. **Click the
+`./scripts/python/tf.py apply` requires it and subscribes it to the topic. **Click the
 link in the "AWS Notification - Subscription Confirmation" email:** nothing is
 delivered until you do. The topic is part of the environment, so every rebuild
-needs a new confirmation; `./scripts/monitoring.sh alarms` warns while it's
+needs a new confirmation; `./scripts/python/monitoring.py alarms` warns while it's
 pending.
 
 To send a test email through the whole path:
@@ -148,10 +148,10 @@ or resource limits. The node and database sizes are Terraform variables (see
 
 ## Debug Deployed Images
 
-For a quick answer, `./scripts/image-check.sh` (or `backend` / `frontend` for
+For a quick answer, `./scripts/python/image-check.py` (or `backend` / `frontend` for
 one app) shows each app's image tag, whether every pod runs the digest that tag
 points to in ECR, and the commit it was built from compared with main on
-GitHub. It changes nothing. `./scripts/monitoring.sh ecr` runs the same check
+GitHub. It changes nothing. `./scripts/python/monitoring.py ecr` runs the same check
 next to the ECR image list and scan results.
 
 When a deploy breaks and you need to see exactly what's running, use `kubectl`

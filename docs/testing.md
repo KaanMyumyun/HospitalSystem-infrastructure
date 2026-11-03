@@ -9,7 +9,7 @@ of it needs AWS credentials:
 | Terraform | `fmt` and `validate` for `terraform/` and `terraform/bootstrap/`, and TFLint over every directory under `terraform/`, the modules included. |
 | Ansible | A syntax check of every playbook, and `ansible-lint`. |
 | Kubernetes manifests | Every template renders with stand-in values and passes kubeconform. |
-| Shell scripts | ShellCheck on every tracked `*.sh`; warnings and errors fail. |
+| Python scripts | Compile every `scripts/**/*.py` file to catch syntax errors. |
 | Regression tests | Every `tests/test_*.py`. A skipped test fails the job. |
 | Security scans | Checkov and Trivy on `terraform/`. Report only: findings are listed in the job summary and never fail it, and none are suppressed. |
 
@@ -19,7 +19,7 @@ Run the regression tests from the repository root:
 python3 -B -m unittest discover -s tests -p 'test_*.py'
 ```
 
-A full run takes about two minutes. Some suites need `terraform`, `kubectl`,
+A full run takes about three minutes. Some suites need `terraform`, `kubectl`,
 and the Python packages `jmespath` and `PyYAML`. Without them that suite skips
 itself; CI treats a skip as a failure.
 
@@ -30,12 +30,12 @@ can't leave a dead link.
 The other checks locally (the workflow pins each tool's version):
 
 ```bash
-./scripts/tf.sh fmt -check -recursive
-./scripts/tf.sh validate
+./scripts/python/tf.py fmt -check -recursive
+./scripts/python/tf.py validate
 (cd terraform && tflint --recursive)
 ansible-playbook --syntax-check ansible/playbooks/*.yml
 ansible-lint ansible/
-shellcheck --severity=warning $(git ls-files '*.sh')
+python3 -m compileall -q scripts
 checkov -d terraform --framework terraform --quiet --compact
 trivy config terraform
 ```

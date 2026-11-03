@@ -1,4 +1,4 @@
-"""Run scripts/image-check.sh against fake kubectl, aws, gh and ansible-playbook.
+"""Run scripts/python/image-check.py against fake kubectl, aws, gh and ansible-playbook.
 
 Every external command must match a fixture, so the tests never contact a
 cluster, AWS or GitHub. Overrides come first and replace the healthy answer.
@@ -13,7 +13,7 @@ import sys
 import tempfile
 
 
-SCRIPT = Path(__file__).resolve().parents[1] / "scripts/image-check.sh"
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts/python/image-check.py"
 REGISTRY = "123456789012.dkr.ecr.eu-north-1.amazonaws.com"
 TAG = "2026-09-26-a9b466a-152"
 DIGEST = "sha256:" + "a" * 64
@@ -80,7 +80,7 @@ class ImageCheckTests(TestCase):
             "FAKE_SCENARIO": json.dumps([*overrides, *(routes or healthy_routes())]),
             "FAKE_UNEXPECTED": str(tmp / "unexpected"),
         }
-        result = subprocess.run(["bash", str(SCRIPT), *args], env=env,
+        result = subprocess.run([sys.executable, str(SCRIPT), *args], env=env,
                                 capture_output=True, text=True, timeout=30)
         unexpected = tmp / "unexpected"
         self.assertFalse(unexpected.exists(), unexpected.read_text() if unexpected.exists() else "")
@@ -112,7 +112,7 @@ class ImageCheckTests(TestCase):
     def test_newer_merges_without_file_changes_are_current(self):
         result = self.run_check(overrides=[route("gh", "compare/a9b466a...main", "ahead\t3\t0\t0\t\tc0ffee1\n")])
         self.assertExit(result, 0)
-        self.assertIn("3 commit(s) newer, but none change files", result.stdout)
+        self.assertIn("main (c0ffee1) is 3 commit(s) newer, but none change files", result.stdout)
         self.assertIn("0 warning(s)", result.stdout)
 
     def test_commit_not_on_main_is_a_warning(self):

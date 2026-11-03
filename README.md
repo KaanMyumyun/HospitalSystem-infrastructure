@@ -18,8 +18,8 @@ Current AWS deployment target:
 
 ## Highlights
 
-- **One command up, one down.** `./scripts/tf.sh apply` builds the whole stack
-  from an empty account, DNS and data included. `./scripts/teardown.sh` saves
+- **One command up, one down.** `./scripts/python/tf.py apply` builds the whole stack
+  from an empty account, DNS and data included. `./scripts/python/teardown.py` saves
   the database into `seed.sql`, destroys everything, and sweeps every region
   for anything still billing.
 - **No public Kubernetes API.** The EKS endpoint is private. Operators and
@@ -31,11 +31,11 @@ Current AWS deployment target:
 - **Locked-down workloads.** Restricted Pod Security, read-only root
   filesystems, NetworkPolicies enforced by the VPC CNI, and KMS encryption for
   Secrets, logs, ECR, RDS and Secrets Manager.
-- **Tested scripts.** About 160 regression tests run the real shell scripts and
+- **Tested scripts.** 186 regression tests run the real Python scripts and
   playbooks against fake `aws`, `kubectl` and `terraform`.
 - **Pinned, verified CI.** Actions are pinned to commit SHAs and tool downloads
   are checksum-verified. CI runs Terraform, TFLint, ansible-lint, kubeconform
-  and ShellCheck, plus Checkov and Trivy reports.
+  and a Python compile check, plus Checkov and Trivy reports.
 
 ## Architecture
 
@@ -85,10 +85,10 @@ next to this one as `../HospitalSystem` (`backend_source_dir` changes that).
 
 ```bash
 cp .env.example .env.local              # fill in the values (see Local setup)
-python3 scripts/rotate-jwt-key.py       # writes the JWT key into .env.local
-./scripts/tf.sh apply                   # AWS, then the Kubernetes bootstrap
-./scripts/monitoring.sh                 # check everything
-./scripts/teardown.sh                   # destroy it all when done
+python3 scripts/python/rotate-jwt-key.py       # writes the JWT key into .env.local
+./scripts/python/tf.py apply                   # AWS, then the Kubernetes bootstrap
+./scripts/python/monitoring.py                 # check everything
+./scripts/python/teardown.py                   # destroy it all when done
 ```
 
 [Local setup](docs/terraform.md#local-setup) describes the values `.env.local`
@@ -112,7 +112,8 @@ apply, confirm the SNS subscription email, or no alarm email arrives.
 | `terraform/` | The AWS layer: the root module, `modules/network` and `modules/eks`, and `bootstrap/` for the state bucket |
 | `ansible/` | The cluster bootstrap and the playbooks for running the stack |
 | `kubernetes/` | Templates of the Kubernetes manifests, rendered by Ansible |
-| `scripts/` | `tf.sh`, `teardown.sh`, `monitoring.sh` and the scripts they call |
+| `scripts/python/` | Active automation, including `tf.py`, `teardown.py` and `monitoring.py` |
+| `scripts/bash/` | Local shell copies, ignored by Git; the committed originals remain in Git history |
 | `tests/` | Regression tests that run the scripts and playbooks against fake CLIs |
 | `config/` | The ALB alarms and the account sweep's ignore list |
 | `docs/` | The documentation below |
@@ -131,7 +132,7 @@ The full tree is in
 | [Terraform](docs/terraform.md) | The module layout and sizes, local setup, remote state, and what an apply does |
 | [CI/CD](docs/cicd.md) | How the application repository tests, builds, scans and deploys a release, with approval, smoke tests and rollback, and releases with migrations |
 | [Operations](docs/operations.md) | Cluster access, the backend secret, the playbooks, pausing, database access, costs, rotating the JWT key, and upgrading EKS |
-| [Monitoring](docs/monitoring.md) | `monitoring.sh`, the alarms, resource sizing, and which image each app runs |
+| [Monitoring](docs/monitoring.md) | `monitoring.py`, the alarms, resource sizing, and which image each app runs |
 | [Disaster recovery](docs/disaster-recovery.md) | Rebuilding the stack, what the teardown does, and how the database carries over in `seed.sql` |
 | [Checks and tests](docs/testing.md) | What CI checks, and running the checks and regression tests locally |
 | [Portable rebuild plan](docs/history/portable-rebuild-plan.md) | The design record behind building the whole stack from one apply in any AWS account |
