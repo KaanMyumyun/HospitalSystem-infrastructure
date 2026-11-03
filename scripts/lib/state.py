@@ -59,7 +59,7 @@ def bootstrap(action, bucket, *, stdout=None):
     """Initialize and apply/destroy the state bucket with Terraform.
 
     stdin stays attached so an apply can ask for approval. The init command's
-    normal output is hidden, as it was in state.sh; errors stay visible.
+    normal output is hidden; errors stay visible.
     """
     init = subprocess.run(["terraform", f"-chdir={BOOTSTRAP_DIR}", "init", "-input=false"],
                           stdout=subprocess.DEVNULL, stderr=stdout)

@@ -1,4 +1,4 @@
-"""Load .env.local with the same shell syntax the old tf.py accepted."""
+"""Load .env.local with the shell syntax tf.py and Ansible accept."""
 
 import json
 import subprocess

@@ -31,11 +31,11 @@ Current AWS deployment target:
 - **Locked-down workloads.** Restricted Pod Security, read-only root
   filesystems, NetworkPolicies enforced by the VPC CNI, and KMS encryption for
   Secrets, logs, ECR, RDS and Secrets Manager.
-- **Tested scripts.** 180 regression tests run the real Python and shell
-  scripts and playbooks against fake `aws`, `kubectl` and `terraform`.
+- **Tested scripts.** 186 regression tests run the real Python scripts and
+  playbooks against fake `aws`, `kubectl` and `terraform`.
 - **Pinned, verified CI.** Actions are pinned to commit SHAs and tool downloads
   are checksum-verified. CI runs Terraform, TFLint, ansible-lint, kubeconform
-  and ShellCheck, plus Checkov and Trivy reports.
+  and a Python compile check, plus Checkov and Trivy reports.
 
 ## Architecture
 
