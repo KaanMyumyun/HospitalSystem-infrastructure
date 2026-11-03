@@ -30,7 +30,7 @@ away, without asking:
    `--skip-dump` destroys the database without saving it.
 3. Destroys `terraform_data.kubernetes_cleanup` alone, so the cleanup below runs
    while the cluster can still delete its ALB.
-4. Runs `scripts/pre-destroy-cleanup.sh --apply` for anything left, retried
+4. Runs `scripts/pre-destroy-cleanup.py --apply` for anything left, retried
    once.
 5. Runs `./scripts/tf.sh destroy`. If it fails, it runs step 4 again, deletes
    the EKS cluster security group EKS sometimes leaves in the VPC, and retries
@@ -53,7 +53,7 @@ is left:
 | Tool | Runs | What it removes |
 | ---- | ---- | --------------- |
 | `ansible/playbooks/cleanup-kubernetes.yml` | During destroy, before the cluster is deleted | The app's Cloudflare CNAME if it still points at this ALB, then the Ingress, so the controller deletes the ALB (or the ALB directly when the cluster can't be reached), then the ALB's target groups, its `k8s-*` security groups and the ALB alarms |
-| `scripts/pre-destroy-cleanup.sh --apply` | Teardown step 4, or by hand | The same AWS cleanup |
+| `scripts/pre-destroy-cleanup.py --apply` | Teardown step 4, or by hand | The same AWS cleanup |
 | `./scripts/cleanup-orphans.py` | Teardown step 6, or by hand | Lists what Terraform never tracked, and `--apply` deletes it: the controller's target groups, the ALB alarms if neither cleanup reached them, and KMS keys waiting out their deletion window |
 | `./scripts/account-sweep.py` | Teardown step 8, or by hand | Nothing: it's read-only and lists what exists in every enabled region |
 
@@ -64,7 +64,7 @@ How they stay safe:
   finished. A resource that's already gone counts as done; any other error
   stops the destroy before it could stall on an ALB that's still up. Fix the
   cause and run the destroy again.
-- **`pre-destroy-cleanup.sh`** stops on lookup errors, retries target groups and
+- **`pre-destroy-cleanup.py`** stops on lookup errors, retries target groups and
   security groups that AWS still reports in use, and exits non-zero if
   anything is left.
 - **`cleanup-orphans.py`** only picks target groups that carry the controller's

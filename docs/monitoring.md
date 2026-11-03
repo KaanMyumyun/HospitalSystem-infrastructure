@@ -85,7 +85,7 @@ The alarms are built from existing AWS metrics:
   Balancer Controller has made it. Create or refresh them with
   `ansible-playbook ansible/playbooks/monitoring.yml`. They aren't in
   Terraform, so the cleanup deletes them with the ALB:
-  `scripts/pre-destroy-cleanup.sh --apply` and the `cleanup-kubernetes.yml`
+  `scripts/pre-destroy-cleanup.py --apply` and the `cleanup-kubernetes.yml`
   playbook Terraform runs during destroy both delete `hospitalsystem-alb-5xx`
   and `hospitalsystem-unhealthy-targets-*`, and never Terraform's own alarm.
 - **The node group alarm** stays OK when you scale the node group to 0 on

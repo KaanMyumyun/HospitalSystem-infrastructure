@@ -12,10 +12,11 @@ import subprocess
 import sys
 
 # Where run() sends a command's stderr: into the result after stdout (2>&1),
-# away (2>/dev/null), or straight to the terminal.
+# away (2>/dev/null), straight to the terminal, or into the result's err.
 MERGE = subprocess.STDOUT
 DROP = subprocess.DEVNULL
 SHOW = None
+CAPTURE = subprocess.PIPE
 
 
 class ScriptError(Exception):
@@ -35,6 +36,7 @@ class CommandFailed(Exception):
 class Result:
     code: int
     out: str
+    err: str = ""
 
     @property
     def ok(self):
@@ -73,14 +75,14 @@ def run(args, *, stderr=MERGE, capture=True, check=False, input=None, cwd=None, 
         message = f"{args[0]}: command not found"
         if stderr is SHOW:
             print(message, file=sys.stderr)
-        return Result(127, message if stderr is MERGE else "")
+        return Result(127, message if stderr == MERGE else "", message if stderr == CAPTURE else "")
     finally:
         _running -= 1
     if _interrupted:
         raise KeyboardInterrupt
     if check and completed.returncode != 0:
         raise CommandFailed(completed.returncode)
-    return Result(completed.returncode, (completed.stdout or "").rstrip("\n"))
+    return Result(completed.returncode, (completed.stdout or "").rstrip("\n"), (completed.stderr or "").rstrip("\n"))
 
 
 def has_command(name):

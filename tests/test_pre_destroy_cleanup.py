@@ -1,4 +1,4 @@
-"""Run scripts/pre-destroy-cleanup.sh against a fake AWS account.
+"""Run scripts/pre-destroy-cleanup.py against a fake AWS account.
 
 Reuses the fake aws command from test_cleanup_orphans. The default account has
 no ALB, target groups, network leftovers or certificate, so only the alarm
@@ -18,7 +18,7 @@ import tempfile
 from test_cleanup_orphans import FAKE_AWS
 
 
-SCRIPT = Path(__file__).resolve().parents[1] / "scripts/pre-destroy-cleanup.sh"
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts/pre-destroy-cleanup.py"
 ACCOUNT = {
     "TargetGroups": [],
     "Vpcs": [],
@@ -63,7 +63,7 @@ class PreDestroyAlarmTests(TestCase):
             "RETRY_DELAY": "0",
         }
         return subprocess.run(
-            ["bash", str(SCRIPT), *args], env=env, capture_output=True, text=True, timeout=60
+            [sys.executable, str(SCRIPT), *args], env=env, capture_output=True, text=True, timeout=60
         )
 
     def alarm_section(self, stdout):

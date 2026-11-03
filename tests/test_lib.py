@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from lib.checks import Report
-from lib.commands import DROP, CommandFailed, fields, last_line, run
+from lib.commands import CAPTURE, DROP, CommandFailed, fields, last_line, run
 
 # A script whose main() runs BODY and then prints "after".
 SCRIPT = """
@@ -42,6 +42,8 @@ class RunTests(TestCase):
         command = ["sh", "-c", "echo out; echo err >&2; printf '\\n\\n'"]
         self.assertEqual(run(command).out, "out\nerr")
         self.assertEqual(run(command, stderr=DROP).out, "out")
+        kept = run(command, stderr=CAPTURE)
+        self.assertEqual((kept.out, kept.err), ("out", "err"))
         result = run(["sh", "-c", "exit 3"])
         self.assertEqual((result.code, result.ok), (3, False))
 

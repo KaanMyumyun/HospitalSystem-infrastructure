@@ -148,7 +148,7 @@ ansible/
 scripts/
 ├── tf.sh                       # Terraform wrapper: loads .env.local, manages the state bucket
 ├── teardown.sh                 # full destroy, cleanup and account sweep
-├── pre-destroy-cleanup.sh      # deletes the ALB and what the controller made
+├── pre-destroy-cleanup.py      # deletes the ALB and what the controller made
 ├── cleanup-orphans.py          # deletes what a destroy leaves behind
 ├── account-sweep.py            # lists what is left in every region
 ├── monitoring.sh               # health checks across AWS, Kubernetes and GitHub

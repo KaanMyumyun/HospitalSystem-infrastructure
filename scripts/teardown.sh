@@ -39,7 +39,7 @@ left anywhere in the account. It starts right away, without asking:
      .generated/seed-backups/)
   3. destroys terraform_data.kubernetes_cleanup alone, which runs
      cleanup-kubernetes.yml while the cluster can still delete its ALB
-  4. scripts/pre-destroy-cleanup.sh --apply for anything step 3 left
+  4. scripts/pre-destroy-cleanup.py --apply for anything step 3 left
      (retried once: AWS can report a just-freed target group as in use)
   5. ./scripts/tf.sh destroy; if it fails, runs step 4 again, deletes the
      EKS cluster security group EKS sometimes leaves in the VPC, and
@@ -138,15 +138,15 @@ pre_destroy_cleanup() {
     printf 'No VPC in state, so nothing in it to clean up.\n'
     return 0
   fi
-  if run_logged "$1" env VPC_ID="$VPC_ID" "$SCRIPT_DIR/pre-destroy-cleanup.sh" --apply; then
+  if run_logged "$1" env VPC_ID="$VPC_ID" "$SCRIPT_DIR/pre-destroy-cleanup.py" --apply; then
     return 0
   fi
   printf '\nRetrying once.\n'
-  run_logged "$1-retry" env VPC_ID="$VPC_ID" "$SCRIPT_DIR/pre-destroy-cleanup.sh" --apply
+  run_logged "$1-retry" env VPC_ID="$VPC_ID" "$SCRIPT_DIR/pre-destroy-cleanup.py" --apply
 }
 
 # EKS can fail to delete its cluster security group while a node's ENI still
-# holds it, and pre-destroy-cleanup.sh only deletes the k8s-* groups.
+# holds it, and pre-destroy-cleanup.py only deletes the k8s-* groups.
 delete_cluster_security_group() {
   local ids id
   [ -n "$VPC_ID" ] && [ -n "$CLUSTER_NAME" ] || return 0

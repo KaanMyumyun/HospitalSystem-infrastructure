@@ -161,7 +161,7 @@ class FakeRepoTest(TestCase):
         (repo / "scripts/lib").mkdir(parents=True)
         for name in ("teardown.sh", "tf.sh", "read-config.py", "lib/config.sh", "lib/state.sh"):
             shutil.copy(ROOT / "scripts" / name, repo / "scripts" / name)
-        for name in ("pre-destroy-cleanup.sh", "cleanup-orphans.py", "account-sweep.py"):
+        for name in ("pre-destroy-cleanup.py", "cleanup-orphans.py", "account-sweep.py"):
             (repo / "scripts" / name).write_text(FAKE_SCRIPT)
             (repo / "scripts" / name).chmod(0o755)
         (repo / "ansible/group_vars/all").mkdir(parents=True)
@@ -233,7 +233,7 @@ class TeardownTests(FakeRepoTest):
         self.assertEqual(self.calls(), [
             SAVE,
             CLEANUP,
-            "pre-destroy-cleanup.sh VPC_ID=vpc-1 CLUSTER_NAME= ALARM_PREFIX= --apply",
+            "pre-destroy-cleanup.py VPC_ID=vpc-1 CLUSTER_NAME= ALARM_PREFIX= --apply",
             "terraform destroy -auto-approve -input=false -no-color",
             # terraform.yml is gone after the destroy; these were read before it.
             "cleanup-orphans.py VPC_ID= CLUSTER_NAME=eks-pr1 ALARM_PREFIX=hospitalsystem --apply",
@@ -355,13 +355,13 @@ class TeardownTests(FakeRepoTest):
         self.assertTrue(self.bucket_exists)
 
     def test_pre_destroy_cleanup_is_retried_once(self):
-        result = self.run_teardown(env={"FAKE_PRE_DESTROY_CLEANUP_SH_FAILS": "1"})
+        result = self.run_teardown(env={"FAKE_PRE_DESTROY_CLEANUP_PY_FAILS": "1"})
         self.assertExit(result, 0)
-        self.assertEqual(sum(call.startswith("pre-destroy-cleanup.sh") for call in self.calls()), 2)
+        self.assertEqual(sum(call.startswith("pre-destroy-cleanup.py") for call in self.calls()), 2)
         self.assertEqual(self.remaining, [])
 
     def test_pre_destroy_cleanup_failing_twice_stops_before_the_destroy(self):
-        result = self.run_teardown(env={"FAKE_PRE_DESTROY_CLEANUP_SH_FAILS": "2"})
+        result = self.run_teardown(env={"FAKE_PRE_DESTROY_CLEANUP_PY_FAILS": "2"})
         self.assertExit(result, 1)
         self.assertIn("couldn't be deleted", result.stderr)
         self.assertNotIn("terraform destroy -auto-approve -input=false -no-color", self.calls())
@@ -375,7 +375,7 @@ class TeardownTests(FakeRepoTest):
         destroy = "terraform destroy -auto-approve -input=false -no-color"
         first, second = [i for i, call in enumerate(calls) if call == destroy]
         between = calls[first + 1:second]
-        self.assertTrue(between[0].startswith("pre-destroy-cleanup.sh VPC_ID=vpc-1"))
+        self.assertTrue(between[0].startswith("pre-destroy-cleanup.py VPC_ID=vpc-1"))
         self.assertIn("Values=eks-cluster-sg-eks-pr1-*", between[1])
         self.assertIn("aws ec2 delete-security-group --region eu-north-1 --group-id sg-cluster", between)
         self.assertEqual(self.remaining, [])
