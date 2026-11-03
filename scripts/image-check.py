@@ -11,7 +11,7 @@
 
 Exits 1 when a check fails: a read error, or pods not running the tagged
 image. Code that is older than main, or built with uncommitted changes, is a
-warning. ./scripts/monitoring.sh ecr runs the same check next to the ECR image
+warning. ./scripts/monitoring.py ecr runs the same check next to the ECR image
 list.
 
 Environment overrides: AWS_REGION, NAMESPACE, BACKEND_DEPLOYMENT,

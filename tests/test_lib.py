@@ -57,6 +57,14 @@ class RunTests(TestCase):
             run(["sh", "-c", "exit 4"], check=True)
         self.assertEqual(raised.exception.code, 4)
 
+    def test_timeout_preserves_output_and_check_raises(self):
+        command = ["sh", "-c", "echo partial; echo diagnostic >&2; sleep 2"]
+        result = run(command, stderr=CAPTURE, timeout=0.1)
+        self.assertEqual((result.code, result.out, result.err), (124, "partial", "diagnostic"))
+        with self.assertRaises(CommandFailed) as raised:
+            run(command, timeout=0.1, check=True)
+        self.assertEqual(raised.exception.code, 124)
+
     def test_fields_keep_an_empty_field_in_its_place(self):
         # read with a tab IFS would shift c0ffee1 into the empty field.
         self.assertEqual(fields("ahead\t3\t0\t0\t\tc0ffee1\nnext line", 6), ["ahead", "3", "0", "0", "", "c0ffee1"])

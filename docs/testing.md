@@ -19,7 +19,7 @@ Run the regression tests from the repository root:
 python3 -B -m unittest discover -s tests -p 'test_*.py'
 ```
 
-A full run takes about two minutes. Some suites need `terraform`, `kubectl`,
+A full run takes about three minutes. Some suites need `terraform`, `kubectl`,
 and the Python packages `jmespath` and `PyYAML`. Without them that suite skips
 itself; CI treats a skip as a failure.
 

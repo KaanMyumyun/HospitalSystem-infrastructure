@@ -18,7 +18,7 @@ message saying so. Each setting lives in one place:
 | File | Holds |
 | ---- | ----- |
 | `ansible/group_vars/all/terraform.yml` | What Terraform owns, written on every apply and ignored by git: the region, cluster name, namespace, deploy group, VPC ID, ECR repository URLs, IAM role ARNs, ACM certificate ARN, domains, alarm prefix, ops instance ID, and the database endpoint, name and user. |
-| `ansible/group_vars/all/main.yml` | What Ansible owns: the Deployment, Ingress and ALB names, the SSM tunnel port, Cloudflare and monitoring options, and the manifest list. The Kubernetes templates and `scripts/monitoring.sh` read these same values. |
+| `ansible/group_vars/all/main.yml` | What Ansible owns: the Deployment, Ingress and ALB names, the SSM tunnel port, Cloudflare and monitoring options, and the manifest list. The Kubernetes templates and `scripts/monitoring.py` read these same values. |
 
 ## Cluster access
 
@@ -45,7 +45,7 @@ pkill -f AWS-StartPortForwardingSessionToRemoteHost
 
 | Piece | What it does |
 | ----- | ------------ |
-| `ansible/tasks/kubeconfig.yml` | Opens the tunnel on `eks_tunnel_local_port` and writes the kubeconfig to `kubeconfig_path`. Every playbook that talks to the cluster uses it, and so do `scripts/monitoring.sh`, `scripts/rollout-check.py` and `scripts/pre-destroy-cleanup.py`. |
+| `ansible/tasks/kubeconfig.yml` | Opens the tunnel on `eks_tunnel_local_port` and writes the kubeconfig to `kubeconfig_path`. Every playbook that talks to the cluster uses it, and so do `scripts/monitoring.py`, `scripts/rollout-check.py` and `scripts/pre-destroy-cleanup.py`. |
 | Ops instance | Accepts no inbound connections and has no internet access: its security group allows HTTPS only inside the VPC and to S3. |
 | VPC endpoints | `ssm`, `ssmmessages` and `ec2messages` for Systems Manager (one AZ, roughly $25 a month); the S3 gateway endpoint for the Amazon Linux package repositories. |
 | EKS access entry | `aws_eks_access_entry.ops` gives the ops instance's role its Kubernetes group; bootstrap waits for it before applying the deploy RBAC binding. There's no `aws-auth` playbook to run. |
@@ -74,7 +74,7 @@ The playbook stores both values if they differ from the stored ones, makes
 External Secrets sync at once, and restarts the backend if the Secret changed
 since its pods started (the Deployment records the Secret's hash). A Deployment
 scaled to 0 stays at 0 and reads the new Secret when it scales up.
-`./scripts/monitoring.sh workloads` warns when the pods run an older Secret.
+`./scripts/monitoring.py workloads` warns when the pods run an older Secret.
 To change the JWT key, see [Rotate the JWT key](#rotate-the-jwt-key).
 
 To change the database password on a running stack:
@@ -142,7 +142,7 @@ ansible-playbook ansible/playbooks/status.yml
 
 `status.yml` shows only the Deployment images and pods. For rollout history,
 HPAs, pod usage, the Ingress, alarms or logs, run the matching sections of
-`scripts/monitoring.sh` (see [Monitoring](monitoring.md#monitoring)). The rest
+`scripts/monitoring.py` (see [Monitoring](monitoring.md#monitoring)). The rest
 need a word of explanation.
 
 ### Applying the manifests
@@ -330,7 +330,7 @@ minor version at a time, in this order:
    (`aws_eks_addon.core` in `terraform/modules/eks/main.tf`) to EKS's default
    version for the new Kubernetes version.
 2. Run `ansible-playbook ansible/playbooks/apply-kubernetes.yml`, then
-   `scripts/monitoring.sh workloads`. The NetworkPolicy lets the control plane's
+   `scripts/monitoring.py workloads`. The NetworkPolicy lets the control plane's
    network interfaces reach the pods, and `apply-kubernetes.yml` looks up their
    IPs only when it runs. EKS can replace those interfaces during the upgrade,
    which doesn't re-run the bootstrap; with the old IPs, every deploy's smoke

@@ -112,7 +112,7 @@ whole backend down:
 
 So every new pod reaches the database before its rollout completes, but a later
 database restart, such as RDS installing a minor version, doesn't make running
-pods unready or restart them all at once. `./scripts/monitoring.sh app` checks
+pods unready or restart them all at once. `./scripts/monitoring.py app` checks
 the database on demand.
 
 ## Who can deploy what

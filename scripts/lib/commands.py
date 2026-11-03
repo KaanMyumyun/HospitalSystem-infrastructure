@@ -57,20 +57,34 @@ def _on_interrupt(signum, frame):
     _interrupted = True
 
 
-def run(args, *, stderr=MERGE, capture=True, check=False, input=None, cwd=None, env=None):
+def run(args, *, stderr=MERGE, capture=True, check=False, input=None, cwd=None, env=None, timeout=None):
     """Run a command and return its exit code and output.
 
     The output is stdout (with stderr after it for MERGE) without trailing
     newlines, as $(...) gives it. capture=False leaves stdout on the terminal.
-    check=True raises CommandFailed when the command fails.
+    check=True raises CommandFailed when the command fails. A command still
+    running after timeout seconds is killed and gives exit code 124 with what
+    it printed so far, as with timeout(1).
     """
     global _running
     _running += 1
     try:
         completed = subprocess.run(
-            args, input=input, cwd=cwd, env=env, stderr=stderr,
+            args, input=input, cwd=cwd, env=env, stderr=stderr, timeout=timeout,
             stdout=subprocess.PIPE if capture else None, encoding="utf-8", errors="replace",
         )
+    except subprocess.TimeoutExpired as expired:
+        printed = expired.stdout or b""
+        errors = expired.stderr or b""
+        if isinstance(printed, bytes):
+            printed = printed.decode("utf-8", "replace")
+        if isinstance(errors, bytes):
+            errors = errors.decode("utf-8", "replace")
+        if _interrupted:
+            raise KeyboardInterrupt
+        if check:
+            raise CommandFailed(124)
+        return Result(124, printed.rstrip("\n"), errors.rstrip("\n"))
     except FileNotFoundError:
         message = f"{args[0]}: command not found"
         if stderr is SHOW:

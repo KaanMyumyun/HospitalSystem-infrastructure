@@ -105,7 +105,7 @@ Ansible renders the templates in `kubernetes/` and applies them (see
 - NetworkPolicies deny all ingress to the namespace except port 8080 from the
   ALB's public subnets and from the EKS control plane's network interfaces (the
   deploy's smoke test goes through the API server), plus the backend's metrics
-  port 9091 from the control plane only, for `scripts/monitoring.sh`'s per-pod
+  port 9091 from the control plane only, for `scripts/monitoring.py`'s per-pod
   metrics read. The vpc-cni add-on enforces them; the node's own traffic, such
   as kubelet probes, is always allowed.
 - Namespace-scoped RBAC lets the ops instance's deploy group change the app
@@ -151,7 +151,7 @@ scripts/
 ├── pre-destroy-cleanup.py      # deletes the ALB and what the controller made
 ├── cleanup-orphans.py          # deletes what a destroy leaves behind
 ├── account-sweep.py            # lists what is left in every region
-├── monitoring.sh               # health checks across AWS, Kubernetes and GitHub
+├── monitoring.py               # health checks across AWS, Kubernetes and GitHub
 ├── rollout-check.py            # checks a deploy replaces pods without dropping requests
 ├── image-check.py              # which image and commit each app runs
 ├── deploy-release.py           # the deploy the SSM document runs on the ops instance

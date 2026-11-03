@@ -163,7 +163,7 @@ def check_backend(root):
         if problem is None:
             break
     else:
-        raise RotationError(f"{problem}. Check with ./scripts/monitoring.sh workloads, "
+        raise RotationError(f"{problem}. Check with ./scripts/monitoring.py workloads, "
                             f"and push the saved key again with: {PUSH_AGAIN}")
     want = deployment["spec"].get("replicas", 1)
     if not want:

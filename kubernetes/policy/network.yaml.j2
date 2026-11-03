@@ -42,7 +42,7 @@ spec:
         - protocol: TCP
           port: 8080
 ---
-# scripts/monitoring.sh reads each backend pod's Prometheus metrics through
+# scripts/monitoring.py reads each backend pod's Prometheus metrics through
 # the API server's pod proxy. Only the control plane may reach the metrics
 # port; the ALB never needs it.
 apiVersion: networking.k8s.io/v1

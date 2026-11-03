@@ -2,22 +2,22 @@
 
 Monitoring is deliberately light. The project runs no Prometheus, Grafana,
 CloudWatch Observability or EKS runtime monitoring, which would cost money to
-keep running. Instead, `scripts/monitoring.sh` checks everything on demand, and
+keep running. Instead, `scripts/monitoring.py` checks everything on demand, and
 three kinds of CloudWatch alarm email you when something breaks.
 
 ## Checking the stack
 
 ```bash
-./scripts/monitoring.sh                    # everything; changes nothing in AWS
-./scripts/monitoring.sh --refresh-alarms   # also recreate the ALB alarms (monitoring.yml) first
-./scripts/monitoring.sh workloads logs     # only the named sections
+./scripts/monitoring.py                    # everything; changes nothing in AWS
+./scripts/monitoring.py --refresh-alarms   # also recreate the ALB alarms (monitoring.yml) first
+./scripts/monitoring.py workloads logs     # only the named sections
 ```
 
 It ends with a summary of warnings and failures, and exits 1 when any check
 fails. A check that can't read its data, because an AWS, Kubernetes, Helm or
 GitHub call fails, is reported as a failure with the error, or as a warning
 for checks that only ever warn. It never counts as healthy.
-`./scripts/monitoring.sh --help` lists the sections and the environment
+`./scripts/monitoring.py --help` lists the sections and the environment
 overrides (`LOOKBACK_HOURS`, `LOG_TAIL_LINES`, and others).
 
 | Area | What it checks |
@@ -35,8 +35,8 @@ overrides (`LOOKBACK_HOURS`, `LOG_TAIL_LINES`, and others).
 The most common checks, and the same Kubernetes metrics queried directly:
 
 ```bash
-./scripts/monitoring.sh alarms workloads   # alarm states, HPA targets, pod CPU/memory from metrics-server
-./scripts/monitoring.sh logs               # recent app logs
+./scripts/monitoring.py alarms workloads   # alarm states, HPA targets, pod CPU/memory from metrics-server
+./scripts/monitoring.py logs               # recent app logs
 kubectl get hpa -n hospitalsystem
 kubectl top pods -n hospitalsystem
 ```
@@ -104,7 +104,7 @@ The recipient is `ALERT_EMAIL=you@example.com` in `.env.local`;
 `./scripts/tf.sh apply` requires it and subscribes it to the topic. **Click the
 link in the "AWS Notification - Subscription Confirmation" email:** nothing is
 delivered until you do. The topic is part of the environment, so every rebuild
-needs a new confirmation; `./scripts/monitoring.sh alarms` warns while it's
+needs a new confirmation; `./scripts/monitoring.py alarms` warns while it's
 pending.
 
 To send a test email through the whole path:
@@ -151,7 +151,7 @@ or resource limits. The node and database sizes are Terraform variables (see
 For a quick answer, `./scripts/image-check.py` (or `backend` / `frontend` for
 one app) shows each app's image tag, whether every pod runs the digest that tag
 points to in ECR, and the commit it was built from compared with main on
-GitHub. It changes nothing. `./scripts/monitoring.sh ecr` runs the same check
+GitHub. It changes nothing. `./scripts/monitoring.py ecr` runs the same check
 next to the ECR image list and scan results.
 
 When a deploy breaks and you need to see exactly what's running, use `kubectl`
