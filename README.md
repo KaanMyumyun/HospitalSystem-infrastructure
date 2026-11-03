@@ -31,11 +31,11 @@ Current AWS deployment target:
 - **Locked-down workloads.** Restricted Pod Security, read-only root
   filesystems, NetworkPolicies enforced by the VPC CNI, and KMS encryption for
   Secrets, logs, ECR, RDS and Secrets Manager.
-- **Tested scripts.** 188 regression tests run the real Python scripts,
-  restored shell baselines and playbooks against fake `aws`, `kubectl` and `terraform`.
+- **Tested scripts.** 186 regression tests run the real Python scripts and
+  playbooks against fake `aws`, `kubectl` and `terraform`.
 - **Pinned, verified CI.** Actions are pinned to commit SHAs and tool downloads
   are checksum-verified. CI runs Terraform, TFLint, ansible-lint, kubeconform
-  and script syntax checks, plus Checkov and Trivy reports.
+  and a Python compile check, plus Checkov and Trivy reports.
 
 ## Architecture
 
@@ -113,7 +113,7 @@ apply, confirm the SNS subscription email, or no alarm email arrives.
 | `ansible/` | The cluster bootstrap and the playbooks for running the stack |
 | `kubernetes/` | Templates of the Kubernetes manifests, rendered by Ansible |
 | `scripts/python/` | Active automation, including `tf.py`, `teardown.py` and `monitoring.py` |
-| `scripts/bash/` | Restored shell versions, retained while the Python replacements are verified |
+| `scripts/bash/` | Local shell copies, ignored by Git; the committed originals remain in Git history |
 | `tests/` | Regression tests that run the scripts and playbooks against fake CLIs |
 | `config/` | The ALB alarms and the account sweep's ignore list |
 | `docs/` | The documentation below |

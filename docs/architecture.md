@@ -151,7 +151,7 @@ scripts/
 │   ├── teardown.py             # full destroy, cleanup and account sweep
 │   ├── monitoring.py           # health checks across AWS, Kubernetes and GitHub
 │   └── ...                     # deployment, cleanup, image and secret scripts
-└── bash/                       # restored shell scripts and their lib/ helpers
+└── bash/                       # optional local shell copies, ignored by Git
 config/
 ├── alb-alarms.json             # the ALB alarms, read by monitoring.yml and the cleanup
 └── account-sweep-ignore.txt    # resources the sweep reports as IGNORED

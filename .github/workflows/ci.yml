@@ -195,8 +195,8 @@ jobs:
             -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/f3e4382095909ac60000da025f323ba44d4c738a/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
             "$RUNNER_TEMP/manifests"
 
-  scripts:
-    name: Scripts
+  python-scripts:
+    name: Python scripts
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -211,9 +211,6 @@ jobs:
 
       - name: Compile scripts
         run: python -m compileall -q scripts
-
-      - name: Check restored shell scripts
-        run: bash -n scripts/bash/*.sh scripts/bash/lib/*.sh
 
   tests:
     name: Regression tests

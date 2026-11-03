@@ -159,11 +159,9 @@ class FakeRepoTest(TestCase):
         tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         repo = tmp / "repo"
         (repo / "scripts/python/lib").mkdir(parents=True)
-        (repo / "scripts/bash/lib").mkdir(parents=True)
         for name in ("python/teardown.py", "python/tf.py", "python/lib/__init__.py",
                      "python/lib/commands.py", "python/lib/config.py", "python/lib/env.py",
-                     "python/lib/state.py", "bash/teardown.sh", "bash/tf.sh",
-                     "bash/lib/config.sh", "bash/lib/state.sh", "python/read-config.py"):
+                     "python/lib/state.py"):
             shutil.copy(ROOT / "scripts" / name, repo / "scripts" / name)
         for name in ("pre-destroy-cleanup.py", "cleanup-orphans.py", "account-sweep.py"):
             (repo / "scripts/python" / name).write_text(FAKE_SCRIPT)
@@ -231,24 +229,6 @@ class TeardownTests(FakeRepoTest):
     # stdin is empty, so a question would get no answer and stop the teardown.
     def run_teardown(self, *args, **kwargs):
         return self.run_script(["scripts/python/teardown.py", *args], **kwargs)
-
-    def test_restored_shell_teardown_matches_python_for_core_paths(self):
-        scenarios = (
-            ([], {}),
-            ([], {"bucket": False}),
-            ([], {"resources": []}),
-            ([], {"env": {"FAKE_LOCK": json.dumps(LOCK)}}),
-            ([], {"env": {"FAKE_ANSIBLE_PLAYBOOK_FAILS": "1"}}),
-            (["--skip-dump"], {}),
-            ([], {"fail": {"full": 1}}),
-        )
-        for args, settings in scenarios:
-            with self.subTest(args=args, settings=settings):
-                shell = self.run_script(["scripts/bash/teardown.sh", *args], **settings)
-                shell_result = (shell.returncode, self.calls(), self.remaining, self.bucket_exists)
-                python = self.run_script(["scripts/python/teardown.py", *args], **settings)
-                python_result = (python.returncode, self.calls(), self.remaining, self.bucket_exists)
-                self.assertEqual(shell_result, python_result, shell.stdout + shell.stderr + python.stdout + python.stderr)
 
     def test_full_teardown_runs_every_step_in_order(self):
         result = self.run_teardown()
@@ -438,24 +418,6 @@ class TeardownTests(FakeRepoTest):
 class TfWrapperTests(FakeRepoTest):
     def run_tf(self, *args, **kwargs):
         return self.run_script(["scripts/python/tf.py", *args], **kwargs)
-
-    def test_restored_shell_wrapper_matches_python_for_core_paths(self):
-        scenarios = (
-            (["plan", "-no-color"], {"bucket": False, "backend": None, "stdin": "yes\n"}),
-            (["plan"], {"bucket": False, "backend": None, "stdin": "no\n"}),
-            (["plan"], {}),
-            (["init", "-migrate-state"], {"backend": None}),
-            (["output", "-json"], {"bucket": False}),
-            (["validate"], {"bucket": False, "backend": None}),
-            (["destroy"], {"env_local": ENV_LOCAL.replace("HOSPITALSYSTEM_DB_PASSWORD=fake-password\n", "")}),
-        )
-        for args, settings in scenarios:
-            with self.subTest(args=args, settings=settings):
-                shell = self.run_script(["scripts/bash/tf.sh", *args], **settings)
-                shell_result = (shell.returncode, shell.stdout, self.calls(), self.remaining, self.bucket_exists)
-                python = self.run_script(["scripts/python/tf.py", *args], **settings)
-                python_result = (python.returncode, python.stdout, self.calls(), self.remaining, self.bucket_exists)
-                self.assertEqual(shell_result, python_result, shell.stderr + python.stderr)
 
     def test_plan_or_apply_without_a_bucket_creates_it_and_initializes_first(self):
         for command in ("plan", "apply"):
