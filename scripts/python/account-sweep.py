@@ -27,7 +27,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-IGNORE_FILE = Path(__file__).resolve().parents[1] / "config/account-sweep-ignore.txt"
+IGNORE_FILE = Path(__file__).resolve().parents[2] / "config/account-sweep-ignore.txt"
 
 # The service or region can't be used, so there is nothing there to find.
 UNAVAILABLE = (

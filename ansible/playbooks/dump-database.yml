@@ -1,6 +1,6 @@
 ---
 # Saves the backend database into seed.sql in the repository root, so the next
-# stack starts with this one's data: scripts/teardown.py runs it before it
+# stack starts with this one's data: scripts/python/teardown.py runs it before it
 # destroys anything, and database.yml loads seed.sql into the next stack's
 # empty database. Git ignores seed.sql because it holds user accounts and
 # patient records.
@@ -53,7 +53,7 @@
           - db_username is defined
         fail_msg: >-
           ansible/group_vars/all/terraform.yml has no database settings, so
-          there's no database to save. ./scripts/tf.py apply writes the file,
+          there's no database to save. ./scripts/python/tf.py apply writes the file,
           and the destroy deletes it.
         quiet: true
 

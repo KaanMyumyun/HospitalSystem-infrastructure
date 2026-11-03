@@ -9,7 +9,7 @@ from unittest import TestCase, main
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "scripts/push-initial-ecr-images.py"
+SCRIPT = ROOT / "scripts/python/push-initial-ecr-images.py"
 FAKE = r'''
 import os, sys
 from pathlib import Path

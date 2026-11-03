@@ -3,7 +3,7 @@ terraform {
   required_version = ">= 1.11.0"
 
   # State lives in the bucket terraform/bootstrap creates. Its name has the
-  # account ID in it, so ./scripts/tf.py passes it to terraform init.
+  # account ID in it, so ./scripts/python/tf.py passes it to terraform init.
   backend "s3" {
     key          = "hospitalsystem/terraform.tfstate"
     region       = "eu-north-1"

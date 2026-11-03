@@ -6,12 +6,12 @@
   - the commit it was built from, taken from its <date>-<sha> tag, compared
     with main on GitHub (needs gh, logged in)
 
-./scripts/image-check.py            # both apps; changes nothing
-./scripts/image-check.py backend    # only one of them
+./scripts/python/image-check.py            # both apps; changes nothing
+./scripts/python/image-check.py backend    # only one of them
 
 Exits 1 when a check fails: a read error, or pods not running the tagged
 image. Code that is older than main, or built with uncommitted changes, is a
-warning. ./scripts/monitoring.py ecr runs the same check next to the ECR image
+warning. ./scripts/python/monitoring.py ecr runs the same check next to the ECR image
 list.
 
 Environment overrides: AWS_REGION, NAMESPACE, BACKEND_DEPLOYMENT,
@@ -40,7 +40,7 @@ def main():
     }
     for variable, value in settings.items():
         if not value:
-            raise ScriptError(f"Missing {variable}: export it, or run ./scripts/tf.py apply to generate "
+            raise ScriptError(f"Missing {variable}: export it, or run ./scripts/python/tf.py apply to generate "
                               f"{group_vars_dir()}/terraform.yml")
     apps = {"backend": settings["BACKEND_DEPLOYMENT"], "frontend": settings["FRONTEND_DEPLOYMENT"]}
     deployments = [apps[app] for app in args.apps or ("backend", "frontend")]

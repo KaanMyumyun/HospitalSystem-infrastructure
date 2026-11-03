@@ -1,4 +1,4 @@
-"""Run scripts/teardown.py and the real tf.py in a copy of the repo with fakes.
+"""Run scripts/python/teardown.py and the real tf.py in a copy of the repo with fakes.
 
 terraform, aws, ansible-playbook, and the cleanup, orphan and sweep scripts are
 fakes that log every call, so the tests check the order of the steps and where
@@ -158,13 +158,16 @@ class FakeRepoTest(TestCase):
         """
         tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         repo = tmp / "repo"
-        (repo / "scripts/lib").mkdir(parents=True)
-        for name in ("teardown.py", "tf.py", "lib/__init__.py", "lib/commands.py", "lib/config.py",
-                     "lib/env.py", "lib/state.py"):
+        (repo / "scripts/python/lib").mkdir(parents=True)
+        (repo / "scripts/bash/lib").mkdir(parents=True)
+        for name in ("python/teardown.py", "python/tf.py", "python/lib/__init__.py",
+                     "python/lib/commands.py", "python/lib/config.py", "python/lib/env.py",
+                     "python/lib/state.py", "bash/teardown.sh", "bash/tf.sh",
+                     "bash/lib/config.sh", "bash/lib/state.sh", "python/read-config.py"):
             shutil.copy(ROOT / "scripts" / name, repo / "scripts" / name)
         for name in ("pre-destroy-cleanup.py", "cleanup-orphans.py", "account-sweep.py"):
-            (repo / "scripts" / name).write_text(FAKE_SCRIPT)
-            (repo / "scripts" / name).chmod(0o755)
+            (repo / "scripts/python" / name).write_text(FAKE_SCRIPT)
+            (repo / "scripts/python" / name).chmod(0o755)
         (repo / "ansible/group_vars/all").mkdir(parents=True)
         (repo / "ansible/group_vars/all/main.yml").write_text("ingress_name: hospital-ingress\n")
         (repo / "ansible/group_vars/all/terraform.yml").write_text(
@@ -227,7 +230,25 @@ CLEANUP = "terraform destroy -target=terraform_data.kubernetes_cleanup -auto-app
 class TeardownTests(FakeRepoTest):
     # stdin is empty, so a question would get no answer and stop the teardown.
     def run_teardown(self, *args, **kwargs):
-        return self.run_script(["scripts/teardown.py", *args], **kwargs)
+        return self.run_script(["scripts/python/teardown.py", *args], **kwargs)
+
+    def test_restored_shell_teardown_matches_python_for_core_paths(self):
+        scenarios = (
+            ([], {}),
+            ([], {"bucket": False}),
+            ([], {"resources": []}),
+            ([], {"env": {"FAKE_LOCK": json.dumps(LOCK)}}),
+            ([], {"env": {"FAKE_ANSIBLE_PLAYBOOK_FAILS": "1"}}),
+            (["--skip-dump"], {}),
+            ([], {"fail": {"full": 1}}),
+        )
+        for args, settings in scenarios:
+            with self.subTest(args=args, settings=settings):
+                shell = self.run_script(["scripts/bash/teardown.sh", *args], **settings)
+                shell_result = (shell.returncode, self.calls(), self.remaining, self.bucket_exists)
+                python = self.run_script(["scripts/python/teardown.py", *args], **settings)
+                python_result = (python.returncode, self.calls(), self.remaining, self.bucket_exists)
+                self.assertEqual(shell_result, python_result, shell.stdout + shell.stderr + python.stdout + python.stderr)
 
     def test_full_teardown_runs_every_step_in_order(self):
         result = self.run_teardown()
@@ -295,7 +316,7 @@ class TeardownTests(FakeRepoTest):
         result = self.run_teardown(env={"FAKE_LOCK": json.dumps(LOCK)})
         self.assertExit(result, 1)
         self.assertIn("locked by kaan@laptop (apply since 2026-09-27T10:00:00Z)", result.stderr)
-        self.assertIn("./scripts/tf.py force-unlock 0b1c-lock", result.stderr)
+        self.assertIn("./scripts/python/tf.py force-unlock 0b1c-lock", result.stderr)
         self.assertIn(f"aws s3api list-objects-v2 --bucket {BUCKET} "
                       "--prefix hospitalsystem/terraform.tfstate.tflock", self.log.read_text())
         self.assertEqual(self.calls(), [])
@@ -416,7 +437,25 @@ class TeardownTests(FakeRepoTest):
 
 class TfWrapperTests(FakeRepoTest):
     def run_tf(self, *args, **kwargs):
-        return self.run_script(["scripts/tf.py", *args], **kwargs)
+        return self.run_script(["scripts/python/tf.py", *args], **kwargs)
+
+    def test_restored_shell_wrapper_matches_python_for_core_paths(self):
+        scenarios = (
+            (["plan", "-no-color"], {"bucket": False, "backend": None, "stdin": "yes\n"}),
+            (["plan"], {"bucket": False, "backend": None, "stdin": "no\n"}),
+            (["plan"], {}),
+            (["init", "-migrate-state"], {"backend": None}),
+            (["output", "-json"], {"bucket": False}),
+            (["validate"], {"bucket": False, "backend": None}),
+            (["destroy"], {"env_local": ENV_LOCAL.replace("HOSPITALSYSTEM_DB_PASSWORD=fake-password\n", "")}),
+        )
+        for args, settings in scenarios:
+            with self.subTest(args=args, settings=settings):
+                shell = self.run_script(["scripts/bash/tf.sh", *args], **settings)
+                shell_result = (shell.returncode, shell.stdout, self.calls(), self.remaining, self.bucket_exists)
+                python = self.run_script(["scripts/python/tf.py", *args], **settings)
+                python_result = (python.returncode, python.stdout, self.calls(), self.remaining, self.bucket_exists)
+                self.assertEqual(shell_result, python_result, shell.stderr + python.stderr)
 
     def test_plan_or_apply_without_a_bucket_creates_it_and_initializes_first(self):
         for command in ("plan", "apply"):

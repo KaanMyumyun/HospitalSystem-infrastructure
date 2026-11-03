@@ -1,4 +1,4 @@
-"""Run scripts/cleanup-orphans.py against a fake AWS account.
+"""Run scripts/python/cleanup-orphans.py against a fake AWS account.
 
 The fake aws command evaluates --query with jmespath, the library the AWS CLI
 uses, so the script's own selection queries are what gets tested.
@@ -14,7 +14,7 @@ import sys
 import tempfile
 
 
-SCRIPT = Path(__file__).resolve().parents[1] / "scripts/cleanup-orphans.py"
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts/python/cleanup-orphans.py"
 TG_ARN = "arn:aws:elasticloadbalancing:eu-north-1:123456789012:targetgroup"
 ALB_ARN = "arn:aws:elasticloadbalancing:eu-north-1:123456789012:loadbalancer/app/hospital-system-alb/1"
 OURS = {

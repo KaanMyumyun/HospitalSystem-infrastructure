@@ -105,7 +105,7 @@ Ansible renders the templates in `kubernetes/` and applies them (see
 - NetworkPolicies deny all ingress to the namespace except port 8080 from the
   ALB's public subnets and from the EKS control plane's network interfaces (the
   deploy's smoke test goes through the API server), plus the backend's metrics
-  port 9091 from the control plane only, for `scripts/monitoring.py`'s per-pod
+  port 9091 from the control plane only, for `scripts/python/monitoring.py`'s per-pod
   metrics read. The vpc-cni add-on enforces them; the node's own traffic, such
   as kubelet probes, is always allowed.
 - Namespace-scoped RBAC lets the ops instance's deploy group change the app
@@ -146,20 +146,12 @@ ansible/
     ├── migrate.yml     # the migration Job, used by database.yml and migrate.yml
     └── alb-alarm.yml   # one ALB alarm, used by monitoring.yml
 scripts/
-├── tf.py                       # Terraform wrapper: loads .env.local, manages the state bucket
-├── teardown.py                 # full destroy, cleanup and account sweep
-├── pre-destroy-cleanup.py      # deletes the ALB and what the controller made
-├── cleanup-orphans.py          # deletes what a destroy leaves behind
-├── account-sweep.py            # lists what is left in every region
-├── monitoring.py               # health checks across AWS, Kubernetes and GitHub
-├── rollout-check.py            # checks a deploy replaces pods without dropping requests
-├── image-check.py              # which image and commit each app runs
-├── deploy-release.py           # the deploy the SSM document runs on the ops instance
-├── rotate-jwt-key.py           # generates a new JWT key and pushes it
-├── push-initial-ecr-images.py  # run by Terraform on apply
-├── apply-workload.py           # used by apply-kubernetes.yml
-├── backend-secret.py           # used by backend-secret.yml and apply-kubernetes.yml
-└── lib/                        # shared CLI, config, environment and state helpers
+├── python/                     # active automation and shared Python helpers in lib/
+│   ├── tf.py                   # Terraform wrapper: loads .env.local, manages the state bucket
+│   ├── teardown.py             # full destroy, cleanup and account sweep
+│   ├── monitoring.py           # health checks across AWS, Kubernetes and GitHub
+│   └── ...                     # deployment, cleanup, image and secret scripts
+└── bash/                       # restored shell scripts and their lib/ helpers
 config/
 ├── alb-alarms.json             # the ALB alarms, read by monitoring.yml and the cleanup
 └── account-sweep-ignore.txt    # resources the sweep reports as IGNORED

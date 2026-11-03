@@ -18,7 +18,7 @@ import sys
 import tempfile
 
 
-SCRIPT = Path(__file__).resolve().parents[1] / "scripts/apply-workload.py"
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts/python/apply-workload.py"
 KUBECTL = shutil.which("kubectl")
 LAST_APPLIED = "kubectl.kubernetes.io/last-applied-configuration"
 COLLECTION = "/apis/apps/v1/namespaces/hospitalsystem/deployments"

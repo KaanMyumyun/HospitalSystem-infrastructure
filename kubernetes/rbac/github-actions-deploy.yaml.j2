@@ -4,7 +4,7 @@ metadata:
   name: github-actions-deployer
   namespace: "{{ k8s_namespace }}"
 rules:
-  # scripts/deploy-release.py reads and patches these two Deployments and
+  # scripts/python/deploy-release.py reads and patches these two Deployments and
   # nothing else. policy/deploy-image-only.yaml.j2 limits the patch to images.
   - apiGroups:
       - apps

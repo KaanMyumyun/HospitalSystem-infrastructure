@@ -1,4 +1,4 @@
-"""Run scripts/deploy-release.py against a fake cluster and ECR, without AWS."""
+"""Run scripts/python/deploy-release.py against a fake cluster and ECR, without AWS."""
 
 from importlib.util import module_from_spec, spec_from_file_location
 from itertools import count
@@ -13,7 +13,7 @@ import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "scripts/deploy-release.py"
+SCRIPT = ROOT / "scripts/python/deploy-release.py"
 SPEC = spec_from_file_location("deploy_release", SCRIPT)
 deploy = module_from_spec(SPEC)
 SPEC.loader.exec_module(deploy)
@@ -248,7 +248,7 @@ class WiringTests(TestCase):
         exported = set(re.findall(r"^    ([A-Z0-9_]+)\s+=", block, re.MULTILINE)) | {"IMAGE_TAG"}
         self.assertEqual(set(re.findall(r'env\["([A-Z0-9_]+)"\]', self.SOURCE)), exported)
         self.assertIn("export IMAGE_TAG='{{ ImageTag }}'", ops)
-        self.assertIn('file("${path.module}/../scripts/deploy-release.py")', ops)
+        self.assertIn('file("${path.module}/../scripts/python/deploy-release.py")', ops)
 
     def test_rbac_allows_exactly_the_smoke_test_proxies(self):
         kube = object.__new__(deploy.Kubernetes)

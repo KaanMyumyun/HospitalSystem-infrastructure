@@ -57,7 +57,7 @@ under a new tag instead of failing.
    is no longer the tip of `main`.
 3. It assumes the EKS deploy role through OIDC, finds the running ops instance
    and sends it the `hospitalsystem-deploy` SSM document with the tag.
-4. On the instance, the document runs `scripts/deploy-release.py`:
+4. On the instance, the document runs `scripts/python/deploy-release.py`:
    - It checks that both images exist in ECR, through an ECR API VPC endpoint
      because the instance has no internet access. A missing image fails the
      deploy with both apps untouched.
@@ -112,7 +112,7 @@ whole backend down:
 
 So every new pod reaches the database before its rollout completes, but a later
 database restart, such as RDS installing a minor version, doesn't make running
-pods unready or restart them all at once. `./scripts/monitoring.py app` checks
+pods unready or restart them all at once. `./scripts/python/monitoring.py app` checks
 the database on demand.
 
 ## Who can deploy what

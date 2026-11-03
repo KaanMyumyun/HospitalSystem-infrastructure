@@ -2,9 +2,9 @@
 """Check whether the rolling deployment is set up correctly and, on request,
 whether a real rollout serves every request. Exits 1 when any check fails.
 
-./scripts/rollout-check.py             # settings only; changes nothing
-./scripts/rollout-check.py --watch     # probes the app while a CI deploy rolls out
-./scripts/rollout-check.py --restart   # starts a rollout itself and probes it
+./scripts/python/rollout-check.py             # settings only; changes nothing
+./scripts/python/rollout-check.py --watch     # probes the app while a CI deploy rolls out
+./scripts/python/rollout-check.py --restart   # starts a rollout itself and probes it
 
 With no options it only reads settings and changes nothing:
   - the RollingUpdate strategy, surge and shutdown settings on both Deployments
@@ -447,7 +447,7 @@ def main():
     }
     for variable, value in settings.items():
         if not value:
-            raise ScriptError(f"Missing {variable}: export it, or run ./scripts/tf.py apply to generate "
+            raise ScriptError(f"Missing {variable}: export it, or run ./scripts/python/tf.py apply to generate "
                               f"{group_vars_dir()}/terraform.yml")
 
     interval = args.interval if args.interval is not None else setting("PROBE_INTERVAL", default="1")

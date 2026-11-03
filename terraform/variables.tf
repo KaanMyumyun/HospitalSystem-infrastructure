@@ -175,7 +175,7 @@ variable "cloudflare_api_token" {
 }
 
 variable "alert_email" {
-  description = "Email address subscribed to the CloudWatch alarm topic. scripts/tf.py sets it from ALERT_EMAIL; empty creates the topic without a subscription."
+  description = "Email address subscribed to the CloudWatch alarm topic. scripts/python/tf.py sets it from ALERT_EMAIL; empty creates the topic without a subscription."
   type        = string
   default     = ""
 
@@ -186,7 +186,7 @@ variable "alert_email" {
 }
 
 variable "db_password" {
-  description = "Master password of the PostgreSQL instance. scripts/tf.py sets it from HOSPITALSYSTEM_DB_PASSWORD. It's write-only, so it never reaches the state or a plan; destroy doesn't need it."
+  description = "Master password of the PostgreSQL instance. scripts/python/tf.py sets it from HOSPITALSYSTEM_DB_PASSWORD. It's write-only, so it never reaches the state or a plan; destroy doesn't need it."
   type        = string
   sensitive   = true
   ephemeral   = true

@@ -14,7 +14,7 @@ import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "scripts/monitoring.py"
+SCRIPT = ROOT / "scripts/python/monitoring.py"
 ALB = "arn:aws:elasticloadbalancing:eu-north-1:123:loadbalancer/app/test/1"
 TARGET = "arn:aws:elasticloadbalancing:eu-north-1:123:targetgroup/backend/1"
 ERROR = {"stderr": "AccessDenied: simulated read failure", "code": 1}

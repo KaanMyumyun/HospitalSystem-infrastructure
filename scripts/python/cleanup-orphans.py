@@ -5,7 +5,7 @@ A target group is picked only when it has no load balancer, carries the Load
 Balancer Controller's tags for this cluster and Ingress, and its VPC no longer
 exists. Alarms are the ALB alarms monitoring.yml creates, picked by the names
 config/alb-alarms.json gives them. Terraform's own alarms are left alone.
-Before a destroy, use scripts/pre-destroy-cleanup.py instead.
+Before a destroy, use scripts/python/pre-destroy-cleanup.py instead.
 
 Environment overrides: AWS_REGION, CLUSTER_NAME, K8S_NAMESPACE, INGRESS_NAME,
 ALARM_PREFIX.

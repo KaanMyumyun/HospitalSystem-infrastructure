@@ -6,8 +6,8 @@ teardown saves it into `seed.sql` before destroying anything, and the next
 apply loads it back.
 
 ```bash
-./scripts/teardown.py
-./scripts/tf.py apply
+./scripts/python/teardown.py
+./scripts/python/tf.py apply
 ```
 
 The apply needs the values from [Local setup](terraform.md#local-setup) in
@@ -18,7 +18,7 @@ has every step.
 
 ## What the teardown does
 
-`./scripts/teardown.py` runs every step of a clean destroy. It starts right
+`./scripts/python/teardown.py` runs every step of a clean destroy. It starts right
 away, without asking:
 
 1. Checks the AWS login, finds the logged-in account's state bucket, and checks
@@ -30,14 +30,14 @@ away, without asking:
    `--skip-dump` destroys the database without saving it.
 3. Destroys `terraform_data.kubernetes_cleanup` alone, so the cleanup below runs
    while the cluster can still delete its ALB.
-4. Runs `scripts/pre-destroy-cleanup.py --apply` for anything left, retried
+4. Runs `scripts/python/pre-destroy-cleanup.py --apply` for anything left, retried
    once.
-5. Runs `./scripts/tf.py destroy`. If it fails, it runs step 4 again, deletes
+5. Runs `./scripts/python/tf.py destroy`. If it fails, it runs step 4 again, deletes
    the EKS cluster security group EKS sometimes leaves in the VPC, and retries
    once.
-6. Checks the state is empty and runs `scripts/cleanup-orphans.py --apply`.
+6. Checks the state is empty and runs `scripts/python/cleanup-orphans.py --apply`.
 7. Deletes the state bucket, only if the state is empty and unlocked.
-8. Runs `scripts/account-sweep.py` over every region, which lists a state
+8. Runs `scripts/python/account-sweep.py` over every region, which lists a state
    bucket still there as `BILLABLE`.
 
 It stops at the first step that fails, so nothing is destroyed until the
@@ -53,9 +53,9 @@ is left:
 | Tool | Runs | What it removes |
 | ---- | ---- | --------------- |
 | `ansible/playbooks/cleanup-kubernetes.yml` | During destroy, before the cluster is deleted | The app's Cloudflare CNAME if it still points at this ALB, then the Ingress, so the controller deletes the ALB (or the ALB directly when the cluster can't be reached), then the ALB's target groups, its `k8s-*` security groups and the ALB alarms |
-| `scripts/pre-destroy-cleanup.py --apply` | Teardown step 4, or by hand | The same AWS cleanup |
-| `./scripts/cleanup-orphans.py` | Teardown step 6, or by hand | Lists what Terraform never tracked, and `--apply` deletes it: the controller's target groups, the ALB alarms if neither cleanup reached them, and KMS keys waiting out their deletion window |
-| `./scripts/account-sweep.py` | Teardown step 8, or by hand | Nothing: it's read-only and lists what exists in every enabled region |
+| `scripts/python/pre-destroy-cleanup.py --apply` | Teardown step 4, or by hand | The same AWS cleanup |
+| `./scripts/python/cleanup-orphans.py` | Teardown step 6, or by hand | Lists what Terraform never tracked, and `--apply` deletes it: the controller's target groups, the ALB alarms if neither cleanup reached them, and KMS keys waiting out their deletion window |
+| `./scripts/python/account-sweep.py` | Teardown step 8, or by hand | Nothing: it's read-only and lists what exists in every enabled region |
 
 How they stay safe:
 
@@ -151,7 +151,7 @@ its own; see [Playbooks](operations.md#playbooks)):
   leaves `seed.sql` alone.
 - If the dump fails, the teardown stops before it destroys anything. The dump
   needs the nodes: on a paused stack run `resume.yml` first. To destroy the
-  database without saving it, run `./scripts/teardown.py --skip-dump`.
+  database without saving it, run `./scripts/python/teardown.py --skip-dump`.
 
 **Restoring.** RDS keeps a day of automated backups while the stack is up, but
 a point-in-time restore creates a new instance outside Terraform. Start over

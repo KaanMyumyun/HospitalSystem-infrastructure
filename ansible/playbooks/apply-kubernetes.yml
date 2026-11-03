@@ -136,7 +136,7 @@
       ansible.builtin.command:
         argv:
           - "{{ ansible_playbook_python }}"
-          - "{{ playbook_dir }}/../../scripts/apply-workload.py"
+          - "{{ playbook_dir }}/../../scripts/python/apply-workload.py"
         stdin: "{{ lookup('ansible.builtin.file', manifest_output_dir ~ '/' ~ (item | splitext | first)) | from_yaml | to_json }}"
       loop: "{{ kubernetes_workload_manifests }}"
       register: workload_apply_results
@@ -245,7 +245,7 @@
       ansible.builtin.command:
         argv:
           - "{{ ansible_playbook_python }}"
-          - "{{ playbook_dir }}/../../scripts/backend-secret.py"
+          - "{{ playbook_dir }}/../../scripts/python/backend-secret.py"
           - --namespace
           - "{{ k8s_namespace }}"
           - --deployment

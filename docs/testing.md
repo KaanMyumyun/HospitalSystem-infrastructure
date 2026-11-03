@@ -9,7 +9,7 @@ of it needs AWS credentials:
 | Terraform | `fmt` and `validate` for `terraform/` and `terraform/bootstrap/`, and TFLint over every directory under `terraform/`, the modules included. |
 | Ansible | A syntax check of every playbook, and `ansible-lint`. |
 | Kubernetes manifests | Every template renders with stand-in values and passes kubeconform. |
-| Python scripts | Compile every `scripts/**/*.py` file to catch syntax errors. |
+| Scripts | Compile every `scripts/**/*.py` file and syntax-check the restored shell scripts. |
 | Regression tests | Every `tests/test_*.py`. A skipped test fails the job. |
 | Security scans | Checkov and Trivy on `terraform/`. Report only: findings are listed in the job summary and never fail it, and none are suppressed. |
 
@@ -30,12 +30,13 @@ can't leave a dead link.
 The other checks locally (the workflow pins each tool's version):
 
 ```bash
-./scripts/tf.py fmt -check -recursive
-./scripts/tf.py validate
+./scripts/python/tf.py fmt -check -recursive
+./scripts/python/tf.py validate
 (cd terraform && tflint --recursive)
 ansible-playbook --syntax-check ansible/playbooks/*.yml
 ansible-lint ansible/
 python3 -m compileall -q scripts
+bash -n scripts/bash/*.sh scripts/bash/lib/*.sh
 checkov -d terraform --framework terraform --quiet --compact
 trivy config terraform
 ```

@@ -1,4 +1,4 @@
-"""The shared code in scripts/lib: running commands, Ctrl+C, and the report."""
+"""The shared code in scripts/python/lib: running commands, Ctrl+C, and the report."""
 
 import contextlib
 import io
@@ -12,7 +12,7 @@ import time
 from unittest import TestCase, main
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(ROOT / "scripts/python"))
 
 from lib.checks import Checks, Report
 from lib.commands import CAPTURE, DROP, CommandFailed, fields, last_line, run
@@ -84,7 +84,7 @@ class InterruptTests(TestCase):
     def interrupt(self, body):
         tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         program = tmp / "script.py"
-        program.write_text(SCRIPT.replace("SCRIPTS", repr(str(ROOT / "scripts"))).replace("BODY", body))
+        program.write_text(SCRIPT.replace("SCRIPTS", repr(str(ROOT / "scripts/python"))).replace("BODY", body))
         # Its own process group, so the signal reaches the script and its
         # command together, like Ctrl+C does.
         process = subprocess.Popen([sys.executable, str(program)], env={**os.environ, "DIR": str(tmp)},

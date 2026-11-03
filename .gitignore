@@ -30,6 +30,6 @@ OWN_PROJECT.local.txt
 ownership.local/
 commands/
 list.txt
-scripts/run.sh
+scripts/bash/run.sh
 seed.sql
 loadtest-report-*.txt

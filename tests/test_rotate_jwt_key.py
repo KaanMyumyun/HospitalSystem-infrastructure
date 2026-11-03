@@ -1,4 +1,4 @@
-"""Run scripts/rotate-jwt-key.py against a temporary repository root.
+"""Run scripts/python/rotate-jwt-key.py against a temporary repository root.
 
 The stack-up tests put fake ansible-playbook and kubectl first on PATH. The
 fake playbook records its arguments and the key it received; the fake kubectl
@@ -19,7 +19,7 @@ import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "scripts/rotate-jwt-key.py"
+SCRIPT = ROOT / "scripts/python/rotate-jwt-key.py"
 SPEC = spec_from_file_location("rotate_jwt_key", SCRIPT)
 rotate = module_from_spec(SPEC)
 SPEC.loader.exec_module(rotate)
@@ -162,7 +162,7 @@ class RotateTests(TestCase):
     def test_stack_down_runs_no_playbook(self):
         result = self.run_script("--yes")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("The next ./scripts/tf.py apply stores the key.", result.stdout)
+        self.assertIn("The next ./scripts/python/tf.py apply stores the key.", result.stdout)
         self.assertEqual(self.calls(), [])
 
     def test_fills_in_the_first_key(self):

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Save the database, destroy the stack and its state bucket, then sweep AWS.
 
-Usage: scripts/teardown.py [--skip-dump]
+Usage: scripts/python/teardown.py [--skip-dump]
 
 The teardown starts right away. --skip-dump destroys the database without
 saving it into seed.sql. --yes is accepted for older commands but does nothing.
@@ -21,7 +21,7 @@ from lib.config import REPO_ROOT, setting
 from lib.env import load_env
 from lib.state import ensure_backend, state_bucket, state_bucket_exists
 
-SCRIPTS = REPO_ROOT / "scripts"
+SCRIPTS = REPO_ROOT / "scripts/python"
 TF_DIR = REPO_ROOT / "terraform"
 LOCK_KEY = "hospitalsystem/terraform.tfstate.tflock"
 
@@ -170,7 +170,7 @@ class Teardown:
                 lock_id = data.get("ID", "?")
                 stop(f"The state is locked by {who} ({operation} since {created}). If that run is still going, "
                      "wait for it to finish. If it was interrupted, unlock it "
-                     f"(./scripts/tf.py force-unlock {lock_id}) and run this again.")
+                     f"(./scripts/python/tf.py force-unlock {lock_id}) and run this again.")
             listed = self.state_list(stderr=MERGE)
             if not listed.ok:
                 stop(f"Could not read the Terraform state: {listed.out}")

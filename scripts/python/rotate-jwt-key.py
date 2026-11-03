@@ -7,7 +7,7 @@ fail, and a key changed only in Secrets Manager would be lost.
 
 1. Generate a random key and save it to .env.local, mode 0600. Only the
    HOSPITALSYSTEM_JWT_SECRET line changes.
-2. With the stack down, stop: the next ./scripts/tf.py apply stores it.
+2. With the stack down, stop: the next ./scripts/python/tf.py apply stores it.
 3. With the stack up, load .env.local the way tf.py does and run
    backend-secret.yml, which stores the key, syncs the Secret and restarts
    the backend.
@@ -160,7 +160,7 @@ def check_backend(root):
         if problem is None:
             break
     else:
-        raise RotationError(f"{problem}. Check with ./scripts/monitoring.py workloads, "
+        raise RotationError(f"{problem}. Check with ./scripts/python/monitoring.py workloads, "
                             f"and push the saved key again with: {PUSH_AGAIN}")
     want = deployment["spec"].get("replicas", 1)
     if not want:
@@ -202,7 +202,7 @@ def rotate(root, assume_yes):
                             f"{KEY_VARIABLE}. Check what else sets it.")
     print(f"Saved a new JWT key to {env_file}.")
     if not stack_up:
-        print("The stack is down. The next ./scripts/tf.py apply stores the key.")
+        print("The stack is down. The next ./scripts/python/tf.py apply stores the key.")
         return 0
 
     print(f"Pushing it with {PLAYBOOK}.", flush=True)
@@ -219,7 +219,7 @@ def main(argv=None):
                     "when the stack is up, restart the backend with it.")
     parser.add_argument("--yes", action="store_true",
                         help="don't ask before logging every user out")
-    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1],
+    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2],
                         help="repository root (default: the one this script is in)")
     args = parser.parse_args(argv)
     try:

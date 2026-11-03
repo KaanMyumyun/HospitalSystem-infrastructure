@@ -3,9 +3,9 @@
 warnings and failures. Exits 1 when any check fails. With no sections it runs
 all of them. Nothing in AWS is changed unless --refresh-alarms is given.
 
-./scripts/monitoring.py                    # everything, including cost; changes nothing in AWS
-./scripts/monitoring.py --refresh-alarms   # also recreates the ALB alarms (monitoring.yml) first
-./scripts/monitoring.py workloads logs     # only the sections you name
+./scripts/python/monitoring.py                    # everything, including cost; changes nothing in AWS
+./scripts/python/monitoring.py --refresh-alarms   # also recreates the ALB alarms (monitoring.yml) first
+./scripts/python/monitoring.py workloads logs     # only the sections you name
 
 Sections:
   endpoints      DNS target, HTTP->HTTPS redirect, HTTPS URLs, TLS and ACM certificate
@@ -21,7 +21,7 @@ Sections:
   logs           app logs, plus the previous container's logs after a restart
   control-plane  errors and denied logins in the EKS control plane logs
   ecr            newest images, scan findings, whether the newest image is deployed,
-                 and the commit it was built from vs main (also scripts/image-check.py)
+                 and the commit it was built from vs main (also scripts/python/image-check.py)
   cicd           SSM deploy history, GitHub Actions runs, repository variables vs Terraform
   cost           month-to-date spend without credits (one Cost Explorer call, $0.01)
 
@@ -353,7 +353,7 @@ class Monitor(Checks):
                 self.ok(f"All {total} alarms are OK")
             if silent:
                 self.warn(f"{silent} of {total} alarms have no notification action (re-run ansible-playbook "
-                          "ansible/playbooks/monitoring.yml, or ./scripts/tf.py apply for Terraform's)")
+                          "ansible/playbooks/monitoring.yml, or ./scripts/python/tf.py apply for Terraform's)")
 
         self.sub("Alert emails (SNS)")
         if not self.alert_topic_arn:
@@ -547,7 +547,7 @@ class Monitor(Checks):
             self.fail(f"Could not list the EKS add-ons: {last_line(addons.out)}")
         elif not addons.out:
             self.warn("No managed add-ons; terraform/modules/eks manages vpc-cni, coredns and kube-proxy, "
-                      "so run ./scripts/tf.py apply")
+                      "so run ./scripts/python/tf.py apply")
         else:
             for addon in addons.out.split():
                 row = self.aws("eks", "describe-addon", "--cluster-name", self.cluster, "--addon-name", addon,
@@ -1458,7 +1458,7 @@ def main():
                 "INGRESS_NAME", "ALB_NAME", "ALARM_PREFIX", "APP_DOMAIN")
     for name in required:
         if not settings[name]:
-            raise ScriptError(f"Missing {name}: export it, or run ./scripts/tf.py apply to generate "
+            raise ScriptError(f"Missing {name}: export it, or run ./scripts/python/tf.py apply to generate "
                               f"{group_vars_dir()}/terraform.yml")
     for name in ("BACKEND_METRICS_PORT", "LOG_TAIL_LINES", "LOOKBACK_HOURS"):
         if not re.fullmatch(r"[1-9][0-9]*", settings[name]):

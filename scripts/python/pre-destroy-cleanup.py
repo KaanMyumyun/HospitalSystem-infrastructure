@@ -272,9 +272,9 @@ class Cleanup:
         print(f"Deleted {self.deleted} of {self.found} blocking resources.")
         if self.failures:
             print(f"{self.failures} could not be deleted (see above). Fix that and run this again before "
-                  "./scripts/tf.py destroy.", file=sys.stderr)
+                  "./scripts/python/tf.py destroy.", file=sys.stderr)
             return 1
-        print("Now run: ./scripts/tf.py destroy")
+        print("Now run: ./scripts/python/tf.py destroy")
         return 0
 
 

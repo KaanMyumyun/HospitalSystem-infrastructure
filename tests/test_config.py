@@ -10,14 +10,14 @@ import unittest
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / 'scripts'))
+sys.path.insert(0, str(ROOT / 'scripts/python'))
 
 from lib import config
 from lib.commands import ScriptError
 
 
 class PythonConfigTests(unittest.TestCase):
-    """The same cases for scripts/lib/config.py."""
+    """The same cases for scripts/python/lib/config.py."""
 
     def setUp(self):
         self.path = Path(self.enterContext(tempfile.TemporaryDirectory()))

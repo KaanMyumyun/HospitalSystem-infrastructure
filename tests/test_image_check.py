@@ -1,4 +1,4 @@
-"""Run scripts/image-check.py against fake kubectl, aws, gh and ansible-playbook.
+"""Run scripts/python/image-check.py against fake kubectl, aws, gh and ansible-playbook.
 
 Every external command must match a fixture, so the tests never contact a
 cluster, AWS or GitHub. Overrides come first and replace the healthy answer.
@@ -13,7 +13,7 @@ import sys
 import tempfile
 
 
-SCRIPT = Path(__file__).resolve().parents[1] / "scripts/image-check.py"
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts/python/image-check.py"
 REGISTRY = "123456789012.dkr.ecr.eu-north-1.amazonaws.com"
 TAG = "2026-09-26-a9b466a-152"
 DIGEST = "sha256:" + "a" * 64

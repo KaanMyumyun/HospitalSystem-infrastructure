@@ -1,4 +1,4 @@
-# scripts/teardown.py destroys the bucket once the stack's state is empty;
+# scripts/python/teardown.py destroys the bucket once the stack's state is empty;
 # force_destroy lets that delete the state versions in it too.
 resource "aws_s3_bucket" "state" {
   bucket        = var.bucket_name

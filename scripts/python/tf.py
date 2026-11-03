@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run Terraform with the account's short-lived state bucket and .env.local.
 
-Usage: scripts/tf.py TERRAFORM_COMMAND [ARG ...]
+Usage: scripts/python/tf.py TERRAFORM_COMMAND [ARG ...]
 The wrapper creates the state bucket before the first apply, plan, init or
 import. It uses the active AWS account to name the bucket and initializes the
 backend for that bucket before running Terraform.
