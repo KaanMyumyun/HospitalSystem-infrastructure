@@ -148,7 +148,7 @@ or resource limits. The node and database sizes are Terraform variables (see
 
 ## Debug Deployed Images
 
-For a quick answer, `./scripts/image-check.sh` (or `backend` / `frontend` for
+For a quick answer, `./scripts/image-check.py` (or `backend` / `frontend` for
 one app) shows each app's image tag, whether every pod runs the digest that tag
 points to in ECR, and the commit it was built from compared with main on
 GitHub. It changes nothing. `./scripts/monitoring.sh ecr` runs the same check

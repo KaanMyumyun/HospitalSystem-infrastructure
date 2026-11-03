@@ -153,7 +153,7 @@ scripts/
 ├── account-sweep.py            # lists what is left in every region
 ├── monitoring.sh               # health checks across AWS, Kubernetes and GitHub
 ├── rollout-check.sh            # checks a deploy replaces pods without dropping requests
-├── image-check.sh              # which image and commit each app runs
+├── image-check.py              # which image and commit each app runs
 ├── deploy-release.py           # the deploy the SSM document runs on the ops instance
 ├── rotate-jwt-key.py           # generates a new JWT key and pushes it
 ├── push-initial-ecr-images.sh  # run by Terraform on apply

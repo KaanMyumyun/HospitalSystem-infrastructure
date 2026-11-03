@@ -64,7 +64,7 @@ Sections:
   logs           app logs, plus the previous container's logs after a restart
   control-plane  errors and denied logins in the EKS control plane logs
   ecr            newest images, scan findings, whether the newest image is deployed,
-                 and the commit it was built from vs main (also scripts/image-check.sh)
+                 and the commit it was built from vs main (also scripts/image-check.py)
   cicd           SSM deploy history, GitHub Actions runs, repository variables vs Terraform
   cost           month-to-date spend without credits (one Cost Explorer call, $0.01)
 

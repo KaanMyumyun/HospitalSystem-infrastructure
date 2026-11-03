@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Which image a Deployment runs and which commit it was built from. Used by
-# scripts/image-check.sh and the ecr section of scripts/monitoring.sh.
+# Which image a Deployment runs and which commit it was built from, for the
+# ecr section of scripts/monitoring.sh (scripts/lib/images.py is the same
+# check for scripts/image-check.py).
 # Source after defining ok, warn, fail, skip, note, kube, awsr and last_line,
 # and setting NAMESPACE and GITHUB_REPOSITORY.
 
