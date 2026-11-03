@@ -447,7 +447,7 @@ def main():
     }
     for variable, value in settings.items():
         if not value:
-            raise ScriptError(f"Missing {variable}: export it, or run ./scripts/tf.sh apply to generate "
+            raise ScriptError(f"Missing {variable}: export it, or run ./scripts/tf.py apply to generate "
                               f"{group_vars_dir()}/terraform.yml")
 
     interval = args.interval if args.interval is not None else setting("PROBE_INTERVAL", default="1")

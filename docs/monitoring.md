@@ -101,7 +101,7 @@ first gets data. The topic is encrypted with the project KMS key, whose policy
 lets CloudWatch use it for that topic only.
 
 The recipient is `ALERT_EMAIL=you@example.com` in `.env.local`;
-`./scripts/tf.sh apply` requires it and subscribes it to the topic. **Click the
+`./scripts/tf.py apply` requires it and subscribes it to the topic. **Click the
 link in the "AWS Notification - Subscription Confirmation" email:** nothing is
 delivered until you do. The topic is part of the environment, so every rebuild
 needs a new confirmation; `./scripts/monitoring.py alarms` warns while it's

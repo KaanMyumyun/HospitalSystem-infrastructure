@@ -6,8 +6,8 @@ teardown saves it into `seed.sql` before destroying anything, and the next
 apply loads it back.
 
 ```bash
-./scripts/teardown.sh
-./scripts/tf.sh apply
+./scripts/teardown.py
+./scripts/tf.py apply
 ```
 
 The apply needs the values from [Local setup](terraform.md#local-setup) in
@@ -18,7 +18,7 @@ has every step.
 
 ## What the teardown does
 
-`./scripts/teardown.sh` runs every step of a clean destroy. It starts right
+`./scripts/teardown.py` runs every step of a clean destroy. It starts right
 away, without asking:
 
 1. Checks the AWS login, finds the logged-in account's state bucket, and checks
@@ -32,7 +32,7 @@ away, without asking:
    while the cluster can still delete its ALB.
 4. Runs `scripts/pre-destroy-cleanup.py --apply` for anything left, retried
    once.
-5. Runs `./scripts/tf.sh destroy`. If it fails, it runs step 4 again, deletes
+5. Runs `./scripts/tf.py destroy`. If it fails, it runs step 4 again, deletes
    the EKS cluster security group EKS sometimes leaves in the VPC, and retries
    once.
 6. Checks the state is empty and runs `scripts/cleanup-orphans.py --apply`.
@@ -151,7 +151,7 @@ its own; see [Playbooks](operations.md#playbooks)):
   leaves `seed.sql` alone.
 - If the dump fails, the teardown stops before it destroys anything. The dump
   needs the nodes: on a paused stack run `resume.yml` first. To destroy the
-  database without saving it, run `./scripts/teardown.sh --skip-dump`.
+  database without saving it, run `./scripts/teardown.py --skip-dump`.
 
 **Restoring.** RDS keeps a day of automated backups while the stack is up, but
 a point-in-time restore creates a new instance outside Terraform. Start over

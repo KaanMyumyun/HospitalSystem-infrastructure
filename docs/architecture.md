@@ -146,8 +146,8 @@ ansible/
     ├── migrate.yml     # the migration Job, used by database.yml and migrate.yml
     └── alb-alarm.yml   # one ALB alarm, used by monitoring.yml
 scripts/
-├── tf.sh                       # Terraform wrapper: loads .env.local, manages the state bucket
-├── teardown.sh                 # full destroy, cleanup and account sweep
+├── tf.py                       # Terraform wrapper: loads .env.local, manages the state bucket
+├── teardown.py                 # full destroy, cleanup and account sweep
 ├── pre-destroy-cleanup.py      # deletes the ALB and what the controller made
 ├── cleanup-orphans.py          # deletes what a destroy leaves behind
 ├── account-sweep.py            # lists what is left in every region
@@ -159,8 +159,7 @@ scripts/
 ├── push-initial-ecr-images.sh  # run by Terraform on apply
 ├── apply-workload.py           # used by apply-kubernetes.yml
 ├── backend-secret.py           # used by backend-secret.yml and apply-kubernetes.yml
-├── read-config.py              # used through lib/config.sh
-└── lib/                        # shared shell functions
+└── lib/                        # shared CLI, config, environment and state helpers
 config/
 ├── alb-alarms.json             # the ALB alarms, read by monitoring.yml and the cleanup
 └── account-sweep-ignore.txt    # resources the sweep reports as IGNORED

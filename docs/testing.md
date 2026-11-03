@@ -30,8 +30,8 @@ can't leave a dead link.
 The other checks locally (the workflow pins each tool's version):
 
 ```bash
-./scripts/tf.sh fmt -check -recursive
-./scripts/tf.sh validate
+./scripts/tf.py fmt -check -recursive
+./scripts/tf.py validate
 (cd terraform && tflint --recursive)
 ansible-playbook --syntax-check ansible/playbooks/*.yml
 ansible-lint ansible/

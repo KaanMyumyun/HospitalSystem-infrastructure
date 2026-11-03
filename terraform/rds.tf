@@ -1,6 +1,6 @@
 # The backend's PostgreSQL database. It lives as long as the stack: destroy
 # deletes it with its automated backups and takes no final snapshot, and
-# scripts/teardown.sh saves it into seed.sql first (dump-database.yml). Every
+# scripts/teardown.py saves it into seed.sql first (dump-database.yml). Every
 # new instance starts empty, and the Ansible bootstrap loads seed.sql into it
 # and runs the migrations (ansible/playbooks/database.yml).
 resource "aws_db_subnet_group" "main" {
@@ -55,7 +55,7 @@ resource "aws_db_instance" "main" {
   db_name  = local.db_name
   username = local.db_username
   # Write-only: Terraform sends the password only when password_wo_version
-  # changes, and keeps it out of the state and the plan. scripts/tf.sh sets it
+  # changes, and keeps it out of the state and the plan. scripts/tf.py sets it
   # from HOSPITALSYSTEM_DB_PASSWORD.
   password_wo         = var.db_password
   password_wo_version = 1

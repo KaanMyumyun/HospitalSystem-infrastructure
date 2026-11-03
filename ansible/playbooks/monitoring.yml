@@ -20,7 +20,7 @@
         that: monitoring_alert_sns_topic_arn | default('') | length > 0
         fail_msg: >-
           monitoring_alert_sns_topic_arn is missing from
-          ansible/group_vars/all/terraform.yml. Run ./scripts/tf.sh apply to
+          ansible/group_vars/all/terraform.yml. Run ./scripts/tf.py apply to
           generate it.
         quiet: true
 

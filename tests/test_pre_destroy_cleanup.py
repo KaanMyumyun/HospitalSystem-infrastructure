@@ -104,7 +104,7 @@ class PreDestroyFailureTests(TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.deleted(), [f"delete-target-group {TARGET_GROUP}"])
-        self.assertIn("Now run: ./scripts/tf.sh destroy", result.stdout)
+        self.assertIn("Now run: ./scripts/tf.py destroy", result.stdout)
 
     def test_security_group_that_stays_in_use_fails_the_run(self):
         result = self.run_cleanup(
@@ -115,7 +115,7 @@ class PreDestroyFailureTests(TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("could not delete sg-k8s: An error occurred (DependencyViolation)", result.stderr)
         self.assertIn("1 could not be deleted", result.stderr)
-        self.assertNotIn("Now run: ./scripts/tf.sh destroy", result.stdout)
+        self.assertNotIn("Now run: ./scripts/tf.py destroy", result.stdout)
         self.assertEqual(self.deleted(), [])
 
     def test_already_deleted_security_group_counts_as_deleted(self):
@@ -135,7 +135,7 @@ class PreDestroyFailureTests(TestCase):
                 result = self.run_cleanup("--apply", fail=operation, cert=CERT)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(f"{operation} failed: An error occurred (AccessDenied)", result.stderr)
-                self.assertNotIn("Now run: ./scripts/tf.sh destroy", result.stdout)
+                self.assertNotIn("Now run: ./scripts/tf.py destroy", result.stdout)
                 self.assertNotIn("not in use", result.stdout)
 
 

@@ -162,7 +162,7 @@ class RotateTests(TestCase):
     def test_stack_down_runs_no_playbook(self):
         result = self.run_script("--yes")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("The next ./scripts/tf.sh apply stores the key.", result.stdout)
+        self.assertIn("The next ./scripts/tf.py apply stores the key.", result.stdout)
         self.assertEqual(self.calls(), [])
 
     def test_fills_in_the_first_key(self):

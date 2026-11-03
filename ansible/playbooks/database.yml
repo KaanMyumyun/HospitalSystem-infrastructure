@@ -5,7 +5,7 @@
 #
 # 1. A database without tables gets seed.sql from the repository root: a
 #    pg_dump of the data a new stack starts with, ignored by git because it
-#    holds user accounts and patient records. scripts/teardown.sh writes it
+#    holds user accounts and patient records. scripts/teardown.py writes it
 #    from the old stack's database (dump-database.yml). A short-lived psql pod
 #    loads it in one transaction. The password reaches the pod on stdin, so
 #    it's neither in the pod spec nor in the API server's audit log. A database
@@ -46,7 +46,7 @@
           - db_username is defined
         fail_msg: >-
           ansible/group_vars/all/terraform.yml has no database settings. Run
-          ./scripts/tf.sh apply to generate it.
+          ./scripts/tf.py apply to generate it.
         quiet: true
 
     - name: Configure kubeconfig

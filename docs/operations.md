@@ -11,7 +11,7 @@ You need `ansible-playbook`, `aws`, `kubectl`, `helm` and
 [Cluster access](#cluster-access)), and AWS credentials that can access the
 `eks-pr1` cluster and start SSM sessions.
 
-Run `./scripts/tf.sh apply` once on a machine before running playbooks by
+Run `./scripts/tf.py apply` once on a machine before running playbooks by
 hand: they read the values Terraform writes, and without them they stop with a
 message saying so. Each setting lives in one place:
 
@@ -81,7 +81,7 @@ To change the database password on a running stack:
 
 1. Change it in `.env.local`.
 2. Raise `password_wo_version` in `terraform/rds.tf`, so Terraform sends it
-   again, and run `./scripts/tf.sh apply`.
+   again, and run `./scripts/tf.py apply`.
 3. Push the new connection string with the command above. Until you do, the
    backend's new connections fail.
 
@@ -247,7 +247,7 @@ runs as root.
 export KUBECONFIG="$PWD/.generated/kubeconfig"
 kubectl run pg --image=public.ecr.aws/docker/library/postgres:18.6-alpine --restart=Never -- sleep 3600
 kubectl wait --for=condition=Ready pod/pg
-kubectl exec -it pg -- psql "host=$(./scripts/tf.sh output -raw db_endpoint) dbname=hospital user=postgres sslmode=require"
+kubectl exec -it pg -- psql "host=$(./scripts/tf.py output -raw db_endpoint) dbname=hospital user=postgres sslmode=require"
 kubectl delete pod pg
 ```
 
@@ -306,7 +306,7 @@ What it does:
    nobody types or pastes one. The same command fills in the first key in a
    `.env.local` copied from `.env.example`.
 2. With the stack down (no `ansible/group_vars/all/terraform.yml`), stops
-   there; the next `./scripts/tf.sh apply` stores the key.
+   there; the next `./scripts/tf.py apply` stores the key.
 3. With the stack up, runs `backend-secret.yml` with `.env.local`'s values,
    which stores the key in Secrets Manager and restarts the backend one pod at
    a time, then checks that the Deployment recorded the new Secret and that all

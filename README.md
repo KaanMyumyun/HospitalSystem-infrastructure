@@ -18,8 +18,8 @@ Current AWS deployment target:
 
 ## Highlights
 
-- **One command up, one down.** `./scripts/tf.sh apply` builds the whole stack
-  from an empty account, DNS and data included. `./scripts/teardown.sh` saves
+- **One command up, one down.** `./scripts/tf.py apply` builds the whole stack
+  from an empty account, DNS and data included. `./scripts/teardown.py` saves
   the database into `seed.sql`, destroys everything, and sweeps every region
   for anything still billing.
 - **No public Kubernetes API.** The EKS endpoint is private. Operators and
@@ -31,7 +31,7 @@ Current AWS deployment target:
 - **Locked-down workloads.** Restricted Pod Security, read-only root
   filesystems, NetworkPolicies enforced by the VPC CNI, and KMS encryption for
   Secrets, logs, ECR, RDS and Secrets Manager.
-- **Tested scripts.** Over 180 regression tests run the real Python and shell
+- **Tested scripts.** 180 regression tests run the real Python and shell
   scripts and playbooks against fake `aws`, `kubectl` and `terraform`.
 - **Pinned, verified CI.** Actions are pinned to commit SHAs and tool downloads
   are checksum-verified. CI runs Terraform, TFLint, ansible-lint, kubeconform
@@ -86,9 +86,9 @@ next to this one as `../HospitalSystem` (`backend_source_dir` changes that).
 ```bash
 cp .env.example .env.local              # fill in the values (see Local setup)
 python3 scripts/rotate-jwt-key.py       # writes the JWT key into .env.local
-./scripts/tf.sh apply                   # AWS, then the Kubernetes bootstrap
+./scripts/tf.py apply                   # AWS, then the Kubernetes bootstrap
 ./scripts/monitoring.py                 # check everything
-./scripts/teardown.sh                   # destroy it all when done
+./scripts/teardown.py                   # destroy it all when done
 ```
 
 [Local setup](docs/terraform.md#local-setup) describes the values `.env.local`
@@ -112,7 +112,7 @@ apply, confirm the SNS subscription email, or no alarm email arrives.
 | `terraform/` | The AWS layer: the root module, `modules/network` and `modules/eks`, and `bootstrap/` for the state bucket |
 | `ansible/` | The cluster bootstrap and the playbooks for running the stack |
 | `kubernetes/` | Templates of the Kubernetes manifests, rendered by Ansible |
-| `scripts/` | `tf.sh`, `teardown.sh`, `monitoring.py` and the scripts they call |
+| `scripts/` | `tf.py`, `teardown.py`, `monitoring.py` and the scripts they call |
 | `tests/` | Regression tests that run the scripts and playbooks against fake CLIs |
 | `config/` | The ALB alarms and the account sweep's ignore list |
 | `docs/` | The documentation below |
