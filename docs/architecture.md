@@ -152,7 +152,7 @@ scripts/
 ├── cleanup-orphans.py          # deletes what a destroy leaves behind
 ├── account-sweep.py            # lists what is left in every region
 ├── monitoring.sh               # health checks across AWS, Kubernetes and GitHub
-├── rollout-check.sh            # checks a deploy replaces pods without dropping requests
+├── rollout-check.py            # checks a deploy replaces pods without dropping requests
 ├── image-check.py              # which image and commit each app runs
 ├── deploy-release.py           # the deploy the SSM document runs on the ops instance
 ├── rotate-jwt-key.py           # generates a new JWT key and pushes it

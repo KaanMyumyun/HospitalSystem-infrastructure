@@ -45,7 +45,7 @@ pkill -f AWS-StartPortForwardingSessionToRemoteHost
 
 | Piece | What it does |
 | ----- | ------------ |
-| `ansible/tasks/kubeconfig.yml` | Opens the tunnel on `eks_tunnel_local_port` and writes the kubeconfig to `kubeconfig_path`. Every playbook that talks to the cluster uses it, and so do `scripts/monitoring.sh`, `scripts/rollout-check.sh` and `scripts/pre-destroy-cleanup.py`. |
+| `ansible/tasks/kubeconfig.yml` | Opens the tunnel on `eks_tunnel_local_port` and writes the kubeconfig to `kubeconfig_path`. Every playbook that talks to the cluster uses it, and so do `scripts/monitoring.sh`, `scripts/rollout-check.py` and `scripts/pre-destroy-cleanup.py`. |
 | Ops instance | Accepts no inbound connections and has no internet access: its security group allows HTTPS only inside the VPC and to S3. |
 | VPC endpoints | `ssm`, `ssmmessages` and `ec2messages` for Systems Manager (one AZ, roughly $25 a month); the S3 gateway endpoint for the Amazon Linux package repositories. |
 | EKS access entry | `aws_eks_access_entry.ops` gives the ops instance's role its Kubernetes group; bootstrap waits for it before applying the deploy RBAC binding. There's no `aws-auth` playbook to run. |

@@ -14,7 +14,7 @@ from unittest import TestCase, main
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from lib.checks import Report
+from lib.checks import Checks, Report
 from lib.commands import CAPTURE, DROP, CommandFailed, fields, last_line, run
 
 # A script whose main() runs BODY and then prints "after".
@@ -105,6 +105,22 @@ class InterruptTests(TestCase):
         self.assertEqual(code, 130, stderr)
         self.assertNotIn("after", stdout)
         self.assertNotIn("Traceback", stderr)
+
+
+class SectionTests(TestCase):
+    def test_an_unexpected_error_fails_only_its_own_section(self):
+        def broken():
+            raise KeyError("Arn")
+
+        checks = Checks("eu-north-1")
+        output, errors = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
+            passed = checks.run_sections([("alb", broken), ("logs", lambda: checks.ok("logs read"))])
+        self.assertFalse(passed)
+        self.assertIn("FAIL alb            The alb checks stopped on an unexpected error: KeyError('Arn')",
+                      output.getvalue())
+        self.assertIn("OK   logs read", output.getvalue())
+        self.assertIn("Traceback", errors.getvalue())
 
 
 class ReportTests(TestCase):

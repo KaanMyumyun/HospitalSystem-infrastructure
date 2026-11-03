@@ -43,14 +43,14 @@ kubectl top pods -n hospitalsystem
 
 ## Checking a rollout
 
-`scripts/rollout-check.sh` answers a narrower question: does a deploy really
+`scripts/rollout-check.py` answers a narrower question: does a deploy really
 replace the pods without dropping a request? It also exits 1 when any check
 fails.
 
 ```bash
-./scripts/rollout-check.sh             # settings only; changes nothing
-./scripts/rollout-check.sh --watch     # probes the app while a CI deploy rolls out
-./scripts/rollout-check.sh --restart   # starts a rollout itself and probes it
+./scripts/rollout-check.py             # settings only; changes nothing
+./scripts/rollout-check.py --watch     # probes the app while a CI deploy rolls out
+./scripts/rollout-check.py --restart   # starts a rollout itself and probes it
 ```
 
 - **No options:** reads the `RollingUpdate` settings on both Deployments, the

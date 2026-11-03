@@ -6,8 +6,9 @@ calls they make.
 from datetime import datetime, timezone
 import os
 import sys
+import traceback
 
-from lib.commands import run
+from lib.commands import has_command, last_line, print_tail, run
 from lib.config import REPO_ROOT
 
 
@@ -82,6 +83,8 @@ class Checks(Report):
         super().__init__(name_width)
         self.region = region
         self.kube_timeout = kube_timeout
+        # "ok" or "failed" once ensure_kube() has tried the tunnel.
+        self.kube_state = ""
 
     def aws(self, *args, **options):
         return run(["aws", "--region", self.region, *args], **options)
@@ -91,6 +94,57 @@ class Checks(Report):
 
     def ansible(self, *args, **options):
         return run(["ansible-playbook", *args], cwd=REPO_ROOT, **options)
+
+    def ensure_kube(self):
+        """Open the SSM tunnel to the private EKS API, once; False when it can't
+        be reached."""
+        if self.kube_state == "ok":
+            return True
+        if self.kube_state == "failed":
+            self.skip("EKS API not reachable; see the first Kubernetes section")
+            return False
+
+        self.kube_state = "failed"
+        if not has_command("kubectl") or not has_command("ansible-playbook"):
+            self.fail("kubectl and ansible-playbook are needed for the Kubernetes checks")
+            return False
+        self.note("Opening the SSM tunnel to the private EKS API (ansible/playbooks/kubeconfig.yml)...")
+        tunnel = self.ansible("ansible/playbooks/kubeconfig.yml")
+        if not tunnel.ok:
+            print_tail(tunnel.out)
+            self.fail("Could not reach the EKS API through the SSM tunnel")
+            return False
+        context = run(["kubectl", "config", "current-context"])
+        if not context.ok:
+            self.fail(f"Could not read the kubectl context: {last_line(context.out)}")
+            return False
+        if not context.out:
+            self.fail("kubectl has no current context")
+            return False
+        self.kube_state = "ok"
+        self.ok(f"kubectl context {context.out}")
+        return True
+
+    def run_sections(self, sections):
+        """Run each (name, function) section, then the summary; True when
+        nothing failed.
+
+        An unexpected error ends only its own section, as a failure, like a
+        failing section did under bash's section || true.
+        """
+        for name, section in sections:
+            self.current = name
+            try:
+                section()
+            except Exception as error:
+                traceback.print_exc()
+                self.fail(f"The {name} checks stopped on an unexpected error: {error!r}")
+        self.current = "summary"
+        return self.summary()
+
+
+def utc_now(format):
+    return datetime.now(timezone.utc).strftime(format)
 
 
 def parse_time(text):

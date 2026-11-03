@@ -1,4 +1,4 @@
-"""Run scripts/rollout-check.sh against fake kubectl, aws and curl commands."""
+"""Run scripts/rollout-check.py against fake kubectl, aws and curl commands."""
 
 from pathlib import Path
 from unittest import TestCase, main
@@ -9,7 +9,7 @@ import sys
 import tempfile
 
 
-SCRIPT = Path(__file__).resolve().parents[1] / "scripts/rollout-check.sh"
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts/rollout-check.py"
 
 # Deployment reads: generation|observed|spec|pods|updated|ready|available.
 # Each read takes the next entry for that Deployment and repeats the last one.
@@ -120,7 +120,7 @@ class RolloutCheckTests(TestCase):
             "FAKE_STATE": str(state_dir),
         }
         return subprocess.run(
-            ["bash", str(SCRIPT), *args], env=env, capture_output=True, text=True, timeout=60
+            [sys.executable, str(SCRIPT), *args], env=env, capture_output=True, text=True, timeout=60
         )
 
     def assertExit(self, result, code):
