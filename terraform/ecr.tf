@@ -88,7 +88,7 @@ resource "aws_ecr_lifecycle_policy" "frontend" {
 resource "terraform_data" "initial_ecr_image_push" {
   triggers_replace = {
     enabled                 = var.push_initial_ecr_images
-    script_sha              = filesha256("${path.module}/../scripts/push-initial-ecr-images.sh")
+    script_sha              = filesha256("${path.module}/../scripts/push-initial-ecr-images.py")
     backend_source_dir      = local.backend_source_dir
     frontend_source_dir     = local.frontend_source_dir
     backend_dockerfile      = var.backend_dockerfile
@@ -100,8 +100,8 @@ resource "terraform_data" "initial_ecr_image_push" {
 
   provisioner "local-exec" {
     working_dir = "${path.module}/.."
-    interpreter = ["/bin/bash", "-c"]
-    command     = abspath("${path.module}/../scripts/push-initial-ecr-images.sh")
+    interpreter = ["python3"]
+    command     = abspath("${path.module}/../scripts/push-initial-ecr-images.py")
 
     environment = {
       PUSH_INITIAL_ECR_IMAGES = tostring(var.push_initial_ecr_images)

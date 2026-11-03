@@ -156,7 +156,7 @@ scripts/
 ├── image-check.py              # which image and commit each app runs
 ├── deploy-release.py           # the deploy the SSM document runs on the ops instance
 ├── rotate-jwt-key.py           # generates a new JWT key and pushes it
-├── push-initial-ecr-images.sh  # run by Terraform on apply
+├── push-initial-ecr-images.py  # run by Terraform on apply
 ├── apply-workload.py           # used by apply-kubernetes.yml
 ├── backend-secret.py           # used by backend-secret.yml and apply-kubernetes.yml
 └── lib/                        # shared CLI, config, environment and state helpers
