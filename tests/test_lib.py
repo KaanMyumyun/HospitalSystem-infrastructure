@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from lib.checks import Report
-from lib.commands import DROP, fields, last_line, run
+from lib.commands import DROP, CommandFailed, fields, last_line, run
 
 # A script whose main() runs BODY and then prints "after".
 SCRIPT = """
@@ -50,11 +50,18 @@ class RunTests(TestCase):
         self.assertEqual(result.code, 127)
         self.assertIn("command not found", result.out)
 
+    def test_a_failure_with_check_stops_the_script_with_the_commands_code(self):
+        with self.assertRaises(CommandFailed) as raised:
+            run(["sh", "-c", "exit 4"], check=True)
+        self.assertEqual(raised.exception.code, 4)
+
     def test_fields_keep_an_empty_field_in_its_place(self):
         # read with a tab IFS would shift c0ffee1 into the empty field.
         self.assertEqual(fields("ahead\t3\t0\t0\t\tc0ffee1\nnext line", 6), ["ahead", "3", "0", "0", "", "c0ffee1"])
         self.assertEqual(fields("a\tb\tc", 2), ["a", "b\tc"])
         self.assertEqual(fields("a", 3), ["a", "", ""])
+        self.assertEqual(fields("  PendingDeletion\tCUSTOMER  2026-10-01 x  ", 3, separator=None),
+                         ["PendingDeletion", "CUSTOMER", "2026-10-01 x"])
 
     def test_last_line_skips_blank_lines(self):
         self.assertEqual(last_line("first\nAccessDenied: no\n  \n"), "AccessDenied: no")

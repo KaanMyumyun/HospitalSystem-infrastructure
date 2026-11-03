@@ -22,6 +22,15 @@ class ScriptError(Exception):
     """Stops the script: entrypoint() prints the message on stderr and exits 1."""
 
 
+class CommandFailed(Exception):
+    """A command the script can't go on without failed. It printed its own
+    error, so entrypoint() just exits with its code, as set -e did."""
+
+    def __init__(self, code):
+        super().__init__(code)
+        self.code = code
+
+
 @dataclass
 class Result:
     code: int
@@ -46,11 +55,12 @@ def _on_interrupt(signum, frame):
     _interrupted = True
 
 
-def run(args, *, stderr=MERGE, capture=True, input=None, cwd=None, env=None):
+def run(args, *, stderr=MERGE, capture=True, check=False, input=None, cwd=None, env=None):
     """Run a command and return its exit code and output.
 
     The output is stdout (with stderr after it for MERGE) without trailing
     newlines, as $(...) gives it. capture=False leaves stdout on the terminal.
+    check=True raises CommandFailed when the command fails.
     """
     global _running
     _running += 1
@@ -68,6 +78,8 @@ def run(args, *, stderr=MERGE, capture=True, input=None, cwd=None, env=None):
         _running -= 1
     if _interrupted:
         raise KeyboardInterrupt
+    if check and completed.returncode != 0:
+        raise CommandFailed(completed.returncode)
     return Result(completed.returncode, (completed.stdout or "").rstrip("\n"))
 
 
@@ -90,9 +102,13 @@ def fields(text, count, separator="\t"):
 
     Like read -r with count names: the last field keeps any further
     separators. Unlike read with a tab IFS, an empty field keeps its place
-    instead of shifting the next one into it.
+    instead of shifting the next one into it. separator=None splits on runs
+    of whitespace, like read with the default IFS.
     """
-    parts = text.split("\n", 1)[0].split(separator, count - 1)
+    line = text.split("\n", 1)[0]
+    parts = line.split(separator, count - 1)
+    if separator is None and parts:
+        parts[-1] = parts[-1].rstrip()
     return parts + [""] * (count - len(parts))
 
 
@@ -117,6 +133,8 @@ def entrypoint(main):
     except ScriptError as error:
         print(error, file=sys.stderr)
         code = 1
+    except CommandFailed as failure:
+        code = failure.code
     except KeyboardInterrupt:
         code = 130
     sys.exit(code)

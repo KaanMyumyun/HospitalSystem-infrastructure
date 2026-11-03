@@ -161,7 +161,7 @@ class FakeRepoTest(TestCase):
         (repo / "scripts/lib").mkdir(parents=True)
         for name in ("teardown.sh", "tf.sh", "read-config.py", "lib/config.sh", "lib/state.sh"):
             shutil.copy(ROOT / "scripts" / name, repo / "scripts" / name)
-        for name in ("pre-destroy-cleanup.sh", "cleanup-orphans.sh", "account-sweep.py"):
+        for name in ("pre-destroy-cleanup.sh", "cleanup-orphans.py", "account-sweep.py"):
             (repo / "scripts" / name).write_text(FAKE_SCRIPT)
             (repo / "scripts" / name).chmod(0o755)
         (repo / "ansible/group_vars/all").mkdir(parents=True)
@@ -236,7 +236,7 @@ class TeardownTests(FakeRepoTest):
             "pre-destroy-cleanup.sh VPC_ID=vpc-1 CLUSTER_NAME= ALARM_PREFIX= --apply",
             "terraform destroy -auto-approve -input=false -no-color",
             # terraform.yml is gone after the destroy; these were read before it.
-            "cleanup-orphans.sh VPC_ID= CLUSTER_NAME=eks-pr1 ALARM_PREFIX=hospitalsystem --apply",
+            "cleanup-orphans.py VPC_ID= CLUSTER_NAME=eks-pr1 ALARM_PREFIX=hospitalsystem --apply",
             *BUCKET_DELETE,
             "account-sweep.py VPC_ID= CLUSTER_NAME= ALARM_PREFIX= ",
         ])
@@ -258,14 +258,14 @@ class TeardownTests(FakeRepoTest):
         result = self.run_teardown(resources=[])
         self.assertExit(result, 0)
         self.assertEqual([call.split(" VPC_ID")[0] for call in self.calls()],
-                         ["cleanup-orphans.sh", *BUCKET_DELETE, "account-sweep.py"])
+                         ["cleanup-orphans.py", *BUCKET_DELETE, "account-sweep.py"])
         self.assertFalse(self.bucket_exists)
 
     def test_no_state_bucket_only_cleans_orphans_and_sweeps(self):
         result = self.run_teardown(resources=[], bucket=False)
         self.assertExit(result, 0)
         self.assertIn(f"No state bucket ({BUCKET}), so nothing is in Terraform state.", result.stdout)
-        self.assertEqual([call.split()[0] for call in self.calls()], ["cleanup-orphans.sh", "account-sweep.py"])
+        self.assertEqual([call.split()[0] for call in self.calls()], ["cleanup-orphans.py", "account-sweep.py"])
         self.assertNotIn("terraform", self.log.read_text())
 
     def test_unlistable_buckets_stop_first(self):
@@ -404,7 +404,7 @@ class TeardownTests(FakeRepoTest):
         self.assertIn("Not clean: 1 problem(s)", result.stdout)
 
     def test_billable_sweep_or_failed_orphan_cleanup_is_not_clean(self):
-        for script in ("ACCOUNT_SWEEP_PY", "CLEANUP_ORPHANS_SH"):
+        for script in ("ACCOUNT_SWEEP_PY", "CLEANUP_ORPHANS_PY"):
             with self.subTest(script=script):
                 result = self.run_teardown(env={f"FAKE_{script}_FAILS": "1"})
                 self.assertExit(result, 1)

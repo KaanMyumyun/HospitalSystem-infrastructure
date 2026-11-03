@@ -35,7 +35,7 @@ away, without asking:
 5. Runs `./scripts/tf.sh destroy`. If it fails, it runs step 4 again, deletes
    the EKS cluster security group EKS sometimes leaves in the VPC, and retries
    once.
-6. Checks the state is empty and runs `scripts/cleanup-orphans.sh --apply`.
+6. Checks the state is empty and runs `scripts/cleanup-orphans.py --apply`.
 7. Deletes the state bucket, only if the state is empty and unlocked.
 8. Runs `scripts/account-sweep.py` over every region, which lists a state
    bucket still there as `BILLABLE`.
@@ -54,7 +54,7 @@ is left:
 | ---- | ---- | --------------- |
 | `ansible/playbooks/cleanup-kubernetes.yml` | During destroy, before the cluster is deleted | The app's Cloudflare CNAME if it still points at this ALB, then the Ingress, so the controller deletes the ALB (or the ALB directly when the cluster can't be reached), then the ALB's target groups, its `k8s-*` security groups and the ALB alarms |
 | `scripts/pre-destroy-cleanup.sh --apply` | Teardown step 4, or by hand | The same AWS cleanup |
-| `./scripts/cleanup-orphans.sh` | Teardown step 6, or by hand | Lists what Terraform never tracked, and `--apply` deletes it: the controller's target groups, the ALB alarms if neither cleanup reached them, and KMS keys waiting out their deletion window |
+| `./scripts/cleanup-orphans.py` | Teardown step 6, or by hand | Lists what Terraform never tracked, and `--apply` deletes it: the controller's target groups, the ALB alarms if neither cleanup reached them, and KMS keys waiting out their deletion window |
 | `./scripts/account-sweep.py` | Teardown step 8, or by hand | Nothing: it's read-only and lists what exists in every enabled region |
 
 How they stay safe:
@@ -67,7 +67,7 @@ How they stay safe:
 - **`pre-destroy-cleanup.sh`** stops on lookup errors, retries target groups and
   security groups that AWS still reports in use, and exits non-zero if
   anything is left.
-- **`cleanup-orphans.sh`** only picks target groups that carry the controller's
+- **`cleanup-orphans.py`** only picks target groups that carry the controller's
   tags for this cluster and Ingress and whose VPC no longer exists, and only
   the ALB alarms `config/alb-alarms.json` defines (the same file
   `monitoring.yml` creates them from). Another project's resources and

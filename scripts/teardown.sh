@@ -44,7 +44,7 @@ left anywhere in the account. It starts right away, without asking:
   5. ./scripts/tf.sh destroy; if it fails, runs step 4 again, deletes the
      EKS cluster security group EKS sometimes leaves in the VPC, and
      retries once
-  6. checks the state is empty, then scripts/cleanup-orphans.sh --apply
+  6. checks the state is empty, then scripts/cleanup-orphans.py --apply
      for this stack's target groups and ALB alarms
   7. deletes the state bucket (terraform/bootstrap), only when the state is
      empty and unlocked
@@ -278,7 +278,7 @@ fi
 if ! run_logged 6-cleanup-orphans env ${CLUSTER_NAME:+CLUSTER_NAME="$CLUSTER_NAME"} \
   ${ALARM_PREFIX:+ALARM_PREFIX="$ALARM_PREFIX"} ${K8S_NAMESPACE:+K8S_NAMESPACE="$K8S_NAMESPACE"} \
   ${INGRESS_NAME:+INGRESS_NAME="$INGRESS_NAME"} AWS_REGION="$AWS_REGION" \
-  "$SCRIPT_DIR/cleanup-orphans.sh" --apply; then
+  "$SCRIPT_DIR/cleanup-orphans.py" --apply; then
   problems=$((problems + 1))
 fi
 if [ -n "${OPS_INSTANCE_ID:-}" ] && tunnels="$(pgrep -f "ssm start-session.*$OPS_INSTANCE_ID")"; then
